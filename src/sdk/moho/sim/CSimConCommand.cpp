@@ -39,6 +39,55 @@ namespace
   }
 
   /**
+   * Address: 0x00735300 (FUN_00735300)
+   *
+   * What it does:
+   * Returns the lower-bound iterator only when the candidate compares as an
+   * exact case-insensitive match for `commandName`; otherwise returns `end()`.
+   */
+  [[nodiscard]] SimConCommandRegistry::iterator
+  FindSimConExactOrEnd(SimConCommandRegistry& registry, const std::string& commandName)
+  {
+    const auto candidate = FindSimConLowerBound(registry, commandName);
+    if (candidate == registry.end()) {
+      return registry.end();
+    }
+
+    return gpg::STR_CompareNoCase(commandName.c_str(), candidate->first.c_str()) < 0
+      ? registry.end()
+      : candidate;
+  }
+
+  /**
+   * Address: 0x00735290 (FUN_00735290, sub_735290)
+   *
+   * What it does:
+   * Removes every registry entry case-insensitively equivalent to
+   * `commandName` and returns the number of removed entries.
+   */
+  int RemoveSimConCommandEntriesByName(
+    SimConCommandRegistry& registry,
+    const std::string& commandName
+  )
+  {
+    const auto lowerBound = FindSimConExactOrEnd(registry, commandName);
+    if (lowerBound == registry.end()) {
+      return 0;
+    }
+
+    int removedCount = 0;
+    auto upperBound = lowerBound;
+    SimConCommandNameLess less{};
+    while (upperBound != registry.end() && !less(commandName, upperBound->first) && !less(upperBound->first, commandName)) {
+      ++removedCount;
+      ++upperBound;
+    }
+
+    registry.erase(lowerBound, upperBound);
+    return removedCount;
+  }
+
+  /**
    * Address: 0x00735130 (FUN_00735130, func_InitSimConList)
    *
    * What it does:
@@ -87,10 +136,8 @@ namespace moho
     }
 
     auto& registry = GetSimConCommandRegistry();
-    const auto it = registry.find(mName);
-    if (it != registry.end() && it->second == this) {
-      registry.erase(it);
-    }
+    const std::string commandName = mName;
+    (void)RemoveSimConCommandEntriesByName(registry, commandName);
   }
 
   /**
@@ -110,13 +157,8 @@ namespace moho
     }
 
     auto& registry = GetSimConCommandRegistry();
-    const auto it = FindSimConLowerBound(registry, commandName);
+    const auto it = FindSimConExactOrEnd(registry, commandName);
     if (it == registry.end()) {
-      return nullptr;
-    }
-
-    SimConCommandNameLess less{};
-    if (less(commandName, it->first) || less(it->first, commandName)) {
       return nullptr;
     }
 

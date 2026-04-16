@@ -658,6 +658,29 @@ namespace
     head->isNil = 1u;
   }
 
+  /**
+   * Address: 0x005C2330 (FUN_005C2330)
+   *
+   * What it does:
+   * Clears all recon-map nodes, frees map-head storage, and resets map header
+   * lanes to null/zero.
+   */
+  void DestroyReconMapStorage(CAiReconDBImpl* const owner)
+  {
+    if (!owner) {
+      return;
+    }
+
+    if (owner->mBlipMap.mHead) {
+      ClearMap(owner);
+      delete reinterpret_cast<ReconMapNodeView*>(owner->mBlipMap.mHead);
+    }
+
+    owner->mBlipMap.mAllocProxy = nullptr;
+    owner->mBlipMap.mHead = nullptr;
+    owner->mBlipMap.mSize = 0u;
+  }
+
   [[nodiscard]] bool IsInsideRectXZ(const moho::Rect2<int>& rect, const Wm3::Vec3f& pos) noexcept
   {
     return pos.x >= static_cast<float>(rect.x0) && pos.x <= static_cast<float>(rect.x1) &&
@@ -1105,16 +1128,10 @@ CAiReconDBImpl::CAiReconDBImpl(CArmyImpl* const army, const bool fogOfWar) :
  */
 CAiReconDBImpl::~CAiReconDBImpl()
 {
-  ClearMap(this);
+  DestroyReconMapStorage(this);
 
   mBblips.clear();
   mTempBlips.clear();
-
-  if (mBlipMap.mHead) {
-    delete reinterpret_cast<ReconMapNodeView*>(mBlipMap.mHead);
-  }
-  mBlipMap.mHead = nullptr;
-  mBlipMap.mSize = 0u;
 
   mVCIGrid.release();
   mSCIGrid.release();

@@ -76,10 +76,22 @@ namespace
   moho::SSavedGameHeaderTypeInfo gSavedGameHeaderTypeInfo;
   moho::SSavedGameHeaderSerializer gSavedGameHeaderSerializer;
 
+  /**
+   * Address: 0x00880110 (FUN_00880110, preregister_SSavedGameHeaderTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `moho::SSavedGameHeader`.
+   */
+  [[nodiscard]] gpg::RType* preregister_SSavedGameHeaderTypeInfo()
+  {
+    gpg::PreRegisterRType(typeid(moho::SSavedGameHeader), &gSavedGameHeaderTypeInfo);
+    return &gSavedGameHeaderTypeInfo;
+  }
+
   void EnsureSavedGameHeaderRegistered()
   {
     static const bool kRegistered = []() {
-      gpg::PreRegisterRType(typeid(moho::SSavedGameHeader), &gSavedGameHeaderTypeInfo);
+      (void)preregister_SSavedGameHeaderTypeInfo();
       gSavedGameHeaderSerializer.mNext = nullptr;
       gSavedGameHeaderSerializer.mPrev = nullptr;
       gSavedGameHeaderSerializer.mSerLoadFunc = &LoadSavedGameHeader;

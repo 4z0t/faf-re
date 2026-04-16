@@ -94,14 +94,6 @@ namespace moho
   }
 
   /**
-   * Address: 0x006D2B10 (FUN_006D2B10, sub_6D2B10)
-   */
-  gpg::RType* construct_WeakUnitSetTypeInfo()
-  {
-    return &AcquireWeakUnitSetTypeInfo();
-  }
-
-  /**
    * Address: 0x00BFE480 (FUN_00BFE480, sub_BFE480)
    */
   void cleanup_WeakUnitSetTypeInfo()
@@ -119,7 +111,7 @@ namespace moho
    */
   int register_WeakUnitSetTypeInfo()
   {
-    (void)construct_WeakUnitSetTypeInfo();
+    (void)AcquireWeakUnitSetTypeInfo();
     return std::atexit(&cleanup_WeakUnitSetTypeInfo);
   }
 } // namespace moho

@@ -128,6 +128,24 @@ namespace
     return (!node || node == head || node->isNil != 0u) ? kTreeBlack : node->color;
   }
 
+  void ReplaceTreeNode(
+    CommandDbMapRuntime& map, CommandDbMapNodeRuntime* const oldNode, CommandDbMapNodeRuntime* const newNode
+  )
+  {
+    CommandDbMapNodeRuntime* const head = map.head;
+    if (oldNode->parent == head) {
+      head->parent = newNode;
+    } else if (oldNode == oldNode->parent->left) {
+      oldNode->parent->left = newNode;
+    } else {
+      oldNode->parent->right = newNode;
+    }
+
+    if (newNode != nullptr && newNode != head) {
+      newNode->parent = oldNode->parent;
+    }
+  }
+
   void RefreshTreeBounds(CommandDbMapRuntime& map)
   {
     CommandDbMapNodeRuntime* const head = map.head;
@@ -244,6 +262,223 @@ namespace
     if (head->parent != nullptr && head->parent != head) {
       head->parent->color = kTreeBlack;
     }
+  }
+
+  void EraseNodeFixup(
+    CommandDbMapRuntime& map, CommandDbMapNodeRuntime* node, CommandDbMapNodeRuntime* nodeParent
+  )
+  {
+    CommandDbMapNodeRuntime* const head = map.head;
+    while (node != head->parent && NodeColor(node, head) == kTreeBlack) {
+      if (node == nodeParent->left) {
+        CommandDbMapNodeRuntime* sibling = nodeParent->right;
+        if (NodeColor(sibling, head) == kTreeRed) {
+          sibling->color = kTreeBlack;
+          nodeParent->color = kTreeRed;
+          RotateLeft(map, nodeParent);
+          sibling = nodeParent->right;
+        }
+
+        if (sibling == head) {
+          node = nodeParent;
+          nodeParent = nodeParent->parent;
+          continue;
+        }
+
+        if (NodeColor(sibling->left, head) == kTreeBlack && NodeColor(sibling->right, head) == kTreeBlack) {
+          sibling->color = kTreeRed;
+          node = nodeParent;
+          nodeParent = nodeParent->parent;
+          continue;
+        }
+
+        if (NodeColor(sibling->right, head) == kTreeBlack) {
+          if (sibling->left != head) {
+            sibling->left->color = kTreeBlack;
+          }
+          sibling->color = kTreeRed;
+          RotateRight(map, sibling);
+          sibling = nodeParent->right;
+        }
+
+        sibling->color = nodeParent->color;
+        nodeParent->color = kTreeBlack;
+        if (sibling->right != head) {
+          sibling->right->color = kTreeBlack;
+        }
+        RotateLeft(map, nodeParent);
+      } else {
+        CommandDbMapNodeRuntime* sibling = nodeParent->left;
+        if (NodeColor(sibling, head) == kTreeRed) {
+          sibling->color = kTreeBlack;
+          nodeParent->color = kTreeRed;
+          RotateRight(map, nodeParent);
+          sibling = nodeParent->left;
+        }
+
+        if (sibling == head) {
+          node = nodeParent;
+          nodeParent = nodeParent->parent;
+          continue;
+        }
+
+        if (NodeColor(sibling->right, head) == kTreeBlack && NodeColor(sibling->left, head) == kTreeBlack) {
+          sibling->color = kTreeRed;
+          node = nodeParent;
+          nodeParent = nodeParent->parent;
+          continue;
+        }
+
+        if (NodeColor(sibling->left, head) == kTreeBlack) {
+          if (sibling->right != head) {
+            sibling->right->color = kTreeBlack;
+          }
+          sibling->color = kTreeRed;
+          RotateLeft(map, sibling);
+          sibling = nodeParent->left;
+        }
+
+        sibling->color = nodeParent->color;
+        nodeParent->color = kTreeBlack;
+        if (sibling->left != head) {
+          sibling->left->color = kTreeBlack;
+        }
+        RotateRight(map, nodeParent);
+      }
+
+      node = head->parent;
+      break;
+    }
+
+    if (node != head) {
+      node->color = kTreeBlack;
+    }
+  }
+
+  void EraseCommandNode(CommandDbMapRuntime& map, CommandDbMapNodeRuntime* const node)
+  {
+    CommandDbMapNodeRuntime* const head = map.head;
+    CommandDbMapNodeRuntime* spliceTarget = node;
+    CommandDbMapNodeRuntime* rebalanceNode = head;
+    CommandDbMapNodeRuntime* rebalanceParent = head;
+    std::uint8_t removedColor = spliceTarget->color;
+
+    if (node->left == head) {
+      rebalanceNode = node->right;
+      rebalanceParent = node->parent;
+      ReplaceTreeNode(map, node, node->right);
+    } else if (node->right == head) {
+      rebalanceNode = node->left;
+      rebalanceParent = node->parent;
+      ReplaceTreeNode(map, node, node->left);
+    } else {
+      spliceTarget = const_cast<CommandDbMapNodeRuntime*>(LeftmostNode(node->right, head));
+      removedColor = spliceTarget->color;
+      rebalanceNode = spliceTarget->right;
+
+      if (spliceTarget->parent == node) {
+        rebalanceParent = spliceTarget;
+        if (rebalanceNode != head) {
+          rebalanceNode->parent = spliceTarget;
+        }
+      } else {
+        rebalanceParent = spliceTarget->parent;
+        ReplaceTreeNode(map, spliceTarget, spliceTarget->right);
+        spliceTarget->right = node->right;
+        spliceTarget->right->parent = spliceTarget;
+      }
+
+      ReplaceTreeNode(map, node, spliceTarget);
+      spliceTarget->left = node->left;
+      spliceTarget->left->parent = spliceTarget;
+      spliceTarget->color = node->color;
+    }
+
+    if (removedColor == kTreeBlack) {
+      EraseNodeFixup(map, rebalanceNode, rebalanceParent);
+    }
+
+    ::operator delete(node);
+    if (map.size != 0u) {
+      --map.size;
+    }
+    RefreshTreeBounds(map);
+  }
+
+  void DestroyCommandSubtree(CommandDbMapNodeRuntime* node, CommandDbMapNodeRuntime* const head)
+  {
+    if (node == nullptr || node == head || node->isNil != 0u) {
+      return;
+    }
+
+    DestroyCommandSubtree(node->left, head);
+    DestroyCommandSubtree(node->right, head);
+    ::operator delete(node);
+  }
+
+  /**
+   * Address: 0x006E22D0 (FUN_006E22D0, std::map_uint_CUnitCommand::_Erase-range helper)
+   *
+   * What it does:
+   * Erases one half-open command-map iterator range and returns/stores the
+   * successor iterator that follows the erased segment.
+   */
+  CommandDbMapNodeRuntime* EraseCommandMapRange(
+    CommandDbMapRuntime& map,
+    CommandDbMapNodeRuntime*& outIterator,
+    CommandDbMapNodeRuntime* first,
+    CommandDbMapNodeRuntime* last
+  )
+  {
+    CommandDbMapNodeRuntime* const head = map.head;
+    if (head == nullptr) {
+      outIterator = last;
+      return outIterator;
+    }
+
+    CommandDbMapNodeRuntime* cursor = first;
+    if (cursor == head->left && last == head) {
+      DestroyCommandSubtree(head->parent, head);
+      head->parent = head;
+      map.size = 0u;
+      head->left = head;
+      head->right = head;
+      outIterator = head->left;
+      return outIterator;
+    }
+
+    while (cursor != last) {
+      CommandDbMapNodeRuntime* const current = cursor;
+      if (current == nullptr || current == head) {
+        cursor = last;
+        break;
+      }
+
+      if (current->isNil == 0u) {
+        CommandDbMapNodeRuntime* next = current->right;
+        if (next->isNil != 0u) {
+          CommandDbMapNodeRuntime* parent = current->parent;
+          while (parent->isNil == 0u) {
+            if (cursor != parent->right) {
+              break;
+            }
+            cursor = parent;
+            parent = parent->parent;
+          }
+          cursor = parent;
+        } else {
+          cursor = next;
+          while (cursor->left->isNil == 0u) {
+            cursor = cursor->left;
+          }
+        }
+      }
+
+      EraseCommandNode(map, current);
+    }
+
+    outIterator = cursor;
+    return outIterator;
   }
 
   [[nodiscard]] CommandDbMapNodeRuntime* AllocateMapNode(
@@ -369,7 +604,9 @@ namespace moho
     }
 
     auto* const runtime = reinterpret_cast<CCommandDbRuntimeView*>(this);
-    (void)EnsureMapHead(runtime->map);
+    CommandDbMapNodeRuntime* const head = EnsureMapHead(runtime->map);
+    CommandDbMapNodeRuntime* rangeResult = head;
+    (void)EraseCommandMapRange(runtime->map, rangeResult, head->left, head);
 
     CUnitCommand* command = nullptr;
     gpg::RRef ownerRef{};

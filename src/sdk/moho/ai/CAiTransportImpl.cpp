@@ -415,6 +415,28 @@ namespace
   }
 
   /**
+   * Address: 0x005F0810 (FUN_005F0810, sub_5F0810)
+   *
+   * What it does:
+   * Copies the current heap-root attach-point into `poppedOut`, then restores
+   * heap ordering by sifting `inserted` down across `[begin, end)`.
+   */
+  [[maybe_unused]] void PopAttachPointHeapRootAndInsert(
+    SAttachPoint* const begin,
+    SAttachPoint* const end,
+    SAttachPoint* const poppedOut,
+    const SAttachPoint& inserted
+  ) noexcept
+  {
+    if (begin == nullptr || end == nullptr || poppedOut == nullptr || begin == end) {
+      return;
+    }
+
+    *poppedOut = *begin;
+    SiftDownAttachPointHeapAndInsert(0, static_cast<int>(end - begin), begin, inserted);
+  }
+
+  /**
    * Address: 0x005EEDA0 (FUN_005EEDA0, func_CombSortAttachData_Small)
    *
    * What it does:
@@ -990,6 +1012,24 @@ void CAiTransportImpl::TransportRemovePickupUnit(Unit* const unit, const bool cl
   }
 }
 
+namespace
+{
+  /**
+   * Address: 0x005E9670 (FUN_005E9670)
+   *
+   * What it does:
+   * Erases one reservation slot from `mReservedBones` and returns the next
+   * iterator lane for erase-while-iterating loops.
+   */
+  [[nodiscard]] SAiReservedTransportBone* EraseReservedTransportBoneAndAdvance(
+    msvc8::vector<SAiReservedTransportBone>& reservations,
+    SAiReservedTransportBone* const it
+  )
+  {
+    return reservations.erase(it);
+  }
+} // namespace
+
 /**
  * Address: 0x005E64D0 (FUN_005E64D0)
  */
@@ -998,7 +1038,7 @@ void CAiTransportImpl::TransportRemoveUnitReservation(Unit* const unit)
   for (SAiReservedTransportBone* it = mReservedBones.begin(); it != mReservedBones.end();) {
     Unit* const reserved = it->reservedUnit.GetObjectPtr();
     if (!reserved || reserved == unit) {
-      it = mReservedBones.erase(it);
+      it = EraseReservedTransportBoneAndAdvance(mReservedBones, it);
     } else {
       ++it;
     }
@@ -1013,13 +1053,13 @@ void CAiTransportImpl::TransportUnreserveUnattachedSpots()
   for (SAiReservedTransportBone* it = mReservedBones.begin(); it != mReservedBones.end();) {
     Unit* const reserved = it->reservedUnit.GetObjectPtr();
     if (!reserved) {
-      it = mReservedBones.erase(it);
+      it = EraseReservedTransportBoneAndAdvance(mReservedBones, it);
       continue;
     }
 
     Unit* const transportedBy = reserved->TransportedByRef.ResolveObjectPtr<Unit>();
     if (transportedBy != mUnit) {
-      it = mReservedBones.erase(it);
+      it = EraseReservedTransportBoneAndAdvance(mReservedBones, it);
       continue;
     }
 

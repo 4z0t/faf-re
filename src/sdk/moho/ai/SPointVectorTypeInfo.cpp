@@ -117,6 +117,29 @@ namespace
     return moho::SPointVector{zero, zero};
   }
 
+  /**
+   * Address: 0x00580080 (FUN_00580080)
+   *
+   * What it does:
+   * Resizes one `vector<SPointVector>` payload to `targetCount`, preserving
+   * existing prefix elements and using the zero point/vector payload on
+   * growth lanes.
+   */
+  [[nodiscard]] unsigned int ResizeSPointVectorStorageToCount(
+    SPointVectorVector& storage,
+    const unsigned int targetCount
+  )
+  {
+    const std::size_t targetSize = static_cast<std::size_t>(targetCount);
+    if (storage.size() < targetSize) {
+      storage.resize(targetSize, ZeroSPointVector());
+    } else if (targetSize < storage.size()) {
+      storage.resize(targetSize);
+    }
+
+    return static_cast<unsigned int>(storage.size());
+  }
+
   void cleanup_SPointVectorTypeInfo()
   {
     if (!gSPointVectorTypeInfoConstructed) {
@@ -474,8 +497,7 @@ void gpg::RVectorType<moho::SPointVector>::SetCount(void* const obj, const int c
     return;
   }
 
-  const moho::SPointVector fill = ZeroSPointVector();
-  storage->resize(static_cast<std::size_t>(count), fill);
+  (void)ResizeSPointVectorStorageToCount(*storage, static_cast<unsigned int>(count));
 }
 
 /**

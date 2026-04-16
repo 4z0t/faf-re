@@ -4,6 +4,10 @@
 #include <new>
 #include <typeinfo>
 
+#include "gpg/core/containers/ReadArchive.h"
+#include "gpg/core/containers/String.h"
+#include "gpg/core/containers/WriteArchive.h"
+#include "legacy/containers/Vector.h"
 #include "moho/entity/Entity.h"
 #include "moho/resource/RResId.h"
 #include "moho/resource/blueprints/RUnitBlueprint.h"
@@ -20,6 +24,134 @@ namespace
   using IntelTypeInfo = moho::RUnitBlueprintIntelTypeInfo;
   using EconomyTypeInfo = moho::RUnitBlueprintEconomyTypeInfo;
   using WeaponTypeInfo = moho::RUnitBlueprintWeaponTypeInfo;
+  using VectorFloatType = msvc8::vector<float>;
+  void EnsureVectorFloatLoadCapacity(VectorFloatType& storage, std::size_t requiredCount);
+
+  class VectorFloatReflectionType final : public gpg::RType, public gpg::RIndexed
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "vector<float>";
+    }
+
+    [[nodiscard]] msvc8::string GetLexical(const gpg::RRef& ref) const override
+    {
+      const msvc8::string base = gpg::RType::GetLexical(ref);
+      return gpg::STR_Printf("%s, size=%d", base.c_str(), static_cast<int>(GetCount(ref.mObj)));
+    }
+
+    [[nodiscard]] const gpg::RIndexed* IsIndexed() const override
+    {
+      return this;
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(VectorFloatType);
+      version_ = 1;
+      serLoadFunc_ = &VectorFloatReflectionType::SerLoad;
+      serSaveFunc_ = &VectorFloatReflectionType::SerSave;
+    }
+
+    [[nodiscard]] gpg::RRef SubscriptIndex(void* const obj, const int ind) const override
+    {
+      gpg::RRef out{};
+      out.mObj = nullptr;
+      out.mType = nullptr;
+
+      auto* const storage = static_cast<VectorFloatType*>(obj);
+      if (!storage || ind < 0 || static_cast<std::size_t>(ind) >= storage->size()) {
+        return out;
+      }
+
+      gpg::RRef_float(&out, &(*storage)[static_cast<std::size_t>(ind)]);
+      return out;
+    }
+
+    [[nodiscard]] size_t GetCount(void* const obj) const override
+    {
+      const auto* const storage = static_cast<const VectorFloatType*>(obj);
+      return storage ? storage->size() : 0u;
+    }
+
+    /**
+     * Address: 0x005241C0 (FUN_005241C0, gpg::RVectorType_float::SetCount)
+     *
+     * What it does:
+     * Resizes one reflected `msvc8::vector<float>` lane and default-fills
+     * appended elements with `0.0f`.
+     */
+    void SetCount(void* const obj, const int count) const override
+    {
+      if (!obj || count < 0) {
+        return;
+      }
+
+      auto* const storage = static_cast<VectorFloatType*>(obj);
+      storage->resize(static_cast<std::size_t>(count));
+    }
+
+  private:
+    static void SerLoad(gpg::ReadArchive* archive, int objectPtr, int, gpg::RRef*)
+    {
+      if (!archive || objectPtr == 0) {
+        return;
+      }
+
+      auto* const storage = reinterpret_cast<VectorFloatType*>(objectPtr);
+      unsigned int count = 0u;
+      archive->ReadUInt(&count);
+
+      storage->clear();
+      EnsureVectorFloatLoadCapacity(*storage, static_cast<std::size_t>(count));
+      for (unsigned int i = 0u; i < count; ++i) {
+        float value = 0.0f;
+        archive->ReadFloat(&value);
+        storage->push_back(value);
+      }
+    }
+
+    static void SerSave(gpg::WriteArchive* archive, int objectPtr, int, gpg::RRef*)
+    {
+      if (!archive) {
+        return;
+      }
+
+      const auto* const storage = reinterpret_cast<const VectorFloatType*>(objectPtr);
+      const unsigned int count = storage ? static_cast<unsigned int>(storage->size()) : 0u;
+      archive->WriteUInt(count);
+      if (!storage) {
+        return;
+      }
+
+      for (const float value : *storage) {
+        archive->WriteFloat(value);
+      }
+    }
+  };
+
+  /**
+   * Address: 0x005240D0 (FUN_005240D0)
+   *
+   * What it does:
+   * Ensures one `msvc8::vector<float>` can hold at least `requiredCount`
+   * elements before reflected load appends them.
+   */
+  void EnsureVectorFloatLoadCapacity(VectorFloatType& storage, const std::size_t requiredCount)
+  {
+    if (requiredCount > 0x3FFFFFFFu) {
+      throw std::bad_alloc{};
+    }
+
+    if (requiredCount <= storage.capacity()) {
+      return;
+    }
+
+    storage.reserve(requiredCount);
+  }
+
+  static_assert(sizeof(VectorFloatReflectionType) == 0x68, "VectorFloatReflectionType size must be 0x68");
 
   alignas(GeneralTypeInfo) unsigned char gRUnitBlueprintGeneralTypeInfoStorage[sizeof(GeneralTypeInfo)];
   bool gRUnitBlueprintGeneralTypeInfoConstructed = false;
@@ -50,6 +182,9 @@ namespace
 
   alignas(WeaponTypeInfo) unsigned char gRUnitBlueprintWeaponTypeInfoStorage[sizeof(WeaponTypeInfo)];
   bool gRUnitBlueprintWeaponTypeInfoConstructed = false;
+
+  alignas(VectorFloatReflectionType) unsigned char gVectorFloatReflectionTypeStorage[sizeof(VectorFloatReflectionType)];
+  bool gVectorFloatReflectionTypeConstructed = false;
 
   template <typename T>
   [[nodiscard]] T& AcquireTypeInfo(unsigned char* const storage, bool& constructed)
@@ -126,6 +261,11 @@ namespace
     return AcquireTypeInfo<WeaponTypeInfo>(gRUnitBlueprintWeaponTypeInfoStorage, gRUnitBlueprintWeaponTypeInfoConstructed);
   }
 
+  [[nodiscard]] VectorFloatReflectionType& AcquireVectorFloatReflectionType()
+  {
+    return AcquireTypeInfo<VectorFloatReflectionType>(gVectorFloatReflectionTypeStorage, gVectorFloatReflectionTypeConstructed);
+  }
+
   void cleanup_RUnitBlueprintGeneralTypeInfo()
   {
     CleanupTypeInfo<GeneralTypeInfo>(gRUnitBlueprintGeneralTypeInfoStorage, gRUnitBlueprintGeneralTypeInfoConstructed);
@@ -174,6 +314,38 @@ namespace
   void cleanup_RUnitBlueprintWeaponTypeInfo()
   {
     CleanupTypeInfo<WeaponTypeInfo>(gRUnitBlueprintWeaponTypeInfoStorage, gRUnitBlueprintWeaponTypeInfoConstructed);
+  }
+
+  void cleanup_VectorFloatReflectionType()
+  {
+    CleanupTypeInfo<VectorFloatReflectionType>(gVectorFloatReflectionTypeStorage, gVectorFloatReflectionTypeConstructed);
+  }
+
+  /**
+   * Address: 0x00526340 (FUN_00526340, preregister_VectorFloatReflectionType)
+   *
+   * What it does:
+   * Constructs and preregisters startup reflection RTTI for
+   * `msvc8::vector<float>`.
+   */
+  [[nodiscard]] gpg::RType* preregister_VectorFloatReflectionType()
+  {
+    auto* const typeInfo = &AcquireVectorFloatReflectionType();
+    gpg::PreRegisterRType(typeid(VectorFloatType), typeInfo);
+    return typeInfo;
+  }
+
+  /**
+   * Address: 0x00BC8D10 (FUN_00BC8D10, register_VectorFloatReflectionTypeAtexitStartup)
+   *
+   * What it does:
+   * Startup lane that preregisters `vector<float>` reflection type metadata and
+   * installs its teardown callback.
+   */
+  int register_VectorFloatReflectionTypeAtexitStartup()
+  {
+    (void)preregister_VectorFloatReflectionType();
+    return std::atexit(&cleanup_VectorFloatReflectionType);
   }
 
   template <typename T>
@@ -290,6 +462,7 @@ namespace
   {
     RUnitBlueprintNestedTypeInfoBootstrap()
     {
+      (void)register_VectorFloatReflectionTypeAtexitStartup();
       (void)moho::register_RUnitBlueprintGeneralTypeInfo();
       (void)moho::register_RUnitBlueprintDisplayTypeInfo();
       (void)moho::register_RUnitBlueprintPhysicsTypeInfo();
@@ -577,6 +750,9 @@ namespace moho
     static gpg::RType* cachedVectorFloatType = nullptr;
     if (!cachedVectorFloatType) {
       cachedVectorFloatType = gpg::LookupRType(typeid(msvc8::vector<float>));
+      if (!cachedVectorFloatType) {
+        cachedVectorFloatType = preregister_VectorFloatReflectionType();
+      }
     }
 
     typeInfo->fields_.push_back(gpg::RField(fieldName, cachedVectorFloatType, offset, 0, nullptr));

@@ -8,6 +8,22 @@
 
 namespace
 {
+  class STIMapTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "STIMap";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::STIMap);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
   /**
    * Address: 0x005098E0 (FUN_005098E0, STIMap RTTI cache resolve)
    */
@@ -16,6 +32,9 @@ namespace
     static gpg::RType* cached = nullptr;
     if (!cached) {
       cached = gpg::LookupRType(typeid(moho::STIMap));
+      if (!cached) {
+        cached = moho::preregister_STIMapTypeInfo();
+      }
     }
     return cached;
   }
@@ -65,7 +84,7 @@ namespace
   }
 
   /**
-   * Address: 0x005096E0 (FUN_005096E0, gpg::ReadArchive::ReadPointer_STIMap)
+    * Alias of FUN_005096E0 (non-canonical helper lane).
    */
   [[maybe_unused]] gpg::ReadArchive* ReadPointerSTIMapVariant1(
     moho::STIMap** const outValue, gpg::ReadArchive* const archive, const gpg::RRef& ownerRef
@@ -78,7 +97,7 @@ namespace
   }
 
   /**
-   * Address: 0x005097F0 (FUN_005097F0, STIMap unowned pointer write helper)
+    * Alias of FUN_005097F0 (non-canonical helper lane).
    */
   [[maybe_unused]] gpg::WriteArchive* WriteUnownedPointerSTIMapVariant1(
     moho::STIMap* const value, gpg::WriteArchive* const archive, const gpg::RRef& ownerRef
@@ -87,6 +106,22 @@ namespace
     return gpg::WriteUnownedPointerSTIMap(value, archive, ownerRef);
   }
 } // namespace
+
+namespace moho
+{
+  /**
+   * Address: 0x00577750 (FUN_00577750, preregister_STIMapTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `STIMap`.
+   */
+  gpg::RType* preregister_STIMapTypeInfo()
+  {
+    static STIMapTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(STIMap), &typeInfo);
+    return &typeInfo;
+  }
+} // namespace moho
 
 namespace gpg
 {
@@ -114,7 +149,7 @@ namespace gpg
   }
 
   /**
-   * Address: 0x005096E0 (FUN_005096E0, gpg::ReadArchive::ReadPointer_STIMap)
+    * Alias of FUN_005096E0 (non-canonical helper lane).
    */
   moho::STIMap* ReadPointerSTIMap(gpg::ReadArchive* const archive, const gpg::RRef& ownerRef)
   {

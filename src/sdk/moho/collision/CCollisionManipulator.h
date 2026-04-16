@@ -24,8 +24,8 @@ namespace moho
   {
   public:
     /**
-     * Address: 0x00638770 (FUN_00638770, CCollisionManipulatorTypeInfo::newRefFunc_)
-     * Address: 0x00638830 (FUN_00638830, CCollisionManipulatorTypeInfo::ctorRefFunc_)
+       * Address: 0x00638770 (FUN_00638770)
+       * Address: 0x00638830 (FUN_00638830)
      *
      * What it does:
      * Constructs default collision-manipulator state used by RTTI allocation paths.

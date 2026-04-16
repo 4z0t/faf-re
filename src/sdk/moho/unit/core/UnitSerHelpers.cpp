@@ -143,15 +143,17 @@ namespace moho
   }
 
   /**
+   * Address: 0x006AE9A0 (FUN_006AE9A0, Moho::UnitConstruct::RegisterConstructFunction)
+   *
    * What it does:
    * Binds construct/delete callbacks into reflected RTTI for `Unit`.
    */
   void UnitConstruct::RegisterConstructFunction()
   {
     gpg::RType* const type = ResolveCachedType<Unit>(gUnitType);
+
     GPG_ASSERT(type != nullptr);
-    GPG_ASSERT(type->serConstructFunc_ == nullptr || type->serConstructFunc_ == mConstructCallback);
-    GPG_ASSERT(type->deleteFunc_ == nullptr || type->deleteFunc_ == mDeconstructCallback);
+    GPG_ASSERT(type->serConstructFunc_ == nullptr);
     type->serConstructFunc_ = mConstructCallback;
     type->deleteFunc_ = mDeconstructCallback;
   }

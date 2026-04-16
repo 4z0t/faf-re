@@ -68,7 +68,7 @@ namespace moho
   CScrLuaMetatableFactory<CDamage> CScrLuaMetatableFactory<CDamage>::sInstance{};
 
   /**
-   * Address: 0x10015880 (constructor shape)
+    * Alias of FUN_10015880 (non-canonical helper lane).
    *
    * What it does:
    * Stores one metatable-factory index used by `CScrLuaObjectFactory::Get`.

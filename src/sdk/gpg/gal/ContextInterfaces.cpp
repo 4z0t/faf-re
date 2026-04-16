@@ -1,4 +1,5 @@
 #include "CubeRenderTargetContext.hpp"
+#include "DepthStencilTarget.hpp"
 #include "DepthStencilTargetContext.hpp"
 #include "DeviceContext.hpp"
 #include "DrawContext.hpp"
@@ -270,6 +271,15 @@ namespace gpg::gal
     }
 
     /**
+     * Address: 0x008E7E90 (FUN_008E7E90)
+     *
+     * What it does:
+     * Initializes one abstract depth-stencil target base lane and applies
+     * the base vftable ownership used by derived constructors.
+     */
+    DepthStencilTarget::DepthStencilTarget() = default;
+
+    /**
      * Address: 0x00903B60 (FUN_00903B60)
      *
      * What it does:
@@ -377,10 +387,13 @@ namespace gpg::gal
     }
 
     /**
-     * Address: 0x008E65A0 (FUN_008E65A0)
+     * Address: 0x008E6590 (FUN_008E6590)
+     * Address: 0x008E65A0 (FUN_008E65A0, scalar deleting destructor thunk)
      *
      * What it does:
-     * Scalar-deleting destructor thunk owner for cube render-target context handles.
+     * Non-deleting destructor body resets vtable ownership for the
+     * cube-render-target context base lane. Scalar-delete thunk reuses this
+     * body then releases storage when requested.
      */
     CubeRenderTargetContext::~CubeRenderTargetContext() = default;
 
@@ -396,10 +409,12 @@ namespace gpg::gal
     DepthStencilTargetContext::~DepthStencilTargetContext() = default;
 
     /**
-     * Address: 0x00430570 (FUN_00430570)
+     * Address: 0x008E69B0 (FUN_008E69B0, gpg::gal::DeviceContext::~DeviceContext)
+     * Address: 0x00430570 (FUN_00430570, scalar deleting destructor thunk)
      *
      * What it does:
-     * Scalar-deleting destructor thunk owner for device-context interface instances.
+     * Tears down one device-context base lane; deleting-thunk dispatch uses
+     * the same canonical destructor body.
      */
     DeviceContext::~DeviceContext() = default;
 

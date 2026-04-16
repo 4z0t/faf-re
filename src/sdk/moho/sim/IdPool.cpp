@@ -67,6 +67,41 @@ namespace
     }
     return MakeBVIntSetIndex(&set, value);
   }
+
+  /**
+   * Address: 0x00686DF0 (FUN_00686DF0, copy_IdPool_payload_for_map_lanes)
+   *
+   * What it does:
+   * Copies one `IdPool` payload into destination storage, including the
+   * released-id bitset and recycle-history ring snapshots.
+   */
+  [[maybe_unused]] moho::IdPool* CopyIdPoolPayloadForMapLanes(
+    const moho::IdPool* const source,
+    moho::IdPool* const destination
+  )
+  {
+    if (source == nullptr || destination == nullptr) {
+      return destination;
+    }
+
+    if (source == destination) {
+      return destination;
+    }
+
+    destination->mNextLowId = source->mNextLowId;
+    destination->mReleasedLows.mFirstWordIndex = source->mReleasedLows.mFirstWordIndex;
+    destination->mReleasedLows.mWords.ResetFrom(source->mReleasedLows.mWords);
+
+    destination->mSubRes2.mStart = 0;
+    destination->mSubRes2.mEnd = 0;
+    for (int index = source->mSubRes2.mStart;
+         index != source->mSubRes2.mEnd;
+         index = (index + 1) % kHistoryCapacity) {
+      destination->mSubRes2.PushSnapshot(AsBitSet(source->mSubRes2.mData[index]));
+    }
+
+    return destination;
+  }
 } // namespace
 
 /**

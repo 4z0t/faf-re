@@ -55,7 +55,7 @@ namespace moho
     );
 
     /**
-     * Address: 0x006EE970 (FUN_006EE970, helper Init)
+     * Address: 0x006F8420 (FUN_006F8420, Moho::CUnitCommandQueueSaveConstruct::RegisterSaveConstructArgsFunction)
      */
     virtual void RegisterSaveConstructArgsFunction();
 
@@ -93,7 +93,7 @@ namespace moho
     static void Deconstruct(void* objectPtr);
 
     /**
-     * Address: 0x006EEA40 (FUN_006EEA40, helper Init)
+     * Address: 0x006F84A0 (FUN_006F84A0, Moho::CUnitCommandQueueConstruct::RegisterConstructFunction)
      */
     virtual void RegisterConstructFunction();
 
@@ -185,4 +185,3 @@ namespace moho
    */
   void register_CUnitCommandQueueSerializer();
 } // namespace moho
-

@@ -2930,7 +2930,7 @@ Prop* moho::SCR_FromLua_Prop(const LuaPlus::LuaObject& object, LuaPlus::LuaState
 }
 
 /**
- * Address: 0x004C9030 (FUN_004C9030, func_RRefCScriptObject)
+  * Alias of FUN_004C9030 (non-canonical helper lane).
  */
 gpg::RRef moho::SCR_MakeScriptObjectRef(CScriptObject* object)
 {

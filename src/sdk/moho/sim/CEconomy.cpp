@@ -12,8 +12,49 @@
 #include "moho/sim/CSimArmyEconomyInfo.h"
 #include "moho/sim/Sim.h"
 
+namespace gpg
+{
+  class SerConstructResult
+  {
+  public:
+    void SetUnowned(const RRef& ref, unsigned int flags);
+  };
+} // namespace gpg
+
 namespace
 {
+  class SEconValueTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "SEconValue";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::SEconValue);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
+  class SEconTotalsTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "SEconTotals";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::SEconTotals);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
   template <class TObject>
   [[nodiscard]] gpg::RRef MakeTypedRef(TObject* const object, gpg::RType* const staticType) noexcept
   {
@@ -27,6 +68,9 @@ namespace
   {
     if (!moho::SEconValue::sType) {
       moho::SEconValue::sType = gpg::LookupRType(typeid(moho::SEconValue));
+      if (!moho::SEconValue::sType) {
+        moho::SEconValue::sType = moho::preregister_SEconValueTypeInfo();
+      }
     }
     return moho::SEconValue::sType;
   }
@@ -36,6 +80,9 @@ namespace
     static gpg::RType* cached = nullptr;
     if (!cached) {
       cached = gpg::LookupRType(typeid(moho::SEconTotals));
+      if (!cached) {
+        cached = moho::preregister_SEconTotalsTypeInfo();
+      }
     }
     return cached;
   }
@@ -64,6 +111,14 @@ namespace
     return cached;
   }
 
+  [[nodiscard]] gpg::RType* CachedCEconomyType()
+  {
+    if (moho::CEconomy::sType == nullptr) {
+      moho::CEconomy::sType = gpg::LookupRType(typeid(moho::CEconomy));
+    }
+    return moho::CEconomy::sType;
+  }
+
   [[nodiscard]] moho::CEconRequest* RequestFromNode(moho::TDatListItem<void, void>* const node) noexcept
   {
     return reinterpret_cast<moho::CEconRequest*>(node);
@@ -72,7 +127,64 @@ namespace
 
 namespace moho
 {
+  /**
+   * Address: 0x00563B10 (FUN_00563B10, preregister_SEconValueTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SEconValue`.
+   */
+  gpg::RType* preregister_SEconValueTypeInfo()
+  {
+    static SEconValueTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SEconValue), &typeInfo);
+    SEconValue::sType = &typeInfo;
+    return &typeInfo;
+  }
+
+  /**
+   * Address: 0x00563D40 (FUN_00563D40, preregister_SEconTotalsTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SEconTotals`.
+   */
+  gpg::RType* preregister_SEconTotalsTypeInfo()
+  {
+    static SEconTotalsTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SEconTotals), &typeInfo);
+    return &typeInfo;
+  }
+
   gpg::RType* CEconomy::sType = nullptr;
+
+  /**
+   * Address: 0x00772FC0 (FUN_00772FC0)
+   *
+   * What it does:
+   * Allocates one `CEconomy` object, initializes constructor-default lanes,
+   * then returns it through `SerConstructResult` as an unowned reflected ref.
+   */
+  void ConstructCEconomyForSerializer(gpg::SerConstructResult* const result)
+  {
+    CEconomy* economy = static_cast<CEconomy*>(::operator new(sizeof(CEconomy), std::nothrow));
+    if (economy != nullptr) {
+      economy->mSim = nullptr;
+      economy->mIndex = -1;
+      economy->mResources = {};
+      economy->mPendingResources = {};
+      economy->mTotals = {};
+      economy->mExtraStorage = nullptr;
+      economy->mResourceSharing = 1u;
+      economy->mPad55To57[0] = 0u;
+      economy->mPad55To57[1] = 0u;
+      economy->mPad55To57[2] = 0u;
+      economy->mConsumptionData.mPrev = &economy->mConsumptionData;
+      economy->mConsumptionData.mNext = &economy->mConsumptionData;
+    }
+
+    if (result != nullptr) {
+      result->SetUnowned(MakeTypedRef(economy, CachedCEconomyType()), 0u);
+    }
+  }
 
   /**
    * Address: 0x007048F0 (FUN_007048F0, Moho::CEconomy::Clear)

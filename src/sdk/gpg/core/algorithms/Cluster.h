@@ -239,6 +239,16 @@ namespace gpg::HaStar
         [[nodiscard]] gpg::Rect2i ClusterIndexRect(int worldX, int worldZ, std::uint8_t level) const;
 
         /**
+         * Address: 0x008E3530 (FUN_008E3530,
+         * ?ClusterRect@ClusterMap@HaStar@gpg@@QBE?AV?$Rect2@H@3@ABV43@E@Z)
+         *
+         * What it does:
+         * Expands one world-space rectangle to cluster-aligned world bounds for
+         * the requested level and clamps to map dimensions.
+         */
+        [[nodiscard]] gpg::Rect2i ClusterRect(const gpg::Rect2i& worldRect, std::uint8_t level) const;
+
+        /**
          * Address: 0x008E35A0 (FUN_008E35A0,
          * ?ClusterIndexRect@ClusterMap@HaStar@gpg@@QBE?AV?$Rect2@H@3@ABV43@E@Z)
          * Alt binary: 0x10035650 (FUN_10035650, ?...@Z_0)

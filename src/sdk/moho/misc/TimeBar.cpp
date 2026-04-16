@@ -14,6 +14,7 @@
 
 #include "boost/mutex.h"
 #include "boost/shared_ptr.h"
+#include "gpg/core/containers/CheckedArrayAllocationLanes.h"
 #include "gpg/core/containers/String.h"
 #include "gpg/core/time/Timer.h"
 #include "gpg/core/utils/BoostWrappers.h"
@@ -49,6 +50,50 @@ namespace moho
       float mRowY;
     };
 
+    struct TimeBarTrackNodeHeadRuntimeView
+    {
+      std::uint32_t parent = 0;      // +0x00
+      std::uint32_t left = 0;        // +0x04
+      std::uint32_t right = 0;       // +0x08
+      std::uint8_t reserved0C[0x8]{}; // +0x0C
+      std::uint8_t color = 0;        // +0x14
+      std::uint8_t isNil = 0;        // +0x15
+      std::uint8_t reserved16[0x2]{}; // +0x16
+    };
+    static_assert(
+      offsetof(TimeBarTrackNodeHeadRuntimeView, color) == 0x14,
+      "TimeBarTrackNodeHeadRuntimeView::color offset must be 0x14"
+    );
+    static_assert(
+      offsetof(TimeBarTrackNodeHeadRuntimeView, isNil) == 0x15,
+      "TimeBarTrackNodeHeadRuntimeView::isNil offset must be 0x15"
+    );
+    static_assert(sizeof(TimeBarTrackNodeHeadRuntimeView) == 0x18, "TimeBarTrackNodeHeadRuntimeView size must be 0x18");
+
+    /**
+     * Address: 0x004E99A0 (FUN_004E99A0)
+     *
+     * What it does:
+     * Allocates and zero-seeds one 24-byte tree-head node used by the
+     * time-bar track-name map lane, preserving color/isNil defaults.
+     */
+    [[maybe_unused]] [[nodiscard]] TimeBarTrackNodeHeadRuntimeView* AllocateTimeBarTrackNodeHeadRuntime()
+    {
+      auto* const node = static_cast<TimeBarTrackNodeHeadRuntimeView*>(gpg::core::legacy::AllocateChecked24ByteLane(1u));
+      if (node != nullptr) {
+        node->parent = 0;
+      }
+      if (node != reinterpret_cast<TimeBarTrackNodeHeadRuntimeView*>(-4)) {
+        node->left = 0;
+      }
+      if (node != reinterpret_cast<TimeBarTrackNodeHeadRuntimeView*>(-8)) {
+        node->right = 0;
+      }
+      node->color = 1;
+      node->isNil = 0;
+      return node;
+    }
+
     struct CaseInsensitiveCStringLess
     {
       [[nodiscard]] bool operator()(const char* lhs, const char* rhs) const noexcept
@@ -67,6 +112,21 @@ namespace moho
     };
 
     using TimeBarTrackMap = std::map<const char*, TimeBarTrackLayout, CaseInsensitiveCStringLess>;
+
+    /**
+     * Address: 0x004E8EB0 (FUN_004E8EB0, timebar track map lower-bound helper)
+     *
+     * What it does:
+     * Finds the case-insensitive lower-bound insertion point for one event-name
+     * key in the track-layout map.
+     */
+    [[nodiscard]] TimeBarTrackMap::iterator FindTimeBarTrackLowerBound(
+      TimeBarTrackMap& tracks,
+      const char* const eventName
+    )
+    {
+      return tracks.lower_bound(eventName);
+    }
 
     struct TimeBarState
     {
@@ -214,6 +274,13 @@ namespace moho
       return info;
     }
 
+    /**
+     * Address: 0x004E6A20 (FUN_004E6A20)
+     *
+     * What it does:
+     * Pushes one event record into the fixed-size history ring while holding
+     * the time-bar mutex and advancing oldest/newest indices on wrap.
+     */
     void PushHistoryRecord(TimeBarState& state, const STimeBarEventRecord& record)
     {
       boost::mutex::scoped_lock guard(state.mLock);
@@ -299,13 +366,22 @@ namespace moho
           continue;
         }
 
-        outTracks.emplace(
-          eventView.mRecord->mName,
-          TimeBarTrackLayout{
+        auto insertPos = FindTimeBarTrackLowerBound(outTracks, eventView.mRecord->mName);
+        const bool alreadyPresent =
+          insertPos != outTracks.end()
+          && insertPos->first != nullptr
+          && gpg::STR_CompareNoCase(insertPos->first, eventView.mRecord->mName) == 0;
+
+        if (!alreadyPresent) {
+          outTracks.emplace_hint(
+            insertPos,
             eventView.mRecord->mName,
-            0.0f,
-          }
-        );
+            TimeBarTrackLayout{
+              eventView.mRecord->mName,
+              0.0f,
+            }
+          );
+        }
       }
 
       float rowY = top + font.mAscent + 1.0f;

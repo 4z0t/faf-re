@@ -76,7 +76,7 @@ namespace moho
   [[nodiscard]] gpg::RType* preregister_RVectorType_ReconBlipPtr();
 
   /**
-   * Address: 0x00BF7CC0 (FUN_00BF7CC0, sub_BF7CC0)
+     * Address: 0x00BF7CC0 (FUN_00BF7CC0)
    *
    * What it does:
    * Tears down startup-owned `vector<ReconBlip*>` reflection storage.
@@ -101,7 +101,7 @@ namespace moho
   [[nodiscard]] gpg::RType* preregister_RMultiMapType_SReconKey_ReconBlipPtr();
 
   /**
-   * Address: 0x00BF7C60 (FUN_00BF7C60, sub_BF7C60)
+     * Address: 0x00BF7C60 (FUN_00BF7C60)
    *
    * What it does:
    * Tears down startup-owned recon-blip map reflection storage.

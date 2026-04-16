@@ -69,6 +69,21 @@ extern "C" int png_handle_as_unknown(png_structp png_ptr, const std::uint8_t* ch
  */
 extern "C" void png_init_mmx_flags(png_structp png_ptr);
 
+/**
+ * Address: 0x009E0D7F (FUN_009E0D7F)
+ * Mangled: png_read_init_2
+ *
+ * IDA signature:
+ * void __cdecl png_read_init_2(png_structpp png_ptr_ptr, png_const_charp user_png_ver, png_size_t png_struct_size);
+ *
+ * What it does:
+ * Reinitializes one already-allocated read `png_struct` lane for legacy
+ * callers. Preserves the first 0x40-byte callback/state prefix, optionally
+ * reallocates when the caller-provided struct size is below 0x260, rebuilds
+ * zlib read buffers/callbacks, and restores default read callbacks.
+ */
+extern "C" void png_read_init_2(png_structp* png_ptr_ptr, const char* user_png_ver, std::uint32_t png_struct_size);
+
 // libpng external function pointer typedefs.
 using png_error_ptr  = void (*)(png_structp, const char*);
 using png_malloc_ptr = void* (*)(png_structp, std::uint32_t);

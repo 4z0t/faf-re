@@ -253,7 +253,14 @@ namespace
     node.ListLinkBefore(&listHead);
   }
 
-  void AddCScriptEventBase(gpg::RType* typeInfo)
+  /**
+   * Address: 0x00775D50 (FUN_00775D50)
+   *
+   * What it does:
+   * Registers `CScriptEvent` as one reflected base lane for `CEconomyEvent`
+   * at offset `+0x00`.
+   */
+  void AddCScriptEventBaseToCEconomyEventType(gpg::RType* typeInfo)
   {
     gpg::RType* const baseType = CachedCScriptEventType();
     gpg::RField baseField(baseType->GetName(), baseType, 0, 0, nullptr);
@@ -562,6 +569,19 @@ namespace moho
   CScrLuaMetatableFactory<CEconomyEvent> CScrLuaMetatableFactory<CEconomyEvent>::sInstance{};
 
   /**
+   * Address: 0x00774DA0 (FUN_00774DA0, preregister_CEconomyEventTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `moho::CEconomyEvent`.
+   */
+  [[nodiscard]] gpg::RType* preregister_CEconomyEventTypeInfo()
+  {
+    static CEconomyEventTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(CEconomyEvent), &typeInfo);
+    return &typeInfo;
+  }
+
+  /**
    * Address: 0x00773630 (FUN_00773630, ??0CEconRequest@Moho@@QAE@ABUSEconValue@1@PAVCEconomy@1@@Z)
    *
    * What it does:
@@ -726,6 +746,21 @@ moho::CEconomyEvent::CEconomyEvent()
 {}
 
 /**
+ * Address: 0x007754E0 (FUN_007754E0, sub_7754E0)
+ *
+ * What it does:
+ * Allocates one default `CEconomyEvent` object and returns it as an unowned
+ * serializer construct-result reference.
+ */
+void moho::ConstructCEconomyEventForSerializer(gpg::SerConstructResult* const result)
+{
+  auto* const object = new (std::nothrow) CEconomyEvent();
+  gpg::RRef objectRef{};
+  gpg::RRef_CEconomyEvent(&objectRef, object);
+  result->SetUnowned(objectRef, 0u);
+}
+
+/**
  * Address: 0x00775120 (FUN_00775120, scalar deleting thunk)
  * Address: 0x007751C0 (FUN_007751C0, sub_7751C0)
  */
@@ -791,7 +826,7 @@ bool moho::CEconomyEvent::IsDone() const noexcept
 }
 
 /**
- * Address: 0x1001FDE0 (MohoEngine.dll constructor shape)
+  * Alias of FUN_1001FDE0 (non-canonical helper lane).
  */
 moho::CScrLuaMetatableFactory<moho::CEconomyEvent>::CScrLuaMetatableFactory()
   : CScrLuaObjectFactory(CScrLuaObjectFactory::AllocateFactoryObjectIndex())
@@ -852,13 +887,13 @@ const char* moho::CEconomyEventTypeInfo::GetName() const
 void moho::CEconomyEventTypeInfo::Init()
 {
   size_ = sizeof(CEconomyEvent);
-  AddCScriptEventBase(this);
+  AddCScriptEventBaseToCEconomyEventType(this);
   gpg::RType::Init();
   Finish();
 }
 
 /**
- * Address: 0x00775630 (FUN_00775630, cfunc_CreateEconomyEvent)
+  * Alias of FUN_00775630 (non-canonical helper lane).
  */
 int moho::cfunc_CreateEconomyEvent(lua_State* const luaContext)
 {
@@ -913,7 +948,7 @@ int moho::cfunc_CreateEconomyEventL(LuaPlus::LuaState* const state)
 }
 
 /**
- * Address: 0x00775910 (FUN_00775910, cfunc_RemoveEconomyEvent)
+  * Alias of FUN_00775910 (non-canonical helper lane).
  */
 int moho::cfunc_RemoveEconomyEvent(lua_State* const luaContext)
 {
@@ -957,7 +992,7 @@ int moho::cfunc_RemoveEconomyEventL(LuaPlus::LuaState* const state)
 }
 
 /**
- * Address: 0x00775A40 (FUN_00775A40, cfunc_EconomyEventIsDone)
+  * Alias of FUN_00775A40 (non-canonical helper lane).
  */
 int moho::cfunc_EconomyEventIsDone(lua_State* const luaContext)
 {

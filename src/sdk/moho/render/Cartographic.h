@@ -13,6 +13,8 @@ namespace gpg
 
 namespace moho
 {
+  struct GeomCamera3;
+
   class CartographicDecalBatch
   {
   public:
@@ -55,6 +57,14 @@ namespace moho
     virtual ~Cartographic() = default;
 
     /**
+     * Address: 0x007D1700 (FUN_007D1700, ?IsInitialized@Cartographic@Moho@@QBE_NXZ)
+     *
+     * What it does:
+     * Returns whether the cartographic runtime lane has been initialized.
+     */
+    [[nodiscard]] bool IsInitialized() const;
+
+    /**
      * Address: 0x007D1DF0 (FUN_007D1DF0, ?WriteDecals@Cartographic@Moho@@QAEXAAVBinaryWriter@gpg@@@Z)
      * Mangled: ?WriteDecals@Cartographic@Moho@@QAEXAAVBinaryWriter@gpg@@@Z
      *
@@ -72,6 +82,17 @@ namespace moho
      * and returns the backing GAL effect handle.
      */
     [[nodiscard]] boost::shared_ptr<gpg::gal::Effect> GetEffect();
+
+  private:
+    /**
+     * Address: 0x007D2E40 (FUN_007D2E40, ?RenderParticles@Cartographic@Moho@@AAEXHMABVGeomCamera3@2@@Z)
+     * Mangled: ?RenderParticles@Cartographic@Moho@@AAEXHMABVGeomCamera3@2@@Z
+     *
+     * What it does:
+     * Forwards one cartographic particle-render pass into the global world
+     * particle renderer with fixed water/suppress flags.
+     */
+    void RenderParticles(std::int32_t tick, float frameAlpha, const GeomCamera3& camera);
 
   public:
     bool mInitialized;                            // +0x04

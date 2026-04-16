@@ -68,6 +68,15 @@ namespace moho
     SNetCommand(const char* name, const msvc8::vector<SNetCommandArg>& args, int val);
 
     /**
+     * Address: 0x007BCE70 (FUN_007BCE70)
+     *
+     * What it does:
+     * Copy-constructs one queued command entry by cloning command name,
+     * argument vector lanes, and queued value state.
+     */
+    SNetCommand(const SNetCommand& source);
+
+    /**
      * Address: 0x007BAEF0 (FUN_007BAEF0, ??1SNetCommand@Moho@@QAE@@Z)
      *
      * What it does:

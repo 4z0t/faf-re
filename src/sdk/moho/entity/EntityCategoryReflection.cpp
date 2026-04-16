@@ -70,6 +70,20 @@ namespace
   };
   static_assert(sizeof(EntityCategoryLuaMetatableFactory) == 0x8, "EntityCategoryLuaMetatableFactory size must be 0x8");
 
+  /**
+   * Address: 0x00BC8F70 (FUN_00BC8F70, register_EntityCategoryLuaMetatableFactoryIndexStartup)
+   *
+   * What it does:
+   * Allocates the startup factory-object index used by entity-category Lua
+   * metatable objects and stores it on the singleton factory.
+   */
+  int register_EntityCategoryLuaMetatableFactoryIndexStartup()
+  {
+    const int index = moho::CScrLuaObjectFactory::AllocateFactoryObjectIndex();
+    EntityCategoryLuaMetatableFactory::Instance().SetFactoryObjectIndexForRecovery(index);
+    return index;
+  }
+
   [[nodiscard]] gpg::RRef ExtractLuaUserDataRef(const LuaPlus::LuaObject& userDataObject)
   {
     gpg::RRef out{};
@@ -186,6 +200,7 @@ namespace
   {
     EntityCategoryHelperRegistration()
     {
+      (void)register_EntityCategoryLuaMetatableFactoryIndexStartup();
       (void)moho::register_EntityCategoryHelperTypeInfoStartup();
       moho::register_EntityCategoryHelperSerializer();
     }

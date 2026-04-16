@@ -122,6 +122,32 @@ namespace
   }
 
   /**
+   * Address: 0x006DCB10 (FUN_006DCB10)
+   *
+   * What it does:
+   * Adjusts one `vector<SBlackListInfo>` length to `requestedCount` and uses
+   * one caller-provided fill lane for growth.
+   */
+  [[nodiscard]] std::size_t ResizeSBlackListInfoVectorWithFill(
+    SBlackListInfoVector& storage,
+    const std::size_t requestedCount,
+    const moho::SBlackListInfo& fillValue
+  )
+  {
+    const std::size_t currentCount = storage.size();
+    if (currentCount < requestedCount) {
+      storage.resize(requestedCount, fillValue);
+      return requestedCount;
+    }
+
+    if (requestedCount < currentCount) {
+      storage.resize(requestedCount);
+    }
+
+    return requestedCount;
+  }
+
+  /**
    * Address: 0x00BFE860 (FUN_00BFE860, sub_BFE860)
    *
    * What it does:
@@ -270,7 +296,7 @@ void gpg::RVectorType<moho::SBlackListInfo>::SetCount(void* const obj, const int
   }
 
   const moho::SBlackListInfo zeroFill{};
-  storage->resize(static_cast<std::size_t>(count), zeroFill);
+  (void)ResizeSBlackListInfoVectorWithFill(*storage, static_cast<std::size_t>(count), zeroFill);
 }
 
 /**

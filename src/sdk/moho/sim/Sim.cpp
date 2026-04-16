@@ -87,8 +87,12 @@
 #include "moho/math/MathReflection.h"
 #include "moho/resource/RResId.h"
 #include "moho/resource/CSimResources.h"
+#include "moho/resource/blueprints/RBeamBlueprint.h"
+#include "moho/resource/blueprints/REmitterBlueprint.h"
+#include "moho/resource/blueprints/RMeshBlueprint.h"
 #include "moho/resource/blueprints/RPropBlueprint.h"
 #include "moho/resource/blueprints/RProjectileBlueprint.h"
+#include "moho/resource/blueprints/RTrailBlueprint.h"
 #include "moho/resource/blueprints/RUnitBlueprint.h"
 #include "moho/projectile/Projectile.h"
 #include "moho/script/CScriptEvent.h"
@@ -1929,6 +1933,433 @@ namespace
     return parent != nullptr ? parent : head;
   }
 
+  [[nodiscard]] bool WeakSetNodeHasLiveOwner(const UserEntityWeakSetNodeRuntimeView* const node) noexcept
+  {
+    return node != nullptr
+      && node->isNil == 0u
+      && node->weakEntityLink.ownerLinkSlot != nullptr
+      && node->weakEntityLink.ownerLinkSlot != reinterpret_cast<void*>(8);
+  }
+
+  [[nodiscard]] UserEntityWeakSetNodeRuntimeView* WeakSetTreeMaxNode(
+    UserEntityWeakSetNodeRuntimeView* node,
+    UserEntityWeakSetNodeRuntimeView* const head
+  ) noexcept
+  {
+    while (node != nullptr && node != head && node->right != head) {
+      node = node->right;
+    }
+    return node != nullptr ? node : head;
+  }
+
+  void WeakSetRecomputeExtrema(UserEntityWeakSetRuntimeView& set) noexcept
+  {
+    if (set.head == nullptr) {
+      return;
+    }
+
+    UserEntityWeakSetNodeRuntimeView* const head = set.head;
+    UserEntityWeakSetNodeRuntimeView* const root = head->parent;
+    if (root == nullptr || root == head || root->isNil != 0u) {
+      head->parent = head;
+      head->left = head;
+      head->right = head;
+      return;
+    }
+
+    head->left = WeakSetMinNode(root, head);
+    head->right = WeakSetTreeMaxNode(root, head);
+  }
+
+  void WeakSetReplaceSubtree(
+    UserEntityWeakSetRuntimeView& set,
+    UserEntityWeakSetNodeRuntimeView* const oldNode,
+    UserEntityWeakSetNodeRuntimeView* const newNode
+  ) noexcept
+  {
+    UserEntityWeakSetNodeRuntimeView* const head = set.head;
+    if (oldNode->parent == head) {
+      head->parent = newNode;
+    } else if (oldNode == oldNode->parent->left) {
+      oldNode->parent->left = newNode;
+    } else {
+      oldNode->parent->right = newNode;
+    }
+
+    if (newNode != nullptr && newNode->isNil == 0u) {
+      newNode->parent = oldNode->parent;
+    }
+  }
+
+  void WeakSetRotateLeft(UserEntityWeakSetRuntimeView& set, UserEntityWeakSetNodeRuntimeView* const node) noexcept
+  {
+    UserEntityWeakSetNodeRuntimeView* const head = set.head;
+    UserEntityWeakSetNodeRuntimeView* const pivot = node->right;
+    node->right = pivot->left;
+    if (pivot->left != nullptr && pivot->left->isNil == 0u) {
+      pivot->left->parent = node;
+    }
+
+    pivot->parent = node->parent;
+    if (node->parent == head) {
+      head->parent = pivot;
+    } else if (node == node->parent->left) {
+      node->parent->left = pivot;
+    } else {
+      node->parent->right = pivot;
+    }
+
+    pivot->left = node;
+    node->parent = pivot;
+  }
+
+  void WeakSetRotateRight(UserEntityWeakSetRuntimeView& set, UserEntityWeakSetNodeRuntimeView* const node) noexcept
+  {
+    UserEntityWeakSetNodeRuntimeView* const head = set.head;
+    UserEntityWeakSetNodeRuntimeView* const pivot = node->left;
+    node->left = pivot->right;
+    if (pivot->right != nullptr && pivot->right->isNil == 0u) {
+      pivot->right->parent = node;
+    }
+
+    pivot->parent = node->parent;
+    if (node->parent == head) {
+      head->parent = pivot;
+    } else if (node == node->parent->left) {
+      node->parent->left = pivot;
+    } else {
+      node->parent->right = pivot;
+    }
+
+    pivot->right = node;
+    node->parent = pivot;
+  }
+
+  void WeakSetUnlinkOwnerRef(UserEntityWeakRefRuntimeView& weakRef) noexcept
+  {
+    auto** ownerLinkSlot = reinterpret_cast<UserEntityWeakRefRuntimeView**>(weakRef.ownerLinkSlot);
+    if (ownerLinkSlot == nullptr) {
+      return;
+    }
+
+    while (*ownerLinkSlot != nullptr && *ownerLinkSlot != &weakRef) {
+      ownerLinkSlot = &(*ownerLinkSlot)->nextOwnerLink;
+    }
+
+    if (*ownerLinkSlot == &weakRef) {
+      *ownerLinkSlot = weakRef.nextOwnerLink;
+    }
+
+    weakRef.ownerLinkSlot = nullptr;
+    weakRef.nextOwnerLink = nullptr;
+  }
+
+  void WeakSetFixupAfterErase(
+    UserEntityWeakSetRuntimeView& set,
+    UserEntityWeakSetNodeRuntimeView* node,
+    UserEntityWeakSetNodeRuntimeView* nodeParent
+  ) noexcept
+  {
+    UserEntityWeakSetNodeRuntimeView* const head = set.head;
+    UserEntityWeakSetNodeRuntimeView* parent = node != nullptr && node->isNil == 0u ? node->parent : nodeParent;
+    while (node != head->parent && (node == nullptr || node->isNil != 0u || node->color == 1u)) {
+      if (parent == nullptr) {
+        break;
+      }
+
+      if (node == parent->left) {
+        UserEntityWeakSetNodeRuntimeView* sibling = parent->right;
+        if (sibling == head) {
+          node = parent;
+          parent = node->parent;
+          continue;
+        }
+        if (sibling->color == 0u) {
+          sibling->color = 1u;
+          parent->color = 0u;
+          WeakSetRotateLeft(set, parent);
+          sibling = parent->right;
+        }
+
+        const bool leftBlack = sibling->left == nullptr || sibling->left->isNil != 0u || sibling->left->color == 1u;
+        const bool rightBlack = sibling->right == nullptr || sibling->right->isNil != 0u || sibling->right->color == 1u;
+        if (leftBlack && rightBlack) {
+          sibling->color = 0u;
+          node = parent;
+          parent = node->parent;
+          continue;
+        }
+
+        if (sibling->right == nullptr || sibling->right->isNil != 0u || sibling->right->color == 1u) {
+          if (sibling->left != nullptr && sibling->left->isNil == 0u) {
+            sibling->left->color = 1u;
+          }
+          sibling->color = 0u;
+          WeakSetRotateRight(set, sibling);
+          sibling = parent->right;
+        }
+
+        sibling->color = parent->color;
+        parent->color = 1u;
+        if (sibling->right != nullptr && sibling->right->isNil == 0u) {
+          sibling->right->color = 1u;
+        }
+        WeakSetRotateLeft(set, parent);
+        node = head->parent;
+        break;
+      }
+
+      UserEntityWeakSetNodeRuntimeView* sibling = parent->left;
+      if (sibling == head) {
+        node = parent;
+        parent = node->parent;
+        continue;
+      }
+      if (sibling->color == 0u) {
+        sibling->color = 1u;
+        parent->color = 0u;
+        WeakSetRotateRight(set, parent);
+        sibling = parent->left;
+      }
+
+      const bool rightBlack = sibling->right == nullptr || sibling->right->isNil != 0u || sibling->right->color == 1u;
+      const bool leftBlack = sibling->left == nullptr || sibling->left->isNil != 0u || sibling->left->color == 1u;
+      if (rightBlack && leftBlack) {
+        sibling->color = 0u;
+        node = parent;
+        parent = node->parent;
+        continue;
+      }
+
+      if (sibling->left == nullptr || sibling->left->isNil != 0u || sibling->left->color == 1u) {
+        if (sibling->right != nullptr && sibling->right->isNil == 0u) {
+          sibling->right->color = 1u;
+        }
+        sibling->color = 0u;
+        WeakSetRotateLeft(set, sibling);
+        sibling = parent->left;
+      }
+
+      sibling->color = parent->color;
+      parent->color = 1u;
+      if (sibling->left != nullptr && sibling->left->isNil == 0u) {
+        sibling->left->color = 1u;
+      }
+      WeakSetRotateRight(set, parent);
+      node = head->parent;
+      break;
+    }
+
+    if (node != nullptr && node->isNil == 0u) {
+      node->color = 1u;
+    }
+  }
+
+  [[nodiscard]] UserEntityWeakSetNodeRuntimeView* WeakSetEraseNodeAndAdvance(
+    UserEntityWeakSetRuntimeView& set,
+    UserEntityWeakSetNodeRuntimeView* const node
+  )
+  {
+    if (set.head == nullptr || node == nullptr || node->isNil != 0u) {
+      throw std::out_of_range("invalid map/set<T> iterator");
+    }
+
+    UserEntityWeakSetNodeRuntimeView* const head = set.head;
+    UserEntityWeakSetNodeRuntimeView* const next = WeakSetNextNode(node, head);
+
+    UserEntityWeakSetNodeRuntimeView* removed = node;
+    UserEntityWeakSetNodeRuntimeView* spliceTarget = node;
+    std::uint8_t removedColor = spliceTarget->color;
+    UserEntityWeakSetNodeRuntimeView* fixNode = head;
+    UserEntityWeakSetNodeRuntimeView* fixParent = head;
+
+    if (node->left == nullptr || node->left->isNil != 0u) {
+      fixNode = node->right;
+      fixParent = node->parent;
+      WeakSetReplaceSubtree(set, node, node->right);
+    } else if (node->right == nullptr || node->right->isNil != 0u) {
+      fixNode = node->left;
+      fixParent = node->parent;
+      WeakSetReplaceSubtree(set, node, node->left);
+    } else {
+      spliceTarget = WeakSetMinNode(node->right, head);
+      removedColor = spliceTarget->color;
+      fixNode = spliceTarget->right;
+      if (spliceTarget->parent == node) {
+        fixParent = spliceTarget;
+        if (fixNode != nullptr && fixNode->isNil == 0u) {
+          fixNode->parent = spliceTarget;
+        }
+      } else {
+        fixParent = spliceTarget->parent;
+        WeakSetReplaceSubtree(set, spliceTarget, spliceTarget->right);
+        spliceTarget->right = node->right;
+        spliceTarget->right->parent = spliceTarget;
+      }
+
+      WeakSetReplaceSubtree(set, node, spliceTarget);
+      spliceTarget->left = node->left;
+      spliceTarget->left->parent = spliceTarget;
+      spliceTarget->color = node->color;
+    }
+
+    WeakSetUnlinkOwnerRef(removed->weakEntityLink);
+    ::operator delete(removed);
+
+    if (set.size > 0u) {
+      --set.size;
+    }
+    if (removedColor == 1u) {
+      WeakSetFixupAfterErase(set, fixNode, fixParent);
+    }
+
+    WeakSetRecomputeExtrema(set);
+    return next;
+  }
+
+  [[nodiscard]] UserEntityWeakSetNodeRuntimeView* WeakSetPruneTombstonesAndFindLive(
+    UserEntityWeakSetRuntimeView& set,
+    UserEntityWeakSetNodeRuntimeView* const start
+  );
+
+  void WeakSetDestroySubtree(UserEntityWeakSetNodeRuntimeView* const node)
+  {
+    UserEntityWeakSetNodeRuntimeView* cursor = node;
+    while (cursor != nullptr && cursor->isNil == 0u) {
+      WeakSetDestroySubtree(cursor->right);
+
+      UserEntityWeakSetNodeRuntimeView* const left = cursor->left;
+      WeakSetUnlinkOwnerRef(cursor->weakEntityLink);
+      ::operator delete(cursor);
+      cursor = left;
+    }
+  }
+
+  /**
+   * Address: 0x007B33B0 (FUN_007B33B0, std::map_uint_WeakPtr_UserEntity::erase)
+   *
+   * What it does:
+   * Erases one half-open weak-set node range and preserves the binary iterator
+   * contract by returning the first node that remains after the range.
+   */
+  [[nodiscard]] UserEntityWeakSetNodeRuntimeView** EraseUserEntityWeakSetRange(
+    UserEntityWeakSetRuntimeView* const set,
+    UserEntityWeakSetNodeRuntimeView** const outNode,
+    UserEntityWeakSetNodeRuntimeView* const first,
+    UserEntityWeakSetNodeRuntimeView* const last
+  )
+  {
+    if (set == nullptr || set->head == nullptr) {
+      *outNode = nullptr;
+      return outNode;
+    }
+
+    UserEntityWeakSetNodeRuntimeView* node = first;
+    UserEntityWeakSetNodeRuntimeView* const head = set->head;
+    if (first == head->left && last == head) {
+      WeakSetDestroySubtree(head->parent);
+      head->parent = head;
+      set->size = 0u;
+      head->left = head;
+      head->right = head;
+      *outNode = head->left;
+      return outNode;
+    }
+
+    while (node != last && node != nullptr && node != head) {
+      node = WeakSetEraseNodeAndAdvance(*set, node);
+    }
+
+    *outNode = node;
+    return outNode;
+  }
+
+  /**
+   * Address: 0x007B2530 (FUN_007B2530, std::map_uint_WeakPtr_UserEntity::~map)
+   *
+   * What it does:
+   * Releases one weak-set tree object, clears its head slot, and zeroes the
+   * live element count after full-range teardown.
+   */
+  [[nodiscard]] std::int32_t ReleaseUserEntityWeakSetStorage(UserEntityWeakSetRuntimeView* const set)
+  {
+    if (set == nullptr) {
+      return 0;
+    }
+
+    UserEntityWeakSetNodeRuntimeView* cursor = nullptr;
+    (void)EraseUserEntityWeakSetRange(set, &cursor, set->head != nullptr ? set->head->left : nullptr, set->head);
+    if (set->head != nullptr) {
+      ::operator delete(set->head);
+      set->head = nullptr;
+    }
+    set->size = 0u;
+    return 0;
+  }
+
+  /**
+   * Address: 0x007B2650 (FUN_007B2650, sub_7B2650)
+   *
+   * What it does:
+   * Releases one weak-set map storage lane by erasing all nodes, deleting the
+   * head sentinel, and zeroing `{head,size}`.
+   */
+  [[maybe_unused]] [[nodiscard]] std::int32_t ReleaseUserEntityWeakSetStorageCompat(UserEntityWeakSetRuntimeView* const set)
+  {
+    return ReleaseUserEntityWeakSetStorage(set);
+  }
+
+  /**
+   * Address: 0x00838AE0 (FUN_00838AE0, sub_838AE0)
+   *
+   * What it does:
+   * Counts live weak-set entries, pruning tombstone nodes along the way so the
+   * iterator walk matches the binary's pruning-and-count loop.
+   */
+  [[nodiscard]] std::int32_t CountLiveUserEntityWeakSetEntriesAndPrune(UserEntityWeakSetRuntimeView* const set)
+  {
+    if (set == nullptr || set->head == nullptr) {
+      return 0;
+    }
+
+    UserEntityWeakSetNodeRuntimeView* node = WeakSetPruneTombstonesAndFindLive(*set, set->head->left);
+    if (node == nullptr || node == set->head) {
+      return 0;
+    }
+
+    std::int32_t count = 0;
+    do {
+      ++count;
+      node = WeakSetNextNode(node, set->head);
+      if (node != set->head) {
+        node = WeakSetPruneTombstonesAndFindLive(*set, node);
+      }
+    } while (node != nullptr && node != set->head);
+
+    return count;
+  }
+
+  [[nodiscard]] UserEntityWeakSetNodeRuntimeView* WeakSetPruneTombstonesAndFindLive(
+    UserEntityWeakSetRuntimeView& set,
+    UserEntityWeakSetNodeRuntimeView* const start
+  )
+  {
+    UserEntityWeakSetNodeRuntimeView* node = start;
+    if (set.head == nullptr) {
+      return nullptr;
+    }
+
+    while (node != set.head) {
+      if (WeakSetNodeHasLiveOwner(node)) {
+        break;
+      }
+
+      node = WeakSetEraseNodeAndAdvance(set, node);
+    }
+
+    return node;
+  }
+
   void AppendEntityUnitLuaObject(
     LuaPlus::LuaObject& resultTable,
     std::int32_t& luaIndex,
@@ -1950,8 +2381,8 @@ namespace
     ++luaIndex;
   }
 
-  [[nodiscard]] const UserEntityWeakSetRuntimeView* ResolveIdleUnitSetView(
-    const UserArmy* const army,
+  [[nodiscard]] UserEntityWeakSetRuntimeView* ResolveIdleUnitSetView(
+    UserArmy* const army,
     const bool useFactorySet
   ) noexcept
   {
@@ -1959,7 +2390,7 @@ namespace
       return nullptr;
     }
 
-    const auto* const runtimeView = reinterpret_cast<const UserArmyIdleSetsRuntimeView*>(army);
+    auto* const runtimeView = reinterpret_cast<UserArmyIdleSetsRuntimeView*>(army);
     return useFactorySet ? &runtimeView->idleFactoryUnits : &runtimeView->idleEngineerUnits;
   }
 
@@ -4803,7 +5234,7 @@ namespace
   }
 
   /**
-   * Address: 0x006FB3B0 (FUN_006FB3B0)
+    * Alias of FUN_006FB3B0 (non-canonical helper lane).
    *
    * IDA signature:
    * Moho::Prop * __cdecl Moho::PROP_Create(Moho::Sim *, Moho::VTransform const &, Moho::RPropBlueprint const *);
@@ -5220,6 +5651,554 @@ namespace
   CSimConVarBase* ChecksumPeriodConVar()
   {
     return moho::console::SimChecksumPeriodConVar();
+  }
+
+  [[maybe_unused]] CSimConVarBase* PathTimeoutPreviewConVar()
+  {
+    return moho::console::SimPathTimeoutPreviewConVar();
+  }
+
+  struct PathPreviewFinderRuntimeView
+  {
+    void* mVTable;                       // +0x00
+    void* mPathQueueNodeNext;            // +0x04
+    void* mPathQueueNodePrev;            // +0x08
+    void* mOwnerContext;                 // +0x0C
+    Sim* mSim;                           // +0x10
+    COGrid* mOGrid;                      // +0x14
+    void* mPathPreviewCallbackOwner;     // +0x18
+    SOCellPos mStartCell;                // +0x1C
+    SOCellPos mGoalCell;                 // +0x20
+    const SFootprint* mFootprint;        // +0x24
+    std::uint8_t mGoalCellIsTraversable; // +0x28
+    std::uint8_t mPad_29_2B[3];          // +0x29
+  };
+  static_assert(offsetof(PathPreviewFinderRuntimeView, mSim) == 0x10, "PathPreviewFinderRuntimeView::mSim offset");
+  static_assert(offsetof(PathPreviewFinderRuntimeView, mOGrid) == 0x14, "PathPreviewFinderRuntimeView::mOGrid offset");
+  static_assert(
+    offsetof(PathPreviewFinderRuntimeView, mStartCell) == 0x1C, "PathPreviewFinderRuntimeView::mStartCell offset"
+  );
+  static_assert(offsetof(PathPreviewFinderRuntimeView, mGoalCell) == 0x20, "PathPreviewFinderRuntimeView::mGoalCell offset");
+  static_assert(
+    offsetof(PathPreviewFinderRuntimeView, mFootprint) == 0x24, "PathPreviewFinderRuntimeView::mFootprint offset"
+  );
+  static_assert(
+    offsetof(PathPreviewFinderRuntimeView, mGoalCellIsTraversable) == 0x28,
+    "PathPreviewFinderRuntimeView::mGoalCellIsTraversable offset"
+  );
+  static_assert(sizeof(PathPreviewFinderRuntimeView) == 0x2C, "PathPreviewFinderRuntimeView size must be 0x2C");
+
+  /**
+   * Address: 0x007647C0 (FUN_007647C0)
+   *
+   * What it does:
+   * Returns the current preview footprint lane.
+   */
+  [[maybe_unused]] const SFootprint* PathPreviewGetFootprint(const PathPreviewFinderRuntimeView* const finder)
+  {
+    return finder->mFootprint;
+  }
+
+  /**
+   * Address: 0x007649C0 (FUN_007649C0)
+   *
+   * What it does:
+   * Returns whether one candidate cell can fit the current preview footprint on
+   * the active OGrid.
+   */
+  [[maybe_unused]] bool PathPreviewCanTraverseCell(
+    const PathPreviewFinderRuntimeView* const finder,
+    const SOCellPos& cellPos
+  )
+  {
+    return static_cast<std::uint8_t>(
+             OCCUPY_FootprintFits(*finder->mOGrid, cellPos, *finder->mFootprint, EOccupancyCaps::OC_ANY)
+           ) != 0u;
+  }
+
+  /**
+   * Address: 0x007647A0 (FUN_007647A0)
+   *
+   * What it does:
+   * Uses an always-in-bounds policy for preview traversal.
+   */
+  [[maybe_unused]] bool PathPreviewIsInBounds(const PathPreviewFinderRuntimeView*, const SOCellPos&)
+  {
+    return true;
+  }
+
+  /**
+   * Address: 0x00764930 (FUN_00764930)
+   *
+   * What it does:
+   * Computes diagonal-biased cost from one cell to the preview goal cell.
+   */
+  [[maybe_unused]] float PathPreviewGetHeuristicCost(
+    const PathPreviewFinderRuntimeView* const finder,
+    const SOCellPos& cellPos
+  )
+  {
+    const float deltaX = std::fabs(static_cast<float>(finder->mGoalCell.x - cellPos.x));
+    const float deltaZ = std::fabs(static_cast<float>(finder->mGoalCell.z - cellPos.z));
+    constexpr float kDiagScale = 0.41421354f;
+    constexpr float kPreviewCostScale = 1.01f;
+    const float baseCost = (deltaZ <= deltaX) ? ((deltaZ * kDiagScale) + deltaX) : ((deltaX * kDiagScale) + deltaZ);
+    return baseCost * kPreviewCostScale;
+  }
+
+  /**
+   * Address: 0x00764A00 (FUN_00764A00)
+   *
+   * What it does:
+   * Writes the current preview anchor cell into the output lane.
+   */
+  [[maybe_unused]] SOCellPos* PathPreviewGetAnchorCell(
+    const PathPreviewFinderRuntimeView* const finder,
+    SOCellPos* const outCell
+  )
+  {
+    *outCell = finder->mStartCell;
+    return outCell;
+  }
+
+  /**
+   * Address: 0x00764A60 (FUN_00764A60)
+   *
+   * What it does:
+   * Returns whether the provided cell equals the current preview goal cell.
+   */
+  [[maybe_unused]] bool PathPreviewIsGoalCell(const PathPreviewFinderRuntimeView* const finder, const SOCellPos& cellPos)
+  {
+    return cellPos.x == finder->mGoalCell.x && cellPos.z == finder->mGoalCell.z;
+  }
+
+  /**
+   * Address: 0x00764A10 (FUN_00764A10)
+   *
+   * What it does:
+   * Returns true when either preview endpoint cell lies inside the candidate
+   * search rectangle.
+   */
+  [[maybe_unused]] bool PathPreviewShouldSearchRect(
+    const PathPreviewFinderRuntimeView* const finder,
+    const gpg::Rect2i& rect
+  )
+  {
+    const auto inRect = [&rect](const SOCellPos& cell) {
+      return cell.x >= rect.x0 && cell.x < rect.x1 && cell.z >= rect.z0 && cell.z < rect.z1;
+    };
+    return inRect(finder->mStartCell) || inRect(finder->mGoalCell);
+  }
+
+  /**
+   * Address: 0x007647B0 (FUN_007647B0, nullsub_2211)
+   *
+   * What it does:
+   * No-op callback lane used by preview path cancellation flow.
+   */
+  [[maybe_unused]] void PathPreviewOnSearchCancelled(PathPreviewFinderRuntimeView*) {}
+
+  /**
+   * Address: 0x007647D0 (FUN_007647D0)
+   *
+   * What it does:
+   * Clears one output result-cell lane.
+   */
+  [[maybe_unused]] SOCellPos* PathPreviewGetResultCell(SOCellPos* const outCell)
+  {
+    outCell->x = 0;
+    outCell->z = 0;
+    return outCell;
+  }
+
+  /**
+   * Address: 0x00764B70 (FUN_00764B70)
+   *
+   * What it does:
+   * Reads the current `path_TimeoutPreview` sim-convar value from the owning
+   * sim lane used by path-preview traversal callbacks.
+   */
+  [[maybe_unused]] std::int32_t PathPreviewTimeoutMs(const PathPreviewFinderRuntimeView* const finder)
+  {
+    CSimConVarInstanceBase* const instance = finder->mSim->GetSimVar(PathTimeoutPreviewConVar());
+    return *reinterpret_cast<const std::int32_t*>(instance->GetValueStorage());
+  }
+
+  struct PathPreviewFinderNodeRuntimeView
+  {
+    PathPreviewFinderNodeRuntimeView* mNext;
+    PathPreviewFinderNodeRuntimeView* mPrev;
+  };
+  static_assert(sizeof(PathPreviewFinderNodeRuntimeView) == 0x8, "PathPreviewFinderNodeRuntimeView size must be 0x8");
+
+  struct PathPreviewFinderQueueOwnerRuntimeView
+  {
+    std::uint8_t mPad00_03[0x4];
+    PathPreviewFinderNodeRuntimeView mQueueHead;
+  };
+  static_assert(
+    offsetof(PathPreviewFinderQueueOwnerRuntimeView, mQueueHead) == 0x4,
+    "PathPreviewFinderQueueOwnerRuntimeView::mQueueHead offset"
+  );
+
+  [[nodiscard]] PathPreviewFinderNodeRuntimeView* PathPreviewFinderQueueNode(PathPreviewFinderRuntimeView* const finder)
+  {
+    return reinterpret_cast<PathPreviewFinderNodeRuntimeView*>(&finder->mPathQueueNodeNext);
+  }
+
+  [[nodiscard]] const PathPreviewFinderNodeRuntimeView* PathPreviewFinderQueueNode(
+    const PathPreviewFinderRuntimeView* const finder
+  )
+  {
+    return reinterpret_cast<const PathPreviewFinderNodeRuntimeView*>(&finder->mPathQueueNodeNext);
+  }
+
+  void PathPreviewDetachFinderNode(PathPreviewFinderRuntimeView* const finder)
+  {
+    PathPreviewFinderNodeRuntimeView* const node = PathPreviewFinderQueueNode(finder);
+    node->mPrev->mNext = node->mNext;
+    node->mNext->mPrev = node->mPrev;
+    node->mNext = node;
+    node->mPrev = node;
+  }
+
+  void PathPreviewQueueFinderFront(
+    PathPreviewFinderRuntimeView* const finder,
+    PathPreviewFinderQueueOwnerRuntimeView* const queueOwner
+  )
+  {
+    if (!queueOwner) {
+      return;
+    }
+
+    PathPreviewFinderNodeRuntimeView* const queueHead = &queueOwner->mQueueHead;
+    PathPreviewFinderNodeRuntimeView* const node = PathPreviewFinderQueueNode(finder);
+    node->mNext = queueHead->mNext;
+    node->mPrev = queueHead;
+    queueHead->mNext->mPrev = node;
+    queueHead->mNext = node;
+  }
+
+  /**
+   * Address: 0x00764880 (FUN_00764880)
+   *
+   * What it does:
+   * Updates the preview finder start/goal lanes when footprint traversal state
+   * changes, then requeues the finder at the front of the callback-owner list.
+   */
+  [[maybe_unused]] void PathPreviewApplySearchEndpoints(
+    PathPreviewFinderRuntimeView* const finder,
+    const SFootprint* const footprint,
+    const SOCellPos& startCell,
+    const SOCellPos& goalCell
+  )
+  {
+    if (finder->mFootprint == footprint && finder->mGoalCellIsTraversable != 0u) {
+      return;
+    }
+
+    finder->mStartCell = startCell;
+    finder->mGoalCell = goalCell;
+    finder->mFootprint = footprint;
+    finder->mGoalCellIsTraversable = static_cast<std::uint8_t>(PathPreviewCanTraverseCell(finder, goalCell));
+
+    PathPreviewDetachFinderNode(finder);
+    auto* const ownerSlot = reinterpret_cast<PathPreviewFinderQueueOwnerRuntimeView**>(finder->mPathPreviewCallbackOwner);
+    PathPreviewQueueFinderFront(finder, ownerSlot != nullptr ? *ownerSlot : nullptr);
+  }
+
+  /**
+   * Address: 0x00764900 (FUN_00764900)
+   *
+   * What it does:
+   * Detaches one active preview finder from the callback-owner queue and
+   * clears its current footprint lane.
+   */
+  [[maybe_unused]] PathPreviewFinderNodeRuntimeView* PathPreviewResetQueuedFootprint(PathPreviewFinderRuntimeView* const finder)
+  {
+    if (!finder->mFootprint) {
+      return nullptr;
+    }
+
+    PathPreviewDetachFinderNode(finder);
+    finder->mFootprint = nullptr;
+    return PathPreviewFinderQueueNode(finder);
+  }
+
+  struct PathPreviewPublishedPathRuntimeView
+  {
+    msvc8::vector<SOCellPos> mCells;
+    const SFootprint* mPreviousFootprint;
+  };
+  static_assert(
+    offsetof(PathPreviewPublishedPathRuntimeView, mPreviousFootprint) == 0x10,
+    "PathPreviewPublishedPathRuntimeView::mPreviousFootprint offset"
+  );
+  static_assert(sizeof(PathPreviewPublishedPathRuntimeView) == 0x14, "PathPreviewPublishedPathRuntimeView size must be 0x14");
+
+  struct PathPreviewCallbackOwnerRuntimeView;
+  struct PathPreviewCallbackOwnerVTableRuntimeView
+  {
+    void* mSlots00_58[0x17];
+    void (__thiscall* PublishPreviewPath)(
+      PathPreviewCallbackOwnerRuntimeView* owner,
+      const PathPreviewPublishedPathRuntimeView* publishedPath
+    );
+  };
+  static_assert(
+    offsetof(PathPreviewCallbackOwnerVTableRuntimeView, PublishPreviewPath) == 0x5C,
+    "PathPreviewCallbackOwnerVTableRuntimeView::PublishPreviewPath offset"
+  );
+
+  struct PathPreviewCallbackOwnerRuntimeView
+  {
+    PathPreviewCallbackOwnerVTableRuntimeView* mVTable;
+  };
+
+  /**
+   * Address: 0x00764A80 (FUN_00764A80)
+   *
+   * What it does:
+   * Publishes one copied path cell lane vector to the preview callback owner,
+   * carrying the previous footprint lane as part of the payload.
+   */
+  [[maybe_unused]] void PathPreviewPublishPathCells(
+    PathPreviewFinderRuntimeView* const finder,
+    const msvc8::vector<SOCellPos>& sourceCells
+  )
+  {
+    auto* const owner = reinterpret_cast<PathPreviewCallbackOwnerRuntimeView*>(finder->mOwnerContext);
+    if (!owner || !owner->mVTable || !owner->mVTable->PublishPreviewPath) {
+      finder->mFootprint = nullptr;
+      return;
+    }
+
+    PathPreviewPublishedPathRuntimeView publishedPath{};
+    publishedPath.mPreviousFootprint = finder->mFootprint;
+    finder->mFootprint = nullptr;
+    publishedPath.mCells.resize(sourceCells.size());
+    for (std::size_t i = 0; i < sourceCells.size(); ++i) {
+      publishedPath.mCells[i] = sourceCells[i];
+    }
+
+    owner->mVTable->PublishPreviewPath(owner, &publishedPath);
+  }
+
+  struct PathPreviewFinderVTableRuntimeView
+  {
+    void* mSlots00_14[0x6];
+    std::int32_t(__thiscall* InvokeTimeoutSlot)(PathPreviewFinderRuntimeView* finder);
+  };
+  static_assert(
+    offsetof(PathPreviewFinderVTableRuntimeView, InvokeTimeoutSlot) == 0x18,
+    "PathPreviewFinderVTableRuntimeView::InvokeTimeoutSlot offset"
+  );
+
+  /**
+   * Address: 0x00764B60 (FUN_00764B60)
+   *
+   * What it does:
+   * Forwards timeout retrieval to the vtable timeout slot for this finder.
+   */
+  [[maybe_unused]] std::int32_t PathPreviewForwardTimeoutVirtual(PathPreviewFinderRuntimeView* const finder)
+  {
+    auto* const vtable = reinterpret_cast<PathPreviewFinderVTableRuntimeView*>(finder->mVTable);
+    return vtable->InvokeTimeoutSlot(finder);
+  }
+
+  struct PathPreviewUnitSetRuntimeView
+  {
+    std::uint8_t mPad00_07[0x8];
+    void** mUnitBegin;
+    void** mUnitEnd;
+  };
+  static_assert(offsetof(PathPreviewUnitSetRuntimeView, mUnitBegin) == 0x8, "PathPreviewUnitSetRuntimeView::mUnitBegin");
+  static_assert(offsetof(PathPreviewUnitSetRuntimeView, mUnitEnd) == 0xC, "PathPreviewUnitSetRuntimeView::mUnitEnd");
+
+  [[nodiscard]] Unit* PathPreviewUnitFromSetHandle(void* const handle)
+  {
+    if (!handle) {
+      return nullptr;
+    }
+
+    // Unit-set handles retain an interior pointer; binary lane normalizes by -8.
+    auto* const bytes = reinterpret_cast<std::uint8_t*>(handle);
+    return reinterpret_cast<Unit*>(bytes - 0x8);
+  }
+
+  /**
+   * Address: 0x00764B90 (FUN_00764B90)
+   *
+   * What it does:
+   * Chooses one live unit from the candidate unit-set lane that has a resolved
+   * footprint and the largest blueprint size-Z lane.
+   */
+  [[maybe_unused]] Unit* PathPreviewSelectLargestUnit(const PathPreviewUnitSetRuntimeView* const unitSet)
+  {
+    if (!unitSet) {
+      return nullptr;
+    }
+
+    void** unitIt = unitSet->mUnitBegin;
+    if (unitIt == unitSet->mUnitEnd) {
+      return nullptr;
+    }
+
+    Unit* bestUnit = nullptr;
+    float bestSizeZ = 0.0f;
+    while (unitIt != unitSet->mUnitEnd) {
+      Unit* const unit = PathPreviewUnitFromSetHandle(*unitIt);
+      ++unitIt;
+      if (!unit) {
+        continue;
+      }
+
+      const RUnitBlueprint* const blueprint = unit->GetBlueprint();
+      if (!blueprint || !blueprint->Physics.ResolvedFootprint || unit->IsBeingBuilt()) {
+        continue;
+      }
+
+      if (blueprint->mSizeZ > bestSizeZ) {
+        bestSizeZ = blueprint->mSizeZ;
+        bestUnit = unit;
+      }
+    }
+
+    return bestUnit;
+  }
+
+  struct PathPreviewUnitRuntimeView
+  {
+    std::uint8_t mPad00_4B3[0x4B4];
+    CUnitCommandQueue* mCommandQueue;
+    std::uint8_t mPad4B8_553[0x9C];
+    void* mPreviewTargetProvider;
+  };
+  static_assert(offsetof(PathPreviewUnitRuntimeView, mCommandQueue) == 0x4B4, "PathPreviewUnitRuntimeView::mCommandQueue");
+  static_assert(
+    offsetof(PathPreviewUnitRuntimeView, mPreviewTargetProvider) == 0x554,
+    "PathPreviewUnitRuntimeView::mPreviewTargetProvider"
+  );
+
+  struct PathPreviewTargetEntryRuntimeView
+  {
+    void* mTargetHandle;
+    void* mPad04;
+  };
+  static_assert(sizeof(PathPreviewTargetEntryRuntimeView) == 0x8, "PathPreviewTargetEntryRuntimeView size must be 0x8");
+
+  struct PathPreviewTargetQueueRuntimeView
+  {
+    void* mProxy;
+    PathPreviewTargetEntryRuntimeView* mBegin;
+    PathPreviewTargetEntryRuntimeView* mEnd;
+  };
+  static_assert(sizeof(PathPreviewTargetQueueRuntimeView) == 0x0C, "PathPreviewTargetQueueRuntimeView size must be 0x0C");
+
+  struct PathPreviewTargetProviderRuntimeView;
+  struct PathPreviewTargetProviderVTableRuntimeView
+  {
+    void* mSlots00_1C[0x8];
+    PathPreviewTargetQueueRuntimeView* (__thiscall* GetTargetQueue)(PathPreviewTargetProviderRuntimeView* owner);
+  };
+  static_assert(
+    offsetof(PathPreviewTargetProviderVTableRuntimeView, GetTargetQueue) == 0x20,
+    "PathPreviewTargetProviderVTableRuntimeView::GetTargetQueue offset"
+  );
+
+  struct PathPreviewTargetProviderRuntimeView
+  {
+    PathPreviewTargetProviderVTableRuntimeView* mVTable;
+  };
+
+  struct PathPreviewTargetRuntimeView
+  {
+    std::uint8_t mPad00_97[0x98];
+    std::int32_t mTargetTypeIndex;
+    std::uint8_t mPad9C_11B[0x80];
+    CAiTarget mTarget;
+  };
+  static_assert(offsetof(PathPreviewTargetRuntimeView, mTargetTypeIndex) == 0x98, "PathPreviewTargetRuntimeView::mTargetTypeIndex");
+  static_assert(offsetof(PathPreviewTargetRuntimeView, mTarget) == 0x11C, "PathPreviewTargetRuntimeView::mTarget");
+
+  [[nodiscard]] PathPreviewTargetRuntimeView* PathPreviewTargetFromHandle(void* const handle)
+  {
+    if (!handle) {
+      return nullptr;
+    }
+
+    auto* const bytes = reinterpret_cast<std::uint8_t*>(handle);
+    return reinterpret_cast<PathPreviewTargetRuntimeView*>(bytes - 0x4);
+  }
+
+  [[nodiscard]] bool PathPreviewTargetTypeFiltered(const std::int32_t targetTypeIndex)
+  {
+    if (targetTypeIndex < 0 || targetTypeIndex >= 32) {
+      return true;
+    }
+
+    constexpr std::uint32_t kFilteredTargetMask = 0xD80000EAu;
+    return (kFilteredTargetMask & (1u << targetTypeIndex)) != 0u;
+  }
+
+  [[nodiscard]] const PathPreviewTargetQueueRuntimeView* PathPreviewResolveTargetQueue(const Unit* const unit)
+  {
+    const auto* const unitView = reinterpret_cast<const PathPreviewUnitRuntimeView*>(unit);
+    if (unitView->mPreviewTargetProvider) {
+      auto* const provider = reinterpret_cast<PathPreviewTargetProviderRuntimeView*>(unitView->mPreviewTargetProvider);
+      auto* const providerVTable = provider->mVTable;
+      if (providerVTable && providerVTable->GetTargetQueue) {
+        PathPreviewTargetQueueRuntimeView* const queue = providerVTable->GetTargetQueue(provider);
+        if (queue && queue->mBegin && queue->mBegin != queue->mEnd) {
+          return queue;
+        }
+      }
+    }
+
+    if (!unitView->mCommandQueue) {
+      return nullptr;
+    }
+
+    const auto* const commandQueueBytes = reinterpret_cast<const std::uint8_t*>(unitView->mCommandQueue);
+    return reinterpret_cast<const PathPreviewTargetQueueRuntimeView*>(commandQueueBytes + 0x0C);
+  }
+
+  /**
+   * Address: 0x00764C10 (FUN_00764C10)
+   *
+   * What it does:
+   * Chooses one terminal target position from queued command-target handles
+   * (walking newest-to-oldest), then falls back to the unit position lane.
+   */
+  [[maybe_unused]] Wm3::Vector3f* PathPreviewResolveEndPosition(Wm3::Vector3f* const outPos, Unit* const unit)
+  {
+    const PathPreviewTargetQueueRuntimeView* const targetQueue = PathPreviewResolveTargetQueue(unit);
+    if (targetQueue && targetQueue->mBegin && targetQueue->mBegin != targetQueue->mEnd) {
+      auto* entry = targetQueue->mEnd;
+      while (entry != targetQueue->mBegin) {
+        --entry;
+        PathPreviewTargetRuntimeView* const targetRuntime = PathPreviewTargetFromHandle(entry->mTargetHandle);
+        if (!targetRuntime) {
+          continue;
+        }
+
+        if (PathPreviewTargetTypeFiltered(targetRuntime->mTargetTypeIndex)) {
+          continue;
+        }
+
+        const Wm3::Vec3f targetPos = targetRuntime->mTarget.GetTargetPosGun(false);
+        outPos->x = targetPos.x;
+        outPos->y = targetPos.y;
+        outPos->z = targetPos.z;
+        return outPos;
+      }
+    }
+
+    const Wm3::Vec3f& unitPos = unit->GetPosition();
+    outPos->x = unitPos.x;
+    outPos->y = unitPos.y;
+    outPos->z = unitPos.z;
+    return outPos;
   }
 
   bool IsDebugWindowEnabled()
@@ -5830,7 +6809,7 @@ void Sim::SerDirtyEnts(gpg::ReadArchive* const archive)
 }
 
 /**
- * Address: 0x00754C60 (FUN_00754C60, sub_754C60)
+  * Alias of FUN_00754C60 (non-canonical helper lane).
  *
  * What it does:
  * Core Sim load-serialization routine used by Sim serializer callback.
@@ -6279,6 +7258,28 @@ CDebugCanvas::CDebugCanvas()
 void CDebugCanvas::DebugDrawLine(const SDebugLine& line)
 {
   lines.push_back(line);
+}
+
+/**
+ * Address: 0x00652C00 (FUN_00652C00, Moho::CDebugCanvas::AddText)
+ *
+ * What it does:
+ * Builds one world-space text entry from position/text/style/depth lanes
+ * and appends it to the debug world-text buffer.
+ */
+void CDebugCanvas::AddText(
+  const Wm3::Vector3f& position,
+  const char* const text,
+  const std::int32_t style,
+  const std::uint32_t depth
+)
+{
+  SDebugWorldText entry{};
+  entry.position = position;
+  entry.text.assign_owned(text != nullptr ? text : "");
+  entry.style = style;
+  entry.depth = depth;
+  AddWorldText(entry);
 }
 
 namespace
@@ -7054,6 +8055,21 @@ void Sim::RegisterEntitySet(EntitySetBase* const set)
 }
 
 /**
+ * Address: 0x007538C0 (FUN_007538C0, boost::shared_ptr_SParticleBuffer::shared_ptr_SParticleBuffer)
+ *
+ * What it does:
+ * Constructs one `shared_ptr<SParticleBuffer>` from one raw particle-buffer
+ * pointer lane.
+ */
+boost::shared_ptr<SParticleBuffer>* ConstructSharedParticleBufferFromRaw(
+  boost::shared_ptr<SParticleBuffer>* const outBuffer,
+  SParticleBuffer* const buffer
+)
+{
+  return ::new (outBuffer) boost::shared_ptr<SParticleBuffer>(buffer);
+}
+
+/**
  * Address: 0x00751220 (FUN_00751220, boost::shared_ptr_SParticleBuffer::operator=)
  *
  * What it does:
@@ -7367,6 +8383,24 @@ void Sim::VerifyChecksum(const gpg::MD5Digest& checksum, const CSeqNo beat)
 }
 
 /**
+ * Address: 0x00748600 (FUN_00748600, ?GetBeatChecksum@Sim@Moho@@QBE_NVCSeqNo@2@AAUMD5Digest@gpg@@@Z)
+ *
+ * What it does:
+ * Copies one retained beat checksum out of the 128-entry rolling ring when
+ * the requested beat is still available.
+ */
+bool Sim::GetBeatChecksum(gpg::MD5Digest* const outChecksum, const CSeqNo beat) const
+{
+  const int delta = static_cast<int>(beat) - static_cast<int>(mCurBeat);
+  if (delta + 128 < 0 || delta >= 0) {
+    return false;
+  }
+
+  *outChecksum = mSimHashes[static_cast<std::uint32_t>(beat) & 0x7Fu];
+  return true;
+}
+
+/**
  * Address: 0x00748960 (FUN_00748960, ?RequestPause@Sim@Moho@@UAEXXZ)
  */
 void Sim::RequestPause()
@@ -7559,7 +8593,7 @@ void Sim::CreateUnit(const uint32_t armyIndex, const RResId& blueprintId, const 
 }
 
 /**
- * Address: 0x00748C00 (FUN_00748C00)
+  * Alias of FUN_00748C00 (non-canonical helper lane).
  *
  * What it does:
  * Cheat-gated prop creation entry point for sim commands.
@@ -8395,6 +9429,40 @@ int Sim::TrackStats(
   return 0;
 }
 
+namespace
+{
+  struct DumpUnitsCountEntry
+  {
+    const RUnitBlueprint* blueprint = nullptr;
+    int count = 0;
+  };
+
+  /**
+   * Address: 0x0075FDB0 (FUN_0075FDB0)
+   *
+   * What it does:
+   * Sorts one contiguous `DumpUnitsCountEntry` range by descending population
+   * count using the binary lane's non-stable ordering contract.
+   */
+  void SortDumpUnitsCountEntries(
+    DumpUnitsCountEntry* const begin,
+    DumpUnitsCountEntry* const end,
+    const std::int32_t depthLimit,
+    const std::int32_t userContext
+  )
+  {
+    (void)depthLimit;
+    (void)userContext;
+    if (begin == nullptr || end == nullptr || begin >= end) {
+      return;
+    }
+
+    std::sort(begin, end, [](const DumpUnitsCountEntry& lhs, const DumpUnitsCountEntry& rhs) {
+      return lhs.count > rhs.count;
+    });
+  }
+} // namespace
+
 /**
  * Address: 0x0075EE50 (FUN_0075EE50, Moho::Sim::DumpUnits)
  *
@@ -8419,12 +9487,6 @@ int Sim::DumpUnits(
     return 0;
   }
 
-  struct DumpUnitsCountEntry
-  {
-    const RUnitBlueprint* blueprint = nullptr;
-    int count = 0;
-  };
-
   std::vector<DumpUnitsCountEntry> counts;
   CEntityDb* const entityDb = sim->mEntityDB;
   CEntityDbAllUnitsNode* node = entityDb->AllUnitsEnd(0u);
@@ -8447,9 +9509,12 @@ int Sim::DumpUnits(
     }
   }
 
-  std::stable_sort(counts.begin(), counts.end(), [](const DumpUnitsCountEntry& lhs, const DumpUnitsCountEntry& rhs) {
-    return lhs.count > rhs.count;
-  });
+  if (!counts.empty()) {
+    DumpUnitsCountEntry* const begin = counts.data();
+    DumpUnitsCountEntry* const finish = begin + counts.size();
+    const auto depthLimit = static_cast<std::int32_t>(counts.size());
+    SortDumpUnitsCountEntries(begin, finish, depthLimit, 0);
+  }
 
   for (const DumpUnitsCountEntry& entry : counts) {
     if (entry.blueprint == nullptr) {
@@ -9838,43 +10903,738 @@ namespace
     return ResolveRulesImpl(state);
   }
 
-  // Recovery state: the FA binary delegates blueprint creation and
-  // registration through eight `func_*` helpers at the addresses listed
-  // below. They are currently `blocked` recovery (decomp pseudocode and
-  // raw asm exist in decomp/recovery/disasm/fa_full_2026_03_26/FUN_*.{c,md}
-  // but require recovering RUnitBlueprint::mCategories layout, the
-  // RRuleGameRulesImpl::unk1 field at +0xC4, and the sub_5555C0 registry
-  // insert helper before bodies can be reconstructed safely):
+  // Inlined-lift helper block for the blueprint registration chain.
   //
-  //   func_RegisterBlueprint              -> FUN_005289D0
-  //   func_CreateRUnitBlueprint           -> FUN_00531D80
-  //   func_CreateRPropBlueprint           -> FUN_00532080
-  //   func_CreateRProjectileBlueprint     -> FUN_00532380
-  //   func_RegisterMeshBlueprint          -> FUN_00532680
-  //   func_RegisterTrailEmitterBlueprint  -> FUN_00532980
-  //   func_RegisterEmitterBlueprint       -> FUN_00532C10
-  //   func_RegisterBeamBlueprint          -> FUN_00532EC0
+  // These helpers model typed sub-steps recovered from internal control/data
+  // flow of:
+  //   - FUN_005289D0 (register category membership)
+  //   - FUN_00531D80 (unit blueprint create/find path)
+  //   - FUN_00532080 (prop blueprint create/find path)
+  //   - FUN_00532380 (projectile blueprint create/find path)
   //
-  // We previously forward-declared these helpers in this anonymous namespace
-  // and called into them from the wrappers below. That triggered C5046 at
-  // every TU compile (declared with internal linkage but never defined) and
-  // would have failed at exe-link time. The wrappers below now early-return
-  // with a deferred-recovery comment until those helpers land.
+  // They are not standalone binary function boundaries, so they intentionally
+  // do not carry per-function `Address:` blocks. Canonical recovered entry
+  // points in this lane remain explicitly address-annotated.
+  struct BlueprintOrdinalVectorView
+  {
+    void* mProxy;                  // +0x00
+    RBlueprint** mBegin;           // +0x04
+    RBlueprint** mEnd;             // +0x08
+    RBlueprint** mCapacityEnd;     // +0x0C
+  };
+  static_assert(sizeof(BlueprintOrdinalVectorView) == 0x10, "BlueprintOrdinalVectorView size must be 0x10");
+  static_assert(
+    offsetof(BlueprintOrdinalVectorView, mBegin) == 0x04,
+    "BlueprintOrdinalVectorView::mBegin offset must be 0x04"
+  );
+
+  struct CategoryLookupNodeView : msvc8::Tree<CategoryLookupNodeView>
+  {
+    std::uint8_t color;           // +0x0C
+    std::uint8_t reserved0D;      // +0x0D
+    std::uint8_t reserved0E;      // +0x0E
+    std::uint8_t reserved0F;      // +0x0F
+    msvc8::string key;            // +0x10
+    std::uint8_t pad_2C_2F[0x04]; // +0x2C
+    CategoryWordRangeView value;  // +0x30
+    std::uint8_t nodeState;       // +0x58
+    std::uint8_t isNil;           // +0x59
+  };
+  static_assert(sizeof(CategoryLookupNodeView) == 0x5C, "CategoryLookupNodeView size must be 0x5C");
+  static_assert(offsetof(CategoryLookupNodeView, key) == 0x10, "CategoryLookupNodeView::key offset must be 0x10");
+  static_assert(offsetof(CategoryLookupNodeView, value) == 0x30, "CategoryLookupNodeView::value offset must be 0x30");
+  static_assert(offsetof(CategoryLookupNodeView, isNil) == 0x59, "CategoryLookupNodeView::isNil offset must be 0x59");
+
+  struct CategoryLookupMapView
+  {
+    std::uint32_t mUnknown00;      // +0x00
+    CategoryLookupNodeView* mHead; // +0x04
+    std::uint32_t mSize;           // +0x08
+    std::uint32_t mUnknown0C;      // +0x0C
+  };
+  static_assert(sizeof(CategoryLookupMapView) == 0x10, "CategoryLookupMapView size must be 0x10");
+  static_assert(offsetof(CategoryLookupMapView, mHead) == 0x04, "CategoryLookupMapView::mHead offset must be 0x04");
+
+  struct EntityCategoryLookupTableView
+  {
+    CategoryLookupMapView mCategoryMap;      // +0x00
+    CategoryWordRangeView mCategoryFallback; // +0x10
+    std::uint32_t mWordUniverseHandle;       // +0x38
+  };
+  static_assert(
+    offsetof(EntityCategoryLookupTableView, mCategoryMap) == 0x00,
+    "EntityCategoryLookupTableView::mCategoryMap offset must be 0x00"
+  );
+  static_assert(
+    offsetof(EntityCategoryLookupTableView, mCategoryFallback) == 0x10,
+    "EntityCategoryLookupTableView::mCategoryFallback offset must be 0x10"
+  );
+  static_assert(
+    offsetof(EntityCategoryLookupTableView, mWordUniverseHandle) == 0x38,
+    "EntityCategoryLookupTableView::mWordUniverseHandle offset must be 0x38"
+  );
+
+  [[nodiscard]] int CompareStringLex(const msvc8::string& lhs, const msvc8::string& rhs) noexcept
+  {
+    const std::string_view lhsView = lhs.view();
+    const std::string_view rhsView = rhs.view();
+    const std::size_t common = std::min(lhsView.size(), rhsView.size());
+    if (common != 0u) {
+      const int prefixCmp = std::char_traits<char>::compare(lhsView.data(), rhsView.data(), common);
+      if (prefixCmp != 0) {
+        return prefixCmp;
+      }
+    }
+
+    if (lhsView.size() < rhsView.size()) {
+      return -1;
+    }
+    if (lhsView.size() > rhsView.size()) {
+      return 1;
+    }
+    return 0;
+  }
+
+  [[nodiscard]] RRuleGameRulesBlueprintNode* AllocateBlueprintMapHeadNode()
+  {
+    auto* const head = new (std::nothrow) RRuleGameRulesBlueprintNode{};
+    if (!head) {
+      return nullptr;
+    }
+
+    head->left = head;
+    head->parent = head;
+    head->right = head;
+    head->mBlueprint = nullptr;
+    head->mColor = kTreeBlack;
+    head->mIsSentinel = 1u;
+    return head;
+  }
+
+  [[nodiscard]] RRuleGameRulesBlueprintNode* EnsureBlueprintMapHead(RRuleGameRulesBlueprintMap& map)
+  {
+    if (map.mHead != nullptr) {
+      return map.mHead;
+    }
+
+    map.mHead = AllocateBlueprintMapHeadNode();
+    map.mSize = 0u;
+    return map.mHead;
+  }
+
+  [[nodiscard]] RRuleGameRulesBlueprintNode*
+  FindBlueprintMapNode(RRuleGameRulesBlueprintMap& map, const msvc8::string& blueprintId)
+  {
+    RRuleGameRulesBlueprintNode* const head = EnsureBlueprintMapHead(map);
+    if (!head) {
+      return nullptr;
+    }
+
+    RRuleGameRulesBlueprintNode* result = head;
+    RRuleGameRulesBlueprintNode* node = head->parent;
+    while (node != nullptr && node != head && node->mIsSentinel == 0u) {
+      if (CompareStringLex(node->mBlueprintId, blueprintId) >= 0) {
+        result = node;
+        node = node->left;
+      } else {
+        node = node->right;
+      }
+    }
+
+    if (result == head || CompareStringLex(blueprintId, result->mBlueprintId) < 0) {
+      return head;
+    }
+    return result;
+  }
+
+  /**
+   * Address: 0x0052BFC0 (FUN_0052BFC0, sub_52BFC0)
+   *
+   * What it does:
+   * Probes one unit-blueprint map for the normalized blueprint id and returns
+   * either the exact-match node or the map sentinel when no exact match exists.
+   */
+  [[nodiscard]] RRuleGameRulesBlueprintNode*
+  ProbeUnitBlueprintMapNode(RRuleGameRulesBlueprintMap& map, const msvc8::string& blueprintId)
+  {
+    return FindBlueprintMapNode(map, blueprintId);
+  }
+
+  /**
+   * Address: 0x0052C0A0 (FUN_0052C0A0, sub_52C0A0)
+   *
+   * What it does:
+   * Probes one projectile-blueprint map for the normalized blueprint id and
+   * returns either the exact-match node or the map sentinel.
+   */
+  [[nodiscard]] RRuleGameRulesBlueprintNode*
+  ProbeProjectileBlueprintMapNode(RRuleGameRulesBlueprintMap& map, const msvc8::string& blueprintId)
+  {
+    return FindBlueprintMapNode(map, blueprintId);
+  }
+
+  /**
+   * Address: 0x0052C180 (FUN_0052C180, sub_52C180)
+   *
+   * What it does:
+   * Probes one prop-blueprint map for the normalized blueprint id and returns
+   * either the exact-match node or the map sentinel.
+   */
+  [[nodiscard]] RRuleGameRulesBlueprintNode*
+  ProbePropBlueprintMapNode(RRuleGameRulesBlueprintMap& map, const msvc8::string& blueprintId)
+  {
+    return FindBlueprintMapNode(map, blueprintId);
+  }
+
+  [[nodiscard]] RRuleGameRulesBlueprintNode*
+  InsertBlueprintMapNode(RRuleGameRulesBlueprintMap& map, const msvc8::string& blueprintId, void* const blueprint)
+  {
+    RRuleGameRulesBlueprintNode* const head = EnsureBlueprintMapHead(map);
+    if (!head) {
+      return nullptr;
+    }
+
+    if (RRuleGameRulesBlueprintNode* const existing = FindBlueprintMapNode(map, blueprintId); existing && existing != head) {
+      return existing;
+    }
+
+    RRuleGameRulesBlueprintNode* parent = head;
+    RRuleGameRulesBlueprintNode* cursor = head->parent;
+    bool insertLeft = true;
+    while (cursor != nullptr && cursor != head && cursor->mIsSentinel == 0u) {
+      parent = cursor;
+      if (CompareStringLex(blueprintId, cursor->mBlueprintId) < 0) {
+        insertLeft = true;
+        cursor = cursor->left;
+      } else {
+        insertLeft = false;
+        cursor = cursor->right;
+      }
+    }
+
+    auto* const node = new (std::nothrow) RRuleGameRulesBlueprintNode{};
+    if (!node) {
+      return head;
+    }
+
+    node->left = head;
+    node->parent = parent;
+    node->right = head;
+    node->mBlueprintId = blueprintId;
+    node->mBlueprint = blueprint;
+    node->mColor = kTreeBlack;
+    node->mIsSentinel = 0u;
+
+    if (parent == head) {
+      head->parent = node;
+      head->left = node;
+      head->right = node;
+    } else if (insertLeft) {
+      parent->left = node;
+      if (parent == head->left) {
+        head->left = node;
+      }
+    } else {
+      parent->right = node;
+      if (parent == head->right) {
+        head->right = node;
+      }
+    }
+
+    ++map.mSize;
+    return node;
+  }
+
+  [[nodiscard]] CategoryLookupNodeView* AllocateCategoryLookupHeadNode()
+  {
+    auto* const head = new (std::nothrow) CategoryLookupNodeView{};
+    if (!head) {
+      return nullptr;
+    }
+
+    head->left = head;
+    head->parent = head;
+    head->right = head;
+    head->color = kTreeBlack;
+    head->nodeState = 0u;
+    head->isNil = 1u;
+    return head;
+  }
+
+  [[nodiscard]] CategoryLookupNodeView* EnsureCategoryLookupHead(CategoryLookupMapView& map)
+  {
+    if (map.mHead != nullptr) {
+      return map.mHead;
+    }
+
+    map.mHead = AllocateCategoryLookupHeadNode();
+    map.mSize = 0u;
+    return map.mHead;
+  }
+
+  [[nodiscard]] CategoryLookupNodeView*
+  FindCategoryLookupNode(CategoryLookupMapView& map, const msvc8::string& categoryName)
+  {
+    CategoryLookupNodeView* const head = EnsureCategoryLookupHead(map);
+    if (!head) {
+      return nullptr;
+    }
+
+    CategoryLookupNodeView* result = head;
+    CategoryLookupNodeView* node = head->parent;
+    while (node != nullptr && node != head && node->isNil == 0u) {
+      if (CompareStringLex(node->key, categoryName) >= 0) {
+        result = node;
+        node = node->left;
+      } else {
+        node = node->right;
+      }
+    }
+
+    if (result == head || CompareStringLex(categoryName, result->key) < 0) {
+      return head;
+    }
+    return result;
+  }
+
+  [[nodiscard]] CategoryLookupNodeView* InsertCategoryLookupNode(
+    CategoryLookupMapView& map,
+    const msvc8::string& categoryName,
+    const std::uint32_t wordUniverseHandle
+  )
+  {
+    CategoryLookupNodeView* const head = EnsureCategoryLookupHead(map);
+    if (!head) {
+      return nullptr;
+    }
+
+    if (CategoryLookupNodeView* const existing = FindCategoryLookupNode(map, categoryName); existing && existing != head) {
+      return existing;
+    }
+
+    CategoryLookupNodeView* parent = head;
+    CategoryLookupNodeView* cursor = head->parent;
+    bool insertLeft = true;
+    while (cursor != nullptr && cursor != head && cursor->isNil == 0u) {
+      parent = cursor;
+      if (CompareStringLex(categoryName, cursor->key) < 0) {
+        insertLeft = true;
+        cursor = cursor->left;
+      } else {
+        insertLeft = false;
+        cursor = cursor->right;
+      }
+    }
+
+    auto* const node = new (std::nothrow) CategoryLookupNodeView{};
+    if (!node) {
+      return head;
+    }
+
+    node->left = head;
+    node->parent = parent;
+    node->right = head;
+    node->color = kTreeBlack;
+    node->key = categoryName;
+    node->value.ResetToEmpty(wordUniverseHandle);
+    node->nodeState = 0u;
+    node->isNil = 0u;
+
+    if (parent == head) {
+      head->parent = node;
+      head->left = node;
+      head->right = node;
+    } else if (insertLeft) {
+      parent->left = node;
+      if (parent == head->left) {
+        head->left = node;
+      }
+    } else {
+      parent->right = node;
+      if (parent == head->right) {
+        head->right = node;
+      }
+    }
+
+    ++map.mSize;
+    return node;
+  }
+
+  [[nodiscard]] std::size_t SafeVectorCount(RBlueprint** const begin, RBlueprint** const end) noexcept
+  {
+    if (!begin || !end || end < begin) {
+      return 0u;
+    }
+    return static_cast<std::size_t>(end - begin);
+  }
+
+  [[nodiscard]] BlueprintOrdinalVectorView& BlueprintOrdinalVector(RRuleGameRulesImpl& rules) noexcept
+  {
+    return *reinterpret_cast<BlueprintOrdinalVectorView*>(&rules.mUnknownB4);
+  }
+
+  void AppendBlueprintOrdinal(RRuleGameRulesImpl& rules, void* const blueprintObject)
+  {
+    if (blueprintObject == nullptr) {
+      return;
+    }
+
+    BlueprintOrdinalVectorView& ordinalVector = BlueprintOrdinalVector(rules);
+    std::size_t count = SafeVectorCount(ordinalVector.mBegin, ordinalVector.mEnd);
+    const std::size_t capacity = SafeVectorCount(ordinalVector.mBegin, ordinalVector.mCapacityEnd);
+    if (ordinalVector.mBegin == nullptr || count >= capacity) {
+      const std::size_t growth = (capacity > 0u) ? std::max<std::size_t>(capacity >> 1u, 1u) : 8u;
+      const std::size_t newCapacity = capacity + growth;
+      auto** const newStorage =
+        static_cast<RBlueprint**>(::operator new(sizeof(RBlueprint*) * newCapacity, std::nothrow));
+      if (!newStorage) {
+        return;
+      }
+
+      if (ordinalVector.mBegin != nullptr && count > 0u) {
+        std::memcpy(newStorage, ordinalVector.mBegin, sizeof(RBlueprint*) * count);
+      }
+
+      ::operator delete(ordinalVector.mBegin);
+      ordinalVector.mBegin = newStorage;
+      ordinalVector.mEnd = newStorage + count;
+      ordinalVector.mCapacityEnd = newStorage + newCapacity;
+    }
+
+    *ordinalVector.mEnd = reinterpret_cast<RBlueprint*>(blueprintObject);
+    ++ordinalVector.mEnd;
+  }
+
+  [[nodiscard]] EntityCategoryLookupTableView* ResolveEntityCategoryLookupTable(RRuleGameRulesImpl& rules) noexcept
+  {
+    return reinterpret_cast<EntityCategoryLookupTableView*>(rules.mEntityCategoryLookup);
+  }
+
+  void AddCategoryMemberBit(
+    EntityCategoryLookupTableView& lookup,
+    const msvc8::string& categoryName,
+    const unsigned int categoryBitIndex
+  )
+  {
+    if (categoryName.empty()) {
+      return;
+    }
+
+    CategoryLookupMapView& categoryMap = lookup.mCategoryMap;
+    CategoryLookupNodeView* node = FindCategoryLookupNode(categoryMap, categoryName);
+    if (!node || node == categoryMap.mHead) {
+      node = InsertCategoryLookupNode(categoryMap, categoryName, lookup.mWordUniverseHandle);
+    }
+    if (!node || node == categoryMap.mHead) {
+      return;
+    }
+
+    (void)node->value.Bits().Add(categoryBitIndex);
+  }
+
+  void RegisterBlueprintCategoryMembership(
+    REntityBlueprint* const blueprint,
+    RRuleGameRulesImpl* const rules,
+    const char* const extraCategory
+  )
+  {
+    if (!blueprint || !rules) {
+      return;
+    }
+
+    EntityCategoryLookupTableView* const lookup = ResolveEntityCategoryLookupTable(*rules);
+    if (!lookup) {
+      return;
+    }
+
+    const unsigned int categoryBitIndex = blueprint->mCategoryBitIndex;
+    const auto categoriesView = msvc8::AsVectorRuntimeView(blueprint->mCategories);
+    if (categoriesView.begin != nullptr && categoriesView.end != nullptr) {
+      for (msvc8::string* it = categoriesView.begin; it != categoriesView.end; ++it) {
+        AddCategoryMemberBit(*lookup, *it, categoryBitIndex);
+      }
+    }
+
+    if (extraCategory != nullptr && *extraCategory != '\0') {
+      AddCategoryMemberBit(*lookup, msvc8::string(extraCategory), categoryBitIndex);
+    }
+
+    AddCategoryMemberBit(*lookup, blueprint->mBlueprintId, categoryBitIndex);
+  }
+
+  void InitUnitBlueprintFromLua(LuaPlus::LuaObject& luaBlueprint, RUnitBlueprint* const blueprint)
+  {
+    gpg::RRef destination{};
+    (void)gpg::RRef_RUnitBlueprint(&destination, blueprint);
+
+    LuaPlus::LuaObject source(luaBlueprint);
+    (void)SCR_LuaBuildObject(source, destination, true);
+
+    blueprint->OnInitBlueprint();
+
+    gpg::RRef resolved{};
+    (void)gpg::RRef_RUnitBlueprint(&resolved, blueprint);
+    SCR_RObjectToLuaMerge(resolved, luaBlueprint);
+  }
+
+  void InitPropBlueprintFromLua(LuaPlus::LuaObject& luaBlueprint, RPropBlueprint* const blueprint)
+  {
+    gpg::RRef destination{};
+    (void)gpg::RRef_RPropBlueprint(&destination, blueprint);
+
+    LuaPlus::LuaObject source(luaBlueprint);
+    (void)SCR_LuaBuildObject(source, destination, true);
+
+    blueprint->OnInitBlueprint();
+
+    gpg::RRef resolved{};
+    (void)gpg::RRef_RPropBlueprint(&resolved, blueprint);
+    SCR_RObjectToLuaMerge(resolved, luaBlueprint);
+  }
+
+  void InitProjectileBlueprintFromLua(LuaPlus::LuaObject& luaBlueprint, RProjectileBlueprint* const blueprint)
+  {
+    gpg::RRef destination{};
+    (void)gpg::RRef_RProjectileBlueprint(&destination, blueprint);
+
+    LuaPlus::LuaObject source(luaBlueprint);
+    (void)SCR_LuaBuildObject(source, destination, true);
+
+    blueprint->OnInitBlueprint();
+
+    gpg::RRef resolved{};
+    (void)gpg::RRef_RProjectileBlueprint(&resolved, blueprint);
+    SCR_RObjectToLuaMerge(resolved, luaBlueprint);
+  }
+
+  void InitMeshBlueprintFromLua(LuaPlus::LuaObject& luaBlueprint, RMeshBlueprint* const blueprint)
+  {
+    gpg::RRef destination{};
+    (void)gpg::RRef_RMeshBlueprint(&destination, blueprint);
+
+    LuaPlus::LuaObject source(luaBlueprint);
+    (void)SCR_LuaBuildObject(source, destination, true);
+
+    blueprint->OnInitBlueprint();
+
+    gpg::RRef resolved{};
+    (void)gpg::RRef_RMeshBlueprint(&resolved, blueprint);
+    SCR_RObjectToLuaMerge(resolved, luaBlueprint);
+  }
+
+  [[nodiscard]] LuaPlus::LuaObject EnsureLuaBlueprintTable(LuaPlus::LuaState* const state)
+  {
+    if (!state) {
+      return {};
+    }
+
+    LuaPlus::LuaObject allBlueprints = state->GetGlobal("__blueprints");
+    if (allBlueprints.IsTable()) {
+      return allBlueprints;
+    }
+
+    LuaPlus::LuaObject globals = state->GetGlobals();
+    LuaPlus::LuaObject replacement{};
+    replacement.AssignNewTable(state, 0, 0);
+    globals.SetObject("__blueprints", replacement);
+    return state->GetGlobal("__blueprints");
+  }
+
+  void PublishLuaBlueprint(
+    LuaPlus::LuaObject& luaBlueprint,
+    void* const blueprintObject,
+    RRuleGameRulesImpl* const rules
+  )
+  {
+    const RBlueprint* const blueprint = reinterpret_cast<const RBlueprint*>(blueprintObject);
+    if (!rules || !rules->mLuaState || !blueprint) {
+      return;
+    }
+
+    LuaPlus::LuaObject allBlueprints = EnsureLuaBlueprintTable(rules->mLuaState);
+    if (!allBlueprints.IsTable()) {
+      return;
+    }
+
+    allBlueprints.SetObject(blueprint->mBlueprintId.c_str(), luaBlueprint);
+  }
+
+  [[nodiscard]] msvc8::string ResolveNormalizedBlueprintId(const LuaPlus::LuaObject& blueprintSpec)
+  {
+    LuaPlus::LuaObject idObject = blueprintSpec.GetByName("BlueprintId");
+    const char* const rawId = idObject.GetString();
+    return gpg::STR_ToLower(rawId ? rawId : "");
+  }
+
+  template <typename TBlueprint, typename Initializer>
+  [[nodiscard]] TBlueprint* GetOrCreateRegisteredBlueprint(
+    LuaPlus::LuaState* const state,
+    RRuleGameRulesImpl* const rules,
+    RRuleGameRulesBlueprintMap& map,
+    const char* const blueprintTypeName,
+    Initializer initializer
+  )
+  {
+    if (!state || !state->m_state || !rules) {
+      return nullptr;
+    }
+
+    LuaPlus::LuaObject blueprintSpec(LuaPlus::LuaStackObject(state, 1));
+    const msvc8::string normalizedId = ResolveNormalizedBlueprintId(blueprintSpec);
+
+    const msvc8::string logContextText =
+      gpg::STR_Printf("Initializing %s blueprint for %s", blueprintTypeName, normalizedId.c_str());
+    gpg::ScopedLogContext logScope(logContextText);
+    if (CFG_GetArgOption("/spewbp", 0u, nullptr)) {
+      gpg::Logf("Initializing %s blueprint for %s", blueprintTypeName, normalizedId.c_str());
+    }
+
+    TBlueprint* blueprint = nullptr;
+    if (RRuleGameRulesBlueprintNode* const found = FindBlueprintMapNode(map, normalizedId);
+        found != nullptr && found != map.mHead) {
+      blueprint = static_cast<TBlueprint*>(found->mBlueprint);
+    }
+
+    if (!blueprint) {
+      RResId resourceId{};
+      gpg::STR_CopyFilename(&resourceId.name, &normalizedId);
+
+      blueprint = new (std::nothrow) TBlueprint(rules, resourceId);
+      if (!blueprint) {
+        return nullptr;
+      }
+
+      RRuleGameRulesBlueprintNode* const inserted = InsertBlueprintMapNode(map, normalizedId, blueprint);
+      if (!inserted || inserted == map.mHead) {
+        delete blueprint;
+        return nullptr;
+      }
+
+      AppendBlueprintOrdinal(*rules, blueprint);
+    }
+
+    initializer(blueprintSpec, blueprint);
+    PublishLuaBlueprint(blueprintSpec, blueprint, rules);
+    return blueprint;
+  }
+
+  template <typename TBlueprint, typename RefBuilder>
+  [[nodiscard]] TBlueprint* GetOrCreateRegisteredEffectBlueprint(
+    LuaPlus::LuaState* const state,
+    RRuleGameRulesImpl* const rules,
+    RRuleGameRulesBlueprintMap& map,
+    const char* const blueprintTypeName,
+    RefBuilder refBuilder
+  )
+  {
+    if (!state || !state->m_state || !rules) {
+      return nullptr;
+    }
+
+    LuaPlus::LuaObject blueprintSpec(LuaPlus::LuaStackObject(state, 1));
+    const msvc8::string normalizedId = ResolveNormalizedBlueprintId(blueprintSpec);
+
+    const msvc8::string logContextText =
+      gpg::STR_Printf("Initializing %s blueprint for %s", blueprintTypeName, normalizedId.c_str());
+    gpg::ScopedLogContext logScope(logContextText);
+
+    TBlueprint* blueprint = nullptr;
+    if (RRuleGameRulesBlueprintNode* const found = FindBlueprintMapNode(map, normalizedId);
+        found != nullptr && found != map.mHead) {
+      blueprint = static_cast<TBlueprint*>(found->mBlueprint);
+    }
+
+    if (!blueprint) {
+      blueprint = new (std::nothrow) TBlueprint();
+      if (!blueprint) {
+        return nullptr;
+      }
+
+      blueprint->mOwnerRules = rules;
+      gpg::STR_CopyFilename(&blueprint->BlueprintId.name, &normalizedId);
+
+      RRuleGameRulesBlueprintNode* const inserted = InsertBlueprintMapNode(map, normalizedId, blueprint);
+      if (!inserted || inserted == map.mHead) {
+        delete blueprint;
+        return nullptr;
+      }
+    }
+
+    gpg::RRef destination{};
+    (void)refBuilder(&destination, blueprint);
+
+    LuaPlus::LuaObject source(blueprintSpec);
+    (void)SCR_LuaBuildObject(source, destination, true);
+    return blueprint;
+  }
+
+  // Recovered helper chain for FUN_00528B90/FUN_00528C60/FUN_00528D30:
+  // create-or-lookup blueprint object, apply Lua data to reflected fields,
+  // mirror into __blueprints, and publish category-bit membership.
+
+  /**
+   * Address: 0x00532080 (FUN_00532080, func_CreateRPropBlueprint)
+   *
+   * What it does:
+   * Creates or resolves one prop blueprint from Lua stack lane 1, applies Lua
+   * payload fields, and publishes the merged object into `__blueprints`.
+   */
+  [[nodiscard]] RPropBlueprint* CreateOrGetPropBlueprintFromState(
+    LuaPlus::LuaState* const state,
+    RRuleGameRulesImpl* const rules
+  )
+  {
+    return GetOrCreateRegisteredBlueprint<RPropBlueprint>(
+      state,
+      rules,
+      rules->mPropBlueprints,
+      "prop",
+      [](LuaPlus::LuaObject& blueprintSpec, RPropBlueprint* const propBlueprint) {
+        InitPropBlueprintFromLua(blueprintSpec, propBlueprint);
+      }
+    );
+  }
+
+  /**
+   * Address: 0x00531D80 (FUN_00531D80, func_CreateRUnitBlueprint)
+   *
+   * What it does:
+   * Creates or resolves one unit blueprint from Lua stack lane 1, applies Lua
+   * payload fields, and publishes the merged object into `__blueprints`.
+   */
+  [[nodiscard]] RUnitBlueprint* CreateOrGetUnitBlueprintFromState(
+    LuaPlus::LuaState* const state,
+    RRuleGameRulesImpl* const rules
+  )
+  {
+    return GetOrCreateRegisteredBlueprint<RUnitBlueprint>(
+      state,
+      rules,
+      rules->mUnitBlueprints,
+      "unit",
+      [](LuaPlus::LuaObject& blueprintSpec, RUnitBlueprint* const unitBlueprint) {
+        InitUnitBlueprintFromLua(blueprintSpec, unitBlueprint);
+      }
+    );
+  }
 
   /**
    * Address: 0x00528B90 (FUN_00528B90)
    *
    * What it does:
-   * Fast-path helper that, in the FA binary, registers one unit blueprint
-   * from an already-cast Lua state into the rules unit-blueprint map and
-   * category lookup. Currently a no-op because the func_CreateRUnitBlueprint
-   * (FUN_00531D80) and func_RegisterBlueprint (FUN_005289D0) helpers it
-   * delegates to are blocked recovery — see the comment in the anonymous
-   * namespace above for the full block list.
+   * Registers one unit blueprint from Lua into the rules unit map, updates
+   * the ordinal/__blueprints lanes, and inserts category bits (including
+   * implicit ALLUNITS membership).
    */
   int RegisterUnitBlueprintFromState(LuaPlus::LuaState* const state)
   {
-    (void)state;
+    RRuleGameRulesImpl* const rules = ResolveLuaBlueprintRules(state);
+    if (!rules) {
+      return 0;
+    }
+
+    RUnitBlueprint* const blueprint = CreateOrGetUnitBlueprintFromState(state, rules);
+    RegisterBlueprintCategoryMembership(blueprint, rules, "ALLUNITS");
     return 0;
   }
 
@@ -9882,28 +11642,178 @@ namespace
    * Address: 0x00528C60 (FUN_00528C60)
    *
    * What it does:
-   * Fast-path helper that, in the FA binary, registers one prop blueprint
-   * from an already-cast Lua state and updates category lookup lanes.
-   * Currently a no-op for the same reason as RegisterUnitBlueprintFromState.
+   * Registers one prop blueprint from Lua into the rules prop map, updates
+   * the ordinal/__blueprints lanes, and publishes category-bit membership
+   * from Blueprint.Categories plus blueprint id.
    */
   int RegisterPropBlueprintFromState(LuaPlus::LuaState* const state)
   {
-    (void)state;
+    RRuleGameRulesImpl* const rules = ResolveLuaBlueprintRules(state);
+    if (!rules) {
+      return 0;
+    }
+
+    RPropBlueprint* const blueprint = CreateOrGetPropBlueprintFromState(state, rules);
+    RegisterBlueprintCategoryMembership(blueprint, rules, nullptr);
     return 0;
+  }
+
+  /**
+   * Address: 0x00532380 (FUN_00532380, func_CreateRProjectileBlueprint)
+   *
+   * What it does:
+   * Creates or resolves one projectile blueprint from Lua stack lane 1,
+   * applies Lua payload fields, and publishes the merged object into
+   * `__blueprints`.
+   */
+  [[nodiscard]] RProjectileBlueprint* CreateOrGetProjectileBlueprintFromState(
+    LuaPlus::LuaState* const state,
+    RRuleGameRulesImpl* const rules
+  )
+  {
+    return GetOrCreateRegisteredBlueprint<RProjectileBlueprint>(
+      state,
+      rules,
+      rules->mProjectileBlueprints,
+      "projectile",
+      [](LuaPlus::LuaObject& blueprintSpec, RProjectileBlueprint* const projectileBlueprint) {
+        InitProjectileBlueprintFromLua(blueprintSpec, projectileBlueprint);
+      }
+    );
   }
 
   /**
    * Address: 0x00528D30 (FUN_00528D30)
    *
    * What it does:
-   * Fast-path helper that, in the FA binary, registers one projectile
-   * blueprint from an already-cast Lua state into the projectile map and
-   * category lookup. Currently a no-op for the same reason as
-   * RegisterUnitBlueprintFromState.
+   * Registers one projectile blueprint from Lua into the rules projectile
+   * map, updates the ordinal/__blueprints lanes, and inserts category bits
+   * (including implicit ALLPROJECTILES membership).
    */
   int RegisterProjectileBlueprintFromState(LuaPlus::LuaState* const state)
   {
-    (void)state;
+    RRuleGameRulesImpl* const rules = ResolveLuaBlueprintRules(state);
+    if (!rules) {
+      return 0;
+    }
+
+    RProjectileBlueprint* const blueprint = CreateOrGetProjectileBlueprintFromState(state, rules);
+    RegisterBlueprintCategoryMembership(blueprint, rules, "ALLPROJECTILES");
+    return 0;
+  }
+
+  /**
+   * Address: 0x00532680 (FUN_00532680, func_RegisterMeshBlueprint)
+   *
+   * What it does:
+   * Creates or resolves one mesh blueprint from Lua stack lane 1, applies Lua
+   * payload fields, and publishes the merged object into `__blueprints`.
+   */
+  [[nodiscard]] RMeshBlueprint* CreateOrGetMeshBlueprintFromState(
+    LuaPlus::LuaState* const state,
+    RRuleGameRulesImpl* const rules
+  )
+  {
+    return GetOrCreateRegisteredBlueprint<RMeshBlueprint>(
+      state,
+      rules,
+      rules->mMeshBlueprints,
+      "mesh",
+      [](LuaPlus::LuaObject& blueprintSpec, RMeshBlueprint* const meshBlueprint) {
+        InitMeshBlueprintFromLua(blueprintSpec, meshBlueprint);
+      }
+    );
+  }
+
+  int RegisterMeshBlueprintFromState(LuaPlus::LuaState* const state)
+  {
+    RRuleGameRulesImpl* const rules = ResolveLuaBlueprintRules(state);
+    if (!rules) {
+      return 0;
+    }
+
+    RMeshBlueprint* const blueprint = CreateOrGetMeshBlueprintFromState(state, rules);
+    (void)blueprint;
+    return 0;
+  }
+
+  /**
+   * Address: 0x00532980 (FUN_00532980, func_RegisterTrailEmitterBlueprint)
+   *
+   * What it does:
+   * Creates or resolves one trail-emitter blueprint from Lua stack lane 1,
+   * then applies reflected field values from the Lua object into that
+   * blueprint instance.
+   */
+  int RegisterTrailEmitterBlueprintFromState(LuaPlus::LuaState* const state)
+  {
+    RRuleGameRulesImpl* const rules = ResolveLuaBlueprintRules(state);
+    if (!rules) {
+      return 0;
+    }
+
+    (void)GetOrCreateRegisteredEffectBlueprint<RTrailBlueprint>(
+      state,
+      rules,
+      rules->mTrailBlueprints,
+      "trail emitter",
+      [](gpg::RRef* const out, RTrailBlueprint* const trailBlueprint) {
+        return gpg::RRef_RTrailBlueprint(out, trailBlueprint);
+      }
+    );
+    return 0;
+  }
+
+  /**
+   * Address: 0x00532C10 (FUN_00532C10, func_RegisterEmitterBlueprint)
+   *
+   * What it does:
+   * Creates or resolves one particle-emitter blueprint from Lua stack lane 1,
+   * then applies reflected field values from the Lua object into that
+   * blueprint instance.
+   */
+  int RegisterEmitterBlueprintFromState(LuaPlus::LuaState* const state)
+  {
+    RRuleGameRulesImpl* const rules = ResolveLuaBlueprintRules(state);
+    if (!rules) {
+      return 0;
+    }
+
+    (void)GetOrCreateRegisteredEffectBlueprint<REmitterBlueprint>(
+      state,
+      rules,
+      rules->mEmitterBlueprints,
+      "particle emitter",
+      [](gpg::RRef* const out, REmitterBlueprint* const emitterBlueprint) {
+        return gpg::RRef_REmitterBlueprint(out, emitterBlueprint);
+      }
+    );
+    return 0;
+  }
+
+  /**
+   * Address: 0x00532EC0 (FUN_00532EC0, func_RegisterBeamBlueprint)
+   *
+   * What it does:
+   * Creates or resolves one beam blueprint from Lua stack lane 1, then applies
+   * reflected field values from the Lua object into that blueprint instance.
+   */
+  int RegisterBeamBlueprintFromState(LuaPlus::LuaState* const state)
+  {
+    RRuleGameRulesImpl* const rules = ResolveLuaBlueprintRules(state);
+    if (!rules) {
+      return 0;
+    }
+
+    (void)GetOrCreateRegisteredEffectBlueprint<RBeamBlueprint>(
+      state,
+      rules,
+      rules->mBeamBlueprints,
+      "beam effect",
+      [](gpg::RRef* const out, RBeamBlueprint* const beamBlueprint) {
+        return gpg::RRef_RBeamBlueprint(out, beamBlueprint);
+      }
+    );
     return 0;
   }
 } // namespace
@@ -9953,13 +11863,7 @@ int moho::cfunc_RegisterProjectileBlueprint(lua_State* const luaContext)
  */
 int moho::cfunc_RegisterMeshBlueprint(lua_State* const luaContext)
 {
-  // Body delegates to func_RegisterMeshBlueprint at FUN_00532680 (blocked
-  // recovery; see the deferred-helper block in the anonymous namespace
-  // above). Until that helper is reconstructed, this Lua C function is a
-  // no-op — mesh blueprints registered through this entry point silently
-  // drop.
-  (void)luaContext;
-  return 0;
+  return RegisterMeshBlueprintFromState(LuaPlus::LuaState::CastState(luaContext));
 }
 
 /**
@@ -9971,12 +11875,7 @@ int moho::cfunc_RegisterMeshBlueprint(lua_State* const luaContext)
  */
 int moho::cfunc_RegisterTrailEmitterBlueprint(lua_State* const luaContext)
 {
-  // Body delegates to func_RegisterTrailEmitterBlueprint at FUN_00532980
-  // (blocked recovery; see the deferred-helper block in the anonymous
-  // namespace above). Until that helper is reconstructed, this Lua C
-  // function is a no-op.
-  (void)luaContext;
-  return 0;
+  return RegisterTrailEmitterBlueprintFromState(LuaPlus::LuaState::CastState(luaContext));
 }
 
 /**
@@ -9988,12 +11887,7 @@ int moho::cfunc_RegisterTrailEmitterBlueprint(lua_State* const luaContext)
  */
 int moho::cfunc_RegisterEmitterBlueprint(lua_State* const luaContext)
 {
-  // Body delegates to func_RegisterEmitterBlueprint at FUN_00532C10
-  // (blocked recovery; see the deferred-helper block in the anonymous
-  // namespace above). Until that helper is reconstructed, this Lua C
-  // function is a no-op.
-  (void)luaContext;
-  return 0;
+  return RegisterEmitterBlueprintFromState(LuaPlus::LuaState::CastState(luaContext));
 }
 
 /**
@@ -10005,12 +11899,7 @@ int moho::cfunc_RegisterEmitterBlueprint(lua_State* const luaContext)
  */
 int moho::cfunc_RegisterBeamBlueprint(lua_State* const luaContext)
 {
-  // Body delegates to func_RegisterBeamBlueprint at FUN_00532EC0 (blocked
-  // recovery; see the deferred-helper block in the anonymous namespace
-  // above). Until that helper is reconstructed, this Lua C function is a
-  // no-op.
-  (void)luaContext;
-  return 0;
+  return RegisterBeamBlueprintFromState(LuaPlus::LuaState::CastState(luaContext));
 }
 
 /**
@@ -13667,15 +15556,16 @@ int moho::cfunc_GetIdleEngineersL(LuaPlus::LuaState* const state)
     LuaPlus::LuaState::Error(state, kLuaExpectedArgsWarning, kGetIdleEngineersHelpText, 0, argumentCount);
   }
 
-  const UserEntityWeakSetRuntimeView* const idleSet = ResolveIdleUnitSetView(focusArmy, false);
-  if (idleSet == nullptr || idleSet->head == nullptr || idleSet->size == 0u) {
+  UserEntityWeakSetRuntimeView* const idleSet = ResolveIdleUnitSetView(focusArmy, false);
+  const int liveUnitCount = CountLiveUserEntityWeakSetEntriesAndPrune(idleSet);
+  if (idleSet == nullptr || idleSet->head == nullptr || liveUnitCount <= 0) {
     lua_pushnil(rawState);
     (void)lua_gettop(rawState);
     return 1;
   }
 
   LuaPlus::LuaObject resultTable(state);
-  resultTable.AssignNewTable(state, static_cast<int>(idleSet->size), 0u);
+  resultTable.AssignNewTable(state, liveUnitCount, 0u);
 
   std::int32_t luaIndex = 1;
   for (UserEntityWeakSetNodeRuntimeView* node = WeakSetFirstNode(*idleSet);
@@ -13742,15 +15632,16 @@ int moho::cfunc_GetIdleFactoriesL(LuaPlus::LuaState* const state)
     LuaPlus::LuaState::Error(state, kLuaExpectedArgsWarning, kGetIdleFactoriesHelpText, 0, argumentCount);
   }
 
-  const UserEntityWeakSetRuntimeView* const idleSet = ResolveIdleUnitSetView(focusArmy, true);
-  if (idleSet == nullptr || idleSet->head == nullptr || idleSet->size == 0u) {
+  UserEntityWeakSetRuntimeView* const idleSet = ResolveIdleUnitSetView(focusArmy, true);
+  const int liveUnitCount = CountLiveUserEntityWeakSetEntriesAndPrune(idleSet);
+  if (idleSet == nullptr || idleSet->head == nullptr || liveUnitCount <= 0) {
     lua_pushnil(rawState);
     (void)lua_gettop(rawState);
     return 1;
   }
 
   LuaPlus::LuaObject resultTable(state);
-  resultTable.AssignNewTable(state, static_cast<int>(idleSet->size), 0u);
+  resultTable.AssignNewTable(state, liveUnitCount, 0u);
 
   std::int32_t luaIndex = 1;
   for (UserEntityWeakSetNodeRuntimeView* node = WeakSetFirstNode(*idleSet);
@@ -16155,6 +18046,26 @@ moho::CScrLuaInitForm* moho::func_GetArmiesTable_LuaFuncDef()
 }
 
 /**
+ * Address: 0x008485C0 (FUN_008485C0)
+ *
+ * What it does:
+ * Copies one `UserArmy*` vector lane into caller scratch storage for stable
+ * iteration during Lua table materialization.
+ */
+static msvc8::vector<moho::UserArmy*>* SnapshotUserArmyVector(
+  const msvc8::vector<moho::UserArmy*>& source,
+  msvc8::vector<moho::UserArmy*>* const outSnapshot
+)
+{
+  if (outSnapshot == nullptr) {
+    return nullptr;
+  }
+
+  *outSnapshot = source;
+  return outSnapshot;
+}
+
+/**
  * Address: 0x00843A20 (FUN_00843A20, cfunc_GetArmiesTableL)
  *
  * What it does:
@@ -16178,7 +18089,9 @@ int moho::cfunc_GetArmiesTableL(LuaPlus::LuaState* const state)
     LuaPlus::LuaState::Error(state, kNoSessionStartedText);
   }
 
-  const msvc8::vector<UserArmy*>& armies = session->userArmies;
+  msvc8::vector<UserArmy*> armiesSnapshot{};
+  SnapshotUserArmyVector(session->userArmies, &armiesSnapshot);
+  const msvc8::vector<UserArmy*>& armies = armiesSnapshot;
   const std::size_t armyCount = armies.size();
 
   LuaPlus::LuaObject result(state);
@@ -23185,3 +25098,17 @@ void SimTypeInfo::Init()
   gpg::RType::Init();
   Finish();
 }
+
+/**
+ * Address: 0x00743230 (FUN_00743230, preregister_SimTypeInfo)
+ *
+ * What it does:
+ * Constructs/preregisters RTTI metadata for `moho::Sim`.
+ */
+[[nodiscard]] gpg::RType* preregister_SimTypeInfo()
+{
+  static SimTypeInfo typeInfo;
+  gpg::PreRegisterRType(typeid(Sim), &typeInfo);
+  return &typeInfo;
+}
+

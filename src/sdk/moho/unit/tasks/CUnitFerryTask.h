@@ -9,7 +9,6 @@
 
 namespace moho
 {
-  class CUnitCommand;
   class IAiCommandDispatchImpl;
   class Unit;
 
@@ -32,10 +31,10 @@ namespace moho
      * Address: 0x0060DFC0 (FUN_0060DFC0, Moho::CUnitFerryTask::CUnitFerryTask)
      *
      * What it does:
-     * Initializes one ferry-task lane from parent command-task and command
+     * Initializes one ferry-task lane from parent command-task and target-unit
      * payload context.
      */
-    CUnitFerryTask(CCommandTask* parentTask, CUnitCommand* command);
+    CUnitFerryTask(CCommandTask* parentTask, Unit* targetUnit);
 
     /**
      * Address: 0x0060F7E0 (FUN_0060F7E0, Moho::CUnitFerryTask::operator new)
@@ -44,7 +43,7 @@ namespace moho
      * Allocates one ferry-task object and forwards constructor arguments into
      * in-place construction.
      */
-    [[nodiscard]] static CUnitFerryTask* Create(CCommandTask* parentTask, CUnitCommand* command);
+    [[nodiscard]] static CUnitFerryTask* Create(CCommandTask* parentTask, Unit* targetUnit);
 
   public:
     IAiCommandDispatchImpl* mDispatch; // 0x30

@@ -211,6 +211,8 @@
     <ClCompile Include="gpg\core\reflection\RTypeTypeInfo.cpp" />
     <ClCompile Include="gpg\core\reflection\RObjectTypeInfo.cpp" />
     <ClCompile Include="gpg\core\containers\FastVectorUIntReflection.cpp" />
+    <ClCompile Include="gpg\core\containers\FastVectorInsertLanes.cpp" />
+    <ClCompile Include="gpg\core\containers\CheckedArrayAllocationLanes.cpp" />
     <ClCompile Include="moho\serialization\PrefetchHandleBaseVectorReflection.cpp" />
     <ClCompile Include="moho\serialization\CPrefetchSet.cpp" />
     <ClCompile Include="moho\serialization\CPrefetchSetSerializer.cpp" />
@@ -361,6 +363,7 @@
     <ClCompile Include="moho\ai\IAiTransport.cpp" />
     <ClCompile Include="moho\ai\IAiTransportSerializer.cpp" />
     <ClCompile Include="moho\ai\IAiTransportTypeInfo.cpp" />
+    <ClCompile Include="moho\ai\SPickUpInfo.cpp" />
     <ClCompile Include="moho\ai\LAiAttackerImpl.cpp" />
     <ClCompile Include="moho\ai\LAiAttackerImplSerializer.cpp" />
     <ClCompile Include="moho\ai\LAiAttackerImplTypeInfo.cpp" />
@@ -414,6 +417,7 @@
     <ClCompile Include="moho\animation\CAnimTexture.cpp" />
     <ClCompile Include="moho\animation\CAniActor.cpp" />
     <ClCompile Include="moho\animation\CAniPose.cpp" />
+    <ClCompile Include="moho\animation\CAniPoseBoneTypeInfo.cpp" />
     <ClCompile Include="moho\animation\CAniPoseSharedPtrReflection.cpp" />
     <ClCompile Include="moho\animation\CAniPoseTypeInfo.cpp" />
     <ClCompile Include="moho\animation\CAniSkel.cpp" />
@@ -875,6 +879,7 @@
     <ClCompile Include="moho\sim\SimGravityCommandRegistrations.cpp" />
     <ClCompile Include="moho\sim\SimDebugCommandRegistrations.cpp" />
     <ClCompile Include="moho\sim\SimFloatInitializers.cpp" />
+    <ClCompile Include="moho\sim\SimRecoveryRuntime.cpp" />
     <ClCompile Include="moho\sim\ManipulatorStartupRegistrations.cpp" />
     <ClCompile Include="moho\sim\SimStartupRegistrations.cpp" />
     <ClCompile Include="moho\sim\SPhysConstantsTypeInfo.cpp" />
@@ -1021,6 +1026,7 @@
     <ClCompile Include="moho\unit\tasks\CUnitCallTeleport.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitCallTeleportTypeInfo.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitTeleportTaskTypeInfo.cpp" />
+    <ClCompile Include="moho\unit\tasks\CUnitWaitForFerryTask.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitWaitForFerryTaskTypeInfo.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitCallTransport.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitCallTransportTypeInfo.cpp" />
@@ -1030,10 +1036,12 @@
     <ClCompile Include="moho\unit\tasks\CBuildTaskHelperTypeInfo.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitCaptureTask.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitCaptureTaskTypeInfo.cpp" />
+    <ClCompile Include="moho\unit\tasks\CUnitAssistMoveTask.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitAssistMoveTaskTypeInfo.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitGuardTask.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitGuardTaskTypeInfo.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitFerryTask.cpp" />
+    <ClCompile Include="moho\unit\tasks\CUnitFerryTaskTypeInfo.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitMeleeAttackTargetTaskTypeInfo.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitMeleeAttackTargetTask.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitFormAndMoveTaskTypeInfo.cpp" />
@@ -1042,6 +1050,7 @@
     <ClCompile Include="moho\unit\tasks\CUnitReclaimTask.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitAttackTargetTask.cpp" />
       <ClCompile Include="moho\unit\tasks\CUnitAttackTargetTaskTypeInfo.cpp" />
+      <ClCompile Include="moho\unit\tasks\CUnitMobileBuildTask.cpp" />
       <ClCompile Include="moho\unit\tasks\CUnitMobileBuildTaskTypeInfo.cpp" />
       <ClCompile Include="moho\unit\tasks\CUnitRepairTask.cpp" />
       <ClCompile Include="moho\unit\tasks\CUnitRepairTaskTypeInfo.cpp" />
@@ -1052,8 +1061,12 @@
     <ClCompile Include="moho\unit\tasks\CUnitMoveTask.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitMoveTaskTypeInfo.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitPatrolTask.cpp" />
+    <ClCompile Include="moho\unit\tasks\CUnitPatrolTaskTypeInfo.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitPodAssist.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitPodAssistTypeInfo.cpp" />
+    <ClCompile Include="moho\unit\tasks\CUnitLoadUnits.cpp" />
+    <ClCompile Include="moho\unit\tasks\CUnitLoadUnitsSerializer.cpp" />
+    <ClCompile Include="moho\unit\tasks\CUnitLoadUnitsTypeInfo.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitUnloadUnits.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitUnloadUnitsTypeInfo.cpp" />
     <ClCompile Include="moho\unit\tasks\CUnitUpgradeTask.cpp" />
@@ -1164,6 +1177,8 @@
     <ClInclude Include="gpg\core\reflection\RMapStringFloatTypeInfo.h" />
     <ClInclude Include="gpg\core\reflection\Reflection.h" />
     <ClInclude Include="gpg\core\containers\FastVectorUIntReflection.h" />
+    <ClInclude Include="gpg\core\containers\FastVectorInsertLanes.h" />
+    <ClInclude Include="gpg\core\containers\CheckedArrayAllocationLanes.h" />
     <ClInclude Include="moho\serialization\PrefetchHandleBaseVectorReflection.h" />
     <ClInclude Include="moho\serialization\CPrefetchSet.h" />
     <ClInclude Include="moho\serialization\CPrefetchSetSerializer.h" />
@@ -1293,6 +1308,7 @@
     <ClInclude Include="moho\animation\CAnimTexture.h" />
     <ClInclude Include="moho\animation\CAniActor.h" />
     <ClInclude Include="moho\animation\CAniPose.h" />
+    <ClInclude Include="moho\animation\CAniPoseBoneTypeInfo.h" />
     <ClInclude Include="moho\animation\CAniPoseSharedPtrReflection.h" />
     <ClInclude Include="moho\animation\CAniPoseTypeInfo.h" />
     <ClInclude Include="moho\animation\CAniSkel.h" />
@@ -1684,6 +1700,7 @@
     <ClInclude Include="moho\ai\IAiTransport.h" />
     <ClInclude Include="moho\ai\IAiTransportSerializer.h" />
     <ClInclude Include="moho\ai\IAiTransportTypeInfo.h" />
+    <ClInclude Include="moho\ai\SPickUpInfo.h" />
     <ClInclude Include="moho\ai\LAiAttackerImpl.h" />
     <ClInclude Include="moho\ai\LAiAttackerImplSerializer.h" />
     <ClInclude Include="moho\ai\LAiAttackerImplTypeInfo.h" />
@@ -2069,6 +2086,7 @@
     <ClInclude Include="moho\unit\tasks\CUnitGuardTask.h" />
     <ClInclude Include="moho\unit\tasks\CUnitGuardTaskTypeInfo.h" />
     <ClInclude Include="moho\unit\tasks\CUnitFerryTask.h" />
+    <ClInclude Include="moho\unit\tasks\CUnitFerryTaskTypeInfo.h" />
     <ClInclude Include="moho\unit\tasks\CUnitMeleeAttackTargetTask.h" />
     <ClInclude Include="moho\unit\tasks\CUnitMeleeAttackTargetTaskTypeInfo.h" />
     <ClInclude Include="moho\unit\tasks\CUnitFormAndMoveTask.h" />
@@ -2086,8 +2104,12 @@
     <ClInclude Include="moho\unit\tasks\CUnitMoveTask.h" />
     <ClInclude Include="moho\unit\tasks\CUnitMoveTaskTypeInfo.h" />
     <ClInclude Include="moho\unit\tasks\CUnitPatrolTask.h" />
+    <ClInclude Include="moho\unit\tasks\CUnitPatrolTaskTypeInfo.h" />
     <ClInclude Include="moho\unit\tasks\CUnitPodAssist.h" />
     <ClInclude Include="moho\unit\tasks\CUnitPodAssistTypeInfo.h" />
+    <ClInclude Include="moho\unit\tasks\CUnitLoadUnits.h" />
+    <ClInclude Include="moho\unit\tasks\CUnitLoadUnitsSerializer.h" />
+    <ClInclude Include="moho\unit\tasks\CUnitLoadUnitsTypeInfo.h" />
     <ClInclude Include="moho\unit\tasks\CUnitUnloadUnits.h" />
     <ClInclude Include="moho\unit\tasks\CUnitUnloadUnitsTypeInfo.h" />
     <ClInclude Include="moho\unit\tasks\CUnitUpgradeTask.h" />

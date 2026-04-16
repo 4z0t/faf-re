@@ -2,27 +2,27 @@
 
 Reconstruction/disassembly project for the old **Supreme Commander: Forged Alliance** engine and game binaries. Inspired by [Forged Alliance Forever](https://faforever.com) team-work.
 
-## Recovery Coverage (`16/04/2026`, `fa_full_2026_03_26`)
+## Recovery Coverage (`17/04/2026`, `fa_full_2026_03_26`)
 
 Progress snapshot:
 
 - Total FAF functions: `67,167`
   - *IDA index, exported*
-- Progress coverage:  **`55.57%`**
+- Progress coverage:  **`70.06%`**
   - *Consists of `recovered` + `skip` + `external_dependency` ÷ exported*
-  - *Total amount of completed tokens: `37,324`*
+  - *Total amount of completed tokens: `47,056`*
 
 Progress DB status breakdown:
 
-- `recovered`: `27,766` (74.39%)
-- `skip`: `5,774` (15.47%) — CRT-internal / compiler-generated / orphan template instantiations / static-init glue
-- `external_dependency`: `3,784` (10.14%) — third-party libs
+- `recovered`: `37,564` (79.81%)
+- `skip`: `5,707` (12.13%) — CRT-internal / compiler-generated / orphan template instantiations / static-init glue
+- `external_dependency`: `3,785` (8.04%) — third-party libs
   - *libpng, zlib, wxWidgets, LuaPlus/Lua, boost, MSVC STL, CRI Sofdec/ADX, undname, bugsplat, CRT helpers*
-- `needs_evidence`: `614` (1.65%)
-- **`blocked`: `516` (1.38%)**
+- `needs_evidence`: `2,561` (3.81%)
+- **`blocked`: `2,038` (3.03%)**
   - *strict circular/dep-blocked (in-DB literal `status == "blocked"`)*  
-  - *combined with `needs_evidence`, the "not-yet-recovered non-engine-external" bucket is `1,130`*
-  - *the `stats` tool's `blocked_count` aggregates the same two buckets and reports `1,130`*
+  - *combined with `needs_evidence`, the "not-yet-recovered non-engine-external" bucket is `4,599`*
+  - *the `stats` tool's `blocked_count` aggregates the same two buckets and reports `4,599`*
     — functions previously attempted that depend on an unrecovered subsystem, a not-yet-typed owner class, or a non-trivial call-tree not yet walked bottom-up.
 
 ## Build Quickstart + Patches
@@ -48,11 +48,11 @@ msbuild src\sdk\sdk.vcxproj /t:Build /p:Configuration=Debug /p:Platform=Win32
 
 This command is validated in a VS developer shell; expected result is `0 Error(s), 0 Warning(s)`.
 
-Latest build coverage snapshot (`16/04/2026`):
+Latest build coverage snapshot (`17/04/2026`):
 
 - Command: `build_sdk.bat`
 - Result: `0 Error(s), 0 Warning(s)`
-- Verification log: `tmp/build_sdk_stdout_pass4.log`
+- Verification log: `tmp/build_sdk_stdout_2026-04-17.log`
 
 Recommended hang-safe build wrapper:
 
@@ -88,6 +88,16 @@ Patch/build details:
 ## Notes
 
 - `USE_X87_COMPATIBILITY`: keeps x87-compatible floating-point behavior where needed.
+
+## Support / Donations
+
+This reconstruction effort is heavily AI-assisted for large-scale binary/code analysis and recovery workflows.  
+AI tools help speed up a big part of the work, but they also require multiple paid subscriptions and personal tooling costs.
+
+If you want to support the project and help cover those AI-tools subscriptions, donations are welcome:
+
+- BTC: `1PisoseCX7ALNvZnZAD28qax19gyi8VUE5`
+- ETH: `0xb4CCC68BEfcDEA01eABfB8B2b8aBB87185e0D87e`
 
 ## Credits
 

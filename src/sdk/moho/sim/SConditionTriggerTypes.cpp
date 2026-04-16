@@ -49,7 +49,7 @@ namespace
 
   void DestroySTriggerState(moho::STrigger* const trigger)
   {
-    // Address: 0x00711A90 (FUN_00711A90, sub_711A90).
+    // Alias of FUN_00711A90 (non-canonical helper lane).
     if (!trigger) {
       return;
     }

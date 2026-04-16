@@ -18,6 +18,23 @@ namespace
 } // namespace
 
 /**
+ * Address: 0x006A5340 (FUN_006A5340, ??0IUnit@Moho@@QAE@XZ)
+ *
+ * Moho::IUnit
+ *
+ * IDA signature:
+ * struct Moho::IUnit *__thiscall Moho::IUnit::IUnit(Moho::IUnit *this)
+ *
+ * What it does:
+ * Initializes the weak-link head lane to null for intrusive weak-pointer
+ * ownership and leaves the vtable install to the constructor prologue.
+ */
+IUnit::IUnit() noexcept
+{
+  weakLinkHead_ = 0;
+}
+
+/**
  * Address: 0x006A48C0 (?IsUnit@IUnit@Moho@@UBEPBVUnit@2@XZ)
  *
  * Moho::Unit const *

@@ -22,7 +22,6 @@ namespace
   {
     if (!gEAiAttackerEventTypeInfoConstructed) {
       auto* const typeInfo = new (gEAiAttackerEventTypeInfoStorage) EAiAttackerEventTypeInfo();
-      gpg::PreRegisterRType(typeid(EAiAttackerEvent), typeInfo);
       gEAiAttackerEventTypeInfoConstructed = true;
     }
 
@@ -106,6 +105,14 @@ namespace
     gEAiAttackerEventPrimitiveSerializerConstructed = false;
   }
 } // namespace
+
+/**
+ * Address: 0x005D59A0 (FUN_005D59A0, Moho::EAiAttackerEventTypeInfo::EAiAttackerEventTypeInfo)
+ */
+EAiAttackerEventTypeInfo::EAiAttackerEventTypeInfo()
+{
+  gpg::PreRegisterRType(typeid(EAiAttackerEvent), this);
+}
 
 /**
  * Address: 0x005D5A30 (FUN_005D5A30, scalar deleting thunk)

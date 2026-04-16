@@ -1,6 +1,7 @@
 #include "moho/render/CDecalBufferTypeInfo.h"
 
 #include <new>
+#include <typeinfo>
 
 #include "moho/render/CDecalBuffer.h"
 
@@ -87,5 +88,18 @@ namespace moho
     deleteFunc_ = &Delete_CDecalBuffer;
     dtrFunc_ = &Dtr_CDecalBuffer;
     Finish();
+  }
+
+  /**
+   * Address: 0x00778ED0 (FUN_00778ED0, preregister_CDecalBufferTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `moho::CDecalBuffer`.
+   */
+  [[nodiscard]] gpg::RType* preregister_CDecalBufferTypeInfo()
+  {
+    static CDecalBufferTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(CDecalBuffer), &typeInfo);
+    return &typeInfo;
   }
 } // namespace moho

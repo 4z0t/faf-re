@@ -67,6 +67,22 @@ namespace
   }
 
   /**
+   * Address: 0x005792A0 (FUN_005792A0)
+   *
+   * What it does:
+   * Preserves one duplicate Lua-object copy lane used by terrain-type vector
+   * growth paths and returns the destination end pointer.
+   */
+  [[maybe_unused]] LuaPlus::LuaObject* CopyConstructLuaObjectRangeLaneB(
+    const LuaPlus::LuaObject* from,
+    LuaPlus::LuaObject* destination,
+    const LuaPlus::LuaObject* to
+  )
+  {
+    return CopyConstructLuaObjectRange(from, destination, to);
+  }
+
+  /**
    * Address: 0x005786F0 (FUN_005786F0, sub_5786F0)
    *
    * What it does:
@@ -199,7 +215,7 @@ namespace
   }
 
   /**
-   * Address: 0x0042AC30 (FUN_0042AC30, nullsub_1)
+    * Alias of FUN_0042AC30 (non-canonical helper lane).
    *
    * What it does:
    * No-op helper reached from shared-pointer setup path.
@@ -2033,6 +2049,21 @@ namespace
 
 namespace moho
 {
+  /**
+   * Address: 0x00578F90 (FUN_00578F90, boost::shared_ptr_CHeightField::shared_ptr_CHeightField)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<CHeightField>` from one raw height-field
+   * pointer lane.
+   */
+  boost::shared_ptr<CHeightField>* ConstructSharedHeightFieldFromRaw(
+    boost::shared_ptr<CHeightField>* const outHeightField,
+    CHeightField* const heightField
+  )
+  {
+    return ::new (outHeightField) boost::shared_ptr<CHeightField>(heightField);
+  }
+
   /**
    * Address: 0x00476090 (FUN_00476090)
    *

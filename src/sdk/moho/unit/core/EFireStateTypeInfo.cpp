@@ -1,9 +1,22 @@
 ﻿#include "moho/unit/core/EFireStateTypeInfo.h"
 
 #include <cstdint>
+#include <typeinfo>
 
 namespace moho
 {
+  /**
+   * Address: 0x0055B990 (FUN_0055B990, Moho::EFireStateTypeInfo::EFireStateTypeInfo)
+   *
+   * What it does:
+   * Preregisters the enum type descriptor for `EFireState` with the reflection registry.
+   */
+  EFireStateTypeInfo::EFireStateTypeInfo()
+    : gpg::REnumType()
+  {
+    gpg::PreRegisterRType(typeid(EFireState), this);
+  }
+
   /**
    * Address: 0x0055BA20 (FUN_0055BA20, Moho::EFireStateTypeInfo::dtr)
    */

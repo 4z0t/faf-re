@@ -1,9 +1,22 @@
 ﻿#include "moho/unit/core/EJobTypeTypeInfo.h"
 
 #include <cstdint>
+#include <typeinfo>
 
 namespace moho
 {
+  /**
+   * Address: 0x0055B810 (FUN_0055B810, Moho::EJobTypeTypeInfo::EJobTypeTypeInfo)
+   *
+   * What it does:
+   * Preregisters the enum type descriptor for `EJobType` with the reflection registry.
+   */
+  EJobTypeTypeInfo::EJobTypeTypeInfo()
+    : gpg::REnumType()
+  {
+    gpg::PreRegisterRType(typeid(EJobType), this);
+  }
+
   /**
    * Address: 0x0055B8A0 (FUN_0055B8A0, Moho::EJobTypeTypeInfo::dtr)
    */

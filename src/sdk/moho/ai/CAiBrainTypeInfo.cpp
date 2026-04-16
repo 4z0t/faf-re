@@ -42,6 +42,29 @@ namespace
     return cached;
   }
 
+  /**
+   * Address: 0x00581830 (FUN_00581830)
+   *
+   * What it does:
+   * Registers `CScriptObject` as one reflected base lane for `CAiBrain` at
+   * offset `+0x00`.
+   */
+  void AddCScriptObjectBaseToCAiBrainType(gpg::RType* const typeInfo)
+  {
+    gpg::RType* const baseType = CachedCScriptObjectType();
+    if (!baseType) {
+      return;
+    }
+
+    gpg::RField baseField{};
+    baseField.mName = baseType->GetName();
+    baseField.mType = baseType;
+    baseField.mOffset = 0;
+    baseField.v4 = 0;
+    baseField.mDesc = nullptr;
+    typeInfo->AddBase(baseField);
+  }
+
   void cleanup_CAiBrainTypeInfoStartup()
   {
     CAiBrainTypeInfo* const typeInfo = PeekCAiBrainTypeInfo();
@@ -96,15 +119,7 @@ void CAiBrainTypeInfo::Init()
 {
   size_ = sizeof(CAiBrain);
   gpg::RType::Init();
-
-  gpg::RField baseField{};
-  baseField.mName = CachedCScriptObjectType()->GetName();
-  baseField.mType = CachedCScriptObjectType();
-  baseField.mOffset = 0;
-  baseField.v4 = 0;
-  baseField.mDesc = nullptr;
-  AddBase(baseField);
-
+  AddCScriptObjectBaseToCAiBrainType(this);
   Finish();
 }
 

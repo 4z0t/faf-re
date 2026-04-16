@@ -212,7 +212,7 @@ namespace
   }
 
   /**
-   * Address: 0x00508D80 (FUN_00508D80, CIntelGrid storage-release helper)
+    * Alias of FUN_00508D80 (non-canonical helper lane).
    */
   [[maybe_unused]] void DestroyCIntelGridInPlace(moho::CIntelGrid* const intelGrid)
   {
@@ -285,6 +285,21 @@ namespace
 namespace moho
 {
   /**
+   * Address: 0x005CAFB0 (FUN_005CAFB0, boost::shared_ptr_CIntelGrid::shared_ptr_CIntelGrid)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<CIntelGrid>` from one raw intel-grid pointer
+   * lane.
+   */
+  boost::shared_ptr<CIntelGrid>* ConstructSharedIntelGridFromRaw(
+    boost::shared_ptr<CIntelGrid>* const outIntelGrid,
+    CIntelGrid* const intelGrid
+  )
+  {
+    return ::new (outIntelGrid) boost::shared_ptr<CIntelGrid>(intelGrid);
+  }
+
+  /**
    * Address: 0x00507720 (FUN_00507720, ??0CIntelGrid@Moho@@QAE@PBVSTIMap@1@H@Z)
    *
    * What it does:
@@ -338,6 +353,19 @@ namespace moho
     }
 
     return mGrid[uz * mWidth + ux] != 0;
+  }
+
+  /**
+   * Address: 0x005BE180 (FUN_005BE180, ?IsVisible@CIntelGrid@Moho@@QBE_NABV?$Vector2@H@Wm3@@@Z)
+   *
+   * What it does:
+   * Checks one integer grid cell directly against bounds and visibility storage.
+   */
+  bool CIntelGrid::IsVisible(const Wm3::Vector2i& gridCell) const
+  {
+    const std::uint32_t x = static_cast<std::uint32_t>(gridCell.x);
+    const std::uint32_t z = static_cast<std::uint32_t>(gridCell.y);
+    return x < mWidth && z < mHeight && mGrid[z * mWidth + x] != 0;
   }
 
   /**

@@ -9,6 +9,15 @@
 
 using namespace moho;
 
+namespace gpg
+{
+  class SerConstructResult
+  {
+  public:
+    void SetUnowned(const RRef& ref, unsigned int flags);
+  };
+} // namespace gpg
+
 namespace
 {
   alignas(CAiAttackerImplConstruct) unsigned char gCAiAttackerImplConstructStorage[sizeof(CAiAttackerImplConstruct)];
@@ -31,6 +40,31 @@ namespace
       cached = gpg::LookupRType(typeid(CAiAttackerImpl));
     }
     return cached;
+  }
+
+  [[nodiscard]] gpg::RRef MakeCAiAttackerImplRef(CAiAttackerImpl* const object)
+  {
+    gpg::RRef ref{};
+    gpg::RRef_CAiAttackerImpl(&ref, object);
+    return ref;
+  }
+
+  /**
+   * Address: 0x005D83A0 (FUN_005D83A0)
+   *
+   * What it does:
+   * Allocates one `CAiAttackerImpl`, wraps it in a typed reflected reference,
+   * and publishes that payload through `SerConstructResult::SetUnowned`.
+   */
+  void ConstructCAiAttackerImplForResult(gpg::SerConstructResult* const result)
+  {
+    CAiAttackerImpl* object = nullptr;
+    void* const storage = ::operator new(sizeof(CAiAttackerImpl), std::nothrow);
+    if (storage) {
+      object = new (storage) CAiAttackerImpl();
+    }
+
+    result->SetUnowned(MakeCAiAttackerImplRef(object), 0u);
   }
 
   /**
@@ -61,10 +95,18 @@ namespace
  *
  * What it does:
  * Construct-callback lane used by recovered `CAiAttackerImpl` reflection
- * helper registration.
+ * helper registration. Forwards into the canonical helper body recovered at
+ * `0x005D83A0`.
  */
-void CAiAttackerImplConstruct::Construct(gpg::ReadArchive* const, const int, const int, gpg::SerConstructResult* const)
-{}
+void CAiAttackerImplConstruct::Construct(
+  gpg::ReadArchive* const,
+  const int,
+  const int,
+  gpg::SerConstructResult* const result
+)
+{
+  ConstructCAiAttackerImplForResult(result);
+}
 
 /**
  * Address: 0x005DEB50 (FUN_005DEB50)

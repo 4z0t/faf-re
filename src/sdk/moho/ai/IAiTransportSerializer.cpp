@@ -68,6 +68,44 @@ namespace
     return cached;
   }
 
+  /**
+   * Address: 0x005EBC80 (FUN_005EBC80)
+   *
+   * What it does:
+   * Deserializes one `Broadcaster<EAiTransportEvent>` base lane from the
+   * archive into `broadcasterLane`.
+   */
+  void ReadEAiTransportBroadcasterLane(void* const broadcasterLane, gpg::ReadArchive* const archive)
+  {
+    if (archive == nullptr) {
+      return;
+    }
+
+    gpg::RType* const broadcasterType = CachedTransportBroadcasterType();
+    GPG_ASSERT(broadcasterType != nullptr);
+    const gpg::RRef ownerRef{};
+    archive->Read(broadcasterType, broadcasterLane, ownerRef);
+  }
+
+  /**
+   * Address: 0x005EBCD0 (FUN_005EBCD0)
+   *
+   * What it does:
+   * Serializes one `Broadcaster<EAiTransportEvent>` base lane from
+   * `broadcasterLane` into the archive.
+   */
+  void WriteEAiTransportBroadcasterLane(const void* const broadcasterLane, gpg::WriteArchive* const archive)
+  {
+    if (archive == nullptr) {
+      return;
+    }
+
+    gpg::RType* const broadcasterType = CachedTransportBroadcasterType();
+    GPG_ASSERT(broadcasterType != nullptr);
+    const gpg::RRef ownerRef{};
+    archive->Write(broadcasterType, broadcasterLane, ownerRef);
+  }
+
   void cleanup_IAiTransportSerializer()
   {
     if (!gIAiTransportSerializerConstructed) {
@@ -92,10 +130,7 @@ void IAiTransportSerializer::Deserialize(gpg::ReadArchive* const archive, const 
 
   auto* const transport = reinterpret_cast<IAiTransport*>(static_cast<std::uintptr_t>(objectPtr));
   auto* const broadcasterLane = static_cast<void*>(static_cast<Broadcaster*>(transport));
-  gpg::RType* const broadcasterType = CachedTransportBroadcasterType();
-  GPG_ASSERT(broadcasterType != nullptr);
-  const gpg::RRef ownerRef{};
-  archive->Read(broadcasterType, broadcasterLane, ownerRef);
+  ReadEAiTransportBroadcasterLane(broadcasterLane, archive);
 }
 
 /**
@@ -109,10 +144,7 @@ void IAiTransportSerializer::Serialize(gpg::WriteArchive* const archive, const i
 
   auto* const transport = reinterpret_cast<const IAiTransport*>(static_cast<std::uintptr_t>(objectPtr));
   auto* const broadcasterLane = static_cast<const void*>(static_cast<const Broadcaster*>(transport));
-  gpg::RType* const broadcasterType = CachedTransportBroadcasterType();
-  GPG_ASSERT(broadcasterType != nullptr);
-  const gpg::RRef ownerRef{};
-  archive->Write(broadcasterType, broadcasterLane, ownerRef);
+  WriteEAiTransportBroadcasterLane(broadcasterLane, archive);
 }
 
 /**

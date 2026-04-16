@@ -434,7 +434,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x006981B0 (FUN_006981B0, construct registration lane)
+    * Alias of FUN_006981B0 (non-canonical helper lane).
    */
   void SPhysBodyConstruct::RegisterConstructFunction()
   {

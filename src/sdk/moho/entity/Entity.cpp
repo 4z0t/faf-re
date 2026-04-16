@@ -25,6 +25,7 @@
 #include "moho/entity/EntityDb.h"
 #include "moho/entity/EntityMotor.h"
 #include "moho/entity/Prop.h"
+#include "moho/entity/UserEntity.h"
 #include "moho/entity/MotorFallDown.h"
 #include "moho/entity/EntityTransformPayload.h"
 #include "moho/entity/EVisibilityModeTypeInfo.h"
@@ -271,6 +272,34 @@ namespace
     return AccessEntityLuaBindingRuntime(entity).mTextureScroller;
   }
 
+  struct EntityCreateInterfaceSyncDataView
+  {
+    std::uint8_t pad_0000_0137[0x138];
+    msvc8::vector<moho::SCreateEntityParams> mNewEntities; // +0x138
+  };
+
+  static_assert(
+    offsetof(EntityCreateInterfaceSyncDataView, mNewEntities) == 0x138,
+    "EntityCreateInterfaceSyncDataView::mNewEntities offset must be 0x138"
+  );
+
+  /**
+   * Address: 0x0067B6F0 (FUN_0067B6F0)
+   *
+   * What it does:
+   * Appends one create-entity payload to the sync queue, growing the backing
+   * vector as needed and returning a pointer to the stored record.
+   */
+  [[nodiscard]] moho::SCreateEntityParams* QueueCreateEntityParams(
+    moho::SSyncData* const syncData,
+    const moho::SCreateEntityParams& params
+  )
+  {
+    auto& syncView = *reinterpret_cast<EntityCreateInterfaceSyncDataView*>(syncData);
+    syncView.mNewEntities.push_back(params);
+    return &syncView.mNewEntities.back();
+  }
+
   struct EntityTextureScrollRuntimeView
   {
     std::uint8_t pad_0000_00F8[0xF8];
@@ -488,6 +517,34 @@ namespace
     return (-range) + (2.0f * range * unit);
   }
 
+  /**
+   * Address: 0x0051C400 (FUN_0051C400)
+   *
+   * What it does:
+   * Samples one randomized projectile spawn offset from blueprint position lanes
+   * using symmetric per-axis spread ranges.
+   */
+  [[nodiscard]] Wm3::Vector3f SampleProjectileSpawnOffset(
+    moho::CRandomStream& random,
+    const moho::RProjectileBlueprint& blueprint
+  ) noexcept
+  {
+    constexpr double kInvUInt32Range = 2.3283064e-10;
+
+    const auto sampleAxis = [&random](const float base, const float range) noexcept -> float {
+      const double min = -static_cast<double>(range);
+      const double span = static_cast<double>(range) - min;
+      const double unit = static_cast<double>(random.twister.NextUInt32()) * kInvUInt32Range;
+      return static_cast<float>(min + (span * unit) + static_cast<double>(base));
+    };
+
+    Wm3::Vector3f out{};
+    out.x = sampleAxis(blueprint.Physics.PositionX, blueprint.Physics.PositionXRange);
+    out.y = sampleAxis(blueprint.Physics.PositionY, blueprint.Physics.PositionYRange);
+    out.z = sampleAxis(blueprint.Physics.PositionZ, blueprint.Physics.PositionZRange);
+    return out;
+  }
+
   [[nodiscard]] float VectorLength(const Wm3::Vector3f& value) noexcept
   {
     return std::sqrt((value.x * value.x) + (value.y * value.y) + (value.z * value.z));
@@ -570,11 +627,15 @@ namespace
     const moho::RProjectileBlueprint& blueprint
   ) noexcept
   {
-    Wm3::Vector3f offset{};
-    offset.x = blueprint.Physics.PositionX + SampleSymmetricRange(random, blueprint.Physics.PositionXRange);
-    offset.y = blueprint.Physics.PositionY + SampleSymmetricRange(random, blueprint.Physics.PositionYRange);
-    offset.z = blueprint.Physics.PositionZ + SampleSymmetricRange(random, blueprint.Physics.PositionZRange);
-    return offset;
+    if (random == nullptr) {
+      return Wm3::Vector3f{
+        blueprint.Physics.PositionX,
+        blueprint.Physics.PositionY,
+        blueprint.Physics.PositionZ
+      };
+    }
+
+    return SampleProjectileSpawnOffset(*random, blueprint);
   }
 
   [[nodiscard]] Wm3::Vector3f BuildRandomProjectileDirection(
@@ -2715,6 +2776,95 @@ namespace moho
   }
 
   /**
+   * Address: 0x0067A8B0 (FUN_0067A8B0, ?ChangeScroller@Entity@Moho@@QAEXABUSScroller@2@@Z)
+   *
+   * What it does:
+   * Ensures one texture-scroller runtime object exists, then applies one
+   * scroller-definition payload.
+   */
+  void Entity::ChangeScroller(const SScroller& definition)
+  {
+    CTextureScroller*& textureScrollerSlot = AccessEntityTextureScrollerSlot(*this);
+    if (textureScrollerSlot == nullptr) {
+      CTextureScroller* const replacementScroller = new CTextureScroller(this);
+      CTextureScroller* const previousScroller = textureScrollerSlot;
+      textureScrollerSlot = replacementScroller;
+      delete previousScroller;
+    }
+
+    static_cast<void>(ApplyTextureScrollerDefinition(*textureScrollerSlot, definition));
+  }
+
+  /**
+   * Address: 0x0067A900 (FUN_0067A900, ?UpdateScrollPos@Entity@Moho@@QAEXQAM@Z)
+   *
+   * What it does:
+   * Seeds both texture-scroll lanes from one incoming UV coordinate pair.
+   */
+  void Entity::UpdateScrollPos(const Wm3::Vec2f& scrollPosition)
+  {
+    EntityTextureScrollRuntimeView& scrollRuntime = AccessEntityTextureScrollRuntime(*this);
+    scrollRuntime.mScroll1 = scrollPosition;
+    scrollRuntime.mScroll2 = scrollPosition;
+  }
+
+  /**
+   * Address: 0x0067A930 (FUN_0067A930, ?UpdateScroll@Entity@Moho@@QAEXQAM@Z)
+   *
+   * What it does:
+   * Copies current scroll lane to previous and advances current lane by one
+   * delta vector.
+   */
+  void Entity::UpdateScroll(const Wm3::Vec2f& scrollDelta)
+  {
+    EntityTextureScrollRuntimeView& scrollRuntime = AccessEntityTextureScrollRuntime(*this);
+    const Wm3::Vec2f currentScroll = scrollRuntime.mScroll2;
+    scrollRuntime.mScroll1 = currentScroll;
+    scrollRuntime.mScroll2.x = currentScroll.x + scrollDelta.x;
+    scrollRuntime.mScroll2.y = currentScroll.y + scrollDelta.y;
+  }
+
+  /**
+   * Address: 0x0067A980 (FUN_0067A980, ?StopScroll@Entity@Moho@@QAEXXZ)
+   *
+   * What it does:
+   * Collapses scroll motion by snapping current lane to previous lane.
+   */
+  void Entity::StopScroll()
+  {
+    EntityTextureScrollRuntimeView& scrollRuntime = AccessEntityTextureScrollRuntime(*this);
+    scrollRuntime.mScroll2 = scrollRuntime.mScroll1;
+  }
+
+  /**
+   * Address: 0x00678D80 (FUN_00678D80, ?SetAnimScoll@Entity@Moho@@QAEXMM@Z)
+   *
+   * What it does:
+   * Shifts the current texture-scroll lane into the previous lane and stores
+   * one new animation scroll lane pair.
+   */
+  void Entity::SetAnimScroll(const float scrollX, const float scrollY)
+  {
+    EntityTextureScrollRuntimeView& scrollRuntime = AccessEntityTextureScrollRuntime(*this);
+    const Wm3::Vec2f previousScroll = scrollRuntime.mScroll2;
+    scrollRuntime.mScroll1 = previousScroll;
+    scrollRuntime.mScroll2.x = scrollX;
+    scrollRuntime.mScroll2.y = scrollY;
+  }
+
+  /**
+   * Address: 0x0067A9A0 (FUN_0067A9A0, ?SetAmbientSound@Entity@Moho@@QAEXPAVCSndParams@2@0@Z)
+   *
+   * What it does:
+   * Stores ambient detail and rumble sound parameter lanes.
+   */
+  void Entity::SetAmbientSound(CSndParams* const detailSound, CSndParams* const rumbleSound)
+  {
+    mAmbientSound = detailSound;
+    mRumbleSound = rumbleSound;
+  }
+
+  /**
    * Address: 0x005BDBD0
    */
   float Entity::GetUniformScale() const
@@ -2875,6 +3025,33 @@ namespace moho
   }
 
   /**
+   * Address: 0x0067A160 (FUN_0067A160, ?RemoveShooter@Entity@Moho@@QAEXPAV12@@Z)
+   * Mangled: ?RemoveShooter@Entity@Moho@@QAEXPAV12@@Z
+   *
+   * What it does:
+   * Removes this entity from one target entity's shooter ownership set.
+   */
+  void Entity::RemoveShooter(Entity* const target)
+  {
+    if (target == nullptr) {
+      return;
+    }
+
+    (void)target->mShooters.Remove(this);
+  }
+
+  /**
+   * Address: 0x0067A180 (FUN_0067A180, Moho::Entity::GetNumShooters)
+   *
+   * What it does:
+   * Returns the shooter set size from the contiguous pointer lane.
+   */
+  int Entity::GetNumShooters() const
+  {
+    return static_cast<int>(mShooters.mVec.end() - mShooters.mVec.begin());
+  }
+
+  /**
    * Address: 0x0067A190 (FUN_0067A190, ?ProcessEntitiesShootingAtMe@Entity@Moho@@QAEXXZ)
    *
    * What it does:
@@ -2962,6 +3139,42 @@ namespace moho
   }
 
   /**
+   * Address: 0x006793D0 (FUN_006793D0, ?AddWorldImpulse@Entity@Moho@@QAEXABV?$Vector3@M@Wm3@@0@Z)
+   * Mangled: ?AddWorldImpulse@Entity@Moho@@QAEXABV?$Vector3@M@Wm3@@0@Z
+   *
+   * What it does:
+   * Applies one world-space impulse at one world-space application point into
+   * this entity's cached physics-body lane when present.
+   */
+  void Entity::AddWorldImpulse(const Wm3::Vec3f& impulse, const Wm3::Vec3f& worldPoint)
+  {
+    SPhysBody* const body = AccessEntityPhysBody(*this);
+    if (body == nullptr) {
+      return;
+    }
+
+    ApplyWorldImpulseToBody(*body, impulse, worldPoint);
+  }
+
+  /**
+   * Address: 0x006794D0 (FUN_006794D0, ?AddLocalImpulse@Entity@Moho@@QAEXABV?$Vector3@M@Wm3@@0@Z)
+   * Mangled: ?AddLocalImpulse@Entity@Moho@@QAEXABV?$Vector3@M@Wm3@@0@Z
+   *
+   * What it does:
+   * Forwards one local impulse + local-point payload into the cached physics
+   * body lane when present.
+   */
+  void Entity::AddLocalImpulse(const Wm3::Vec3f& localImpulse, const Wm3::Vec3f& localPoint)
+  {
+    SPhysBody* const body = AccessEntityPhysBody(*this);
+    if (body == nullptr) {
+      return;
+    }
+
+    body->AddLocalImpulse(localImpulse, localPoint);
+  }
+
+  /**
    * Address: 0x00679210 (FUN_00679210)
    *
    * What it does:
@@ -3003,7 +3216,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00679F70
+    * Alias of FUN_00679F70 (non-canonical helper lane).
    *
    * What it does:
    * Advances the active motor when not attached; returns engine task status code.
@@ -3051,10 +3264,19 @@ namespace moho
   }
 
   /**
-   * Address: 0x0067A220
+   * Address: 0x0067A220 (FUN_0067A220, ?CreateInterface@Entity@Moho@@MAEXPAUSSyncData@2@@Z)
+   *
+   * What it does:
+   * Packs the entity identity snapshot into the sync payload's create queue
+   * and marks the interface lane created.
    */
-  void Entity::CreateInterface(SSyncData*)
+  void Entity::CreateInterface(SSyncData* const syncData)
   {
+    SCreateEntityParams createParams{};
+    createParams.mEntityId = id_;
+    createParams.mBlueprint = BluePrint;
+    createParams.mUnknown08 = static_cast<std::uint32_t>(mTickCreated);
+    (void)QueueCreateEntityParams(syncData, createParams);
     mInterfaceCreated = 1u;
   }
 
@@ -3075,7 +3297,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00679550 (FUN_00679550)
+    * Alias of FUN_00679550 (non-canonical helper lane).
    *
    * What it does:
    * Validates parent attach chain, appends this entity to parent attached-list,
@@ -3180,6 +3402,17 @@ namespace moho
   float Entity::Materialize(float)
   {
     return 0.0f;
+  }
+
+  /**
+   * Address: 0x005BDC60 (FUN_005BDC60)
+   *
+   * What it does:
+   * Returns the cached intel manager pointer lane.
+   */
+  CIntel* Entity::GetIntelManager() const noexcept
+  {
+    return mIntelManager;
   }
 
   /**
@@ -3303,7 +3536,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00679B80 (FUN_00679B80)
+    * Alias of FUN_00679B80 (non-canonical helper lane).
    *
    * What it does:
    * Marks destroy dispatch, queues this entity in Sim destroy queue, emits script
@@ -3392,6 +3625,24 @@ namespace moho
   }
 
   /**
+   * Address: 0x0067A9B0 (FUN_0067A9B0, ?Intersects@Entity@Moho@@QAE_NABV?$Sphere3@M@Wm3@@PAUCollisionResult@2@@Z)
+   *
+   * What it does:
+   * Tests one world sphere against this entity's active collision primitive.
+   * On hit, stamps this entity as the collision source lane in `outResult`.
+   */
+  bool Entity::Intersects(const Wm3::Sphere3f& sphere, CollisionPairResult* const outResult)
+  {
+    EntityCollisionUpdater* const collision = CollisionExtents;
+    if (collision == nullptr || !collision->CollideSphere(&sphere, outResult)) {
+      return false;
+    }
+
+    outResult->sourceEntity = this;
+    return true;
+  }
+
+  /**
    * Address: 0x0067A9D0 (FUN_0067A9D0, ?Intersects@Entity@Moho@@QAE_NABV?$Box3@M@Wm3@@PAUCollisionResult@2@@Z)
    *
    * What it does:
@@ -3407,6 +3658,54 @@ namespace moho
 
     outResult->sourceEntity = this;
     return true;
+  }
+
+  /**
+   * Address: 0x0067A9F0 (FUN_0067A9F0, ?Intersects@Entity@Moho@@QAE_NABV?$Vector3@M@Wm3@@0PAUCollisionSegmentResult@2@@Z)
+   *
+   * What it does:
+   * Tests one world line segment against this entity's active collision
+   * primitive. On hit, stamps this entity as the collision source lane in
+   * `outResult`.
+   */
+  bool Entity::Intersects(
+    const Wm3::Vec3f& lineStart,
+    const Wm3::Vec3f& lineEnd,
+    CollisionLineResult* const outResult
+  )
+  {
+    EntityCollisionUpdater* const collision = CollisionExtents;
+    if (collision == nullptr || !collision->CollideLine(&lineStart, &lineEnd, outResult)) {
+      return false;
+    }
+
+    outResult->sourceEntity = this;
+    return true;
+  }
+
+  /**
+   * Address: 0x0067C430 (FUN_0067C430)
+   *
+   * What it does:
+   * Resizes one terrain-collision sphere vector to `targetCount`, preserving
+   * existing entries, trimming when shrinking, and fill-constructing new
+   * lanes from `fillValue` when growing.
+   */
+  void ResizeTerrainCollisionSphereBuffer(
+    gpg::fastvector<Wm3::Sphere3f>& spheres,
+    const std::size_t targetCount,
+    const Wm3::Sphere3f& fillValue
+  )
+  {
+    const std::size_t currentCount = spheres.size();
+    if (targetCount < currentCount) {
+      spheres.resize(targetCount);
+      return;
+    }
+
+    if (targetCount > currentCount) {
+      spheres.resize(targetCount, fillValue);
+    }
   }
 
   /**
@@ -3430,7 +3729,7 @@ namespace moho
       const float minZ = center.z - box->Extent[2];
       const float maxZ = center.z + box->Extent[2];
 
-      outSpheres.resize(8u);
+      ResizeTerrainCollisionSphereBuffer(outSpheres, 8u, Wm3::Sphere3f{});
       outSpheres[0].Center = Wm3::Vec3f(minX, minY, minZ);
       outSpheres[0].Radius = 0.0f;
       outSpheres[1].Center = Wm3::Vec3f(maxX, minY, minZ);
@@ -3451,14 +3750,14 @@ namespace moho
     }
 
     if (const Wm3::Sphere3f* const sphere = CollisionExtents->GetSphere(); sphere != nullptr) {
-      outSpheres.resize(1u);
+      ResizeTerrainCollisionSphereBuffer(outSpheres, 1u, Wm3::Sphere3f{});
       outSpheres[0].Center = center;
       outSpheres[0].Radius = sphere->Radius;
     }
   }
 
   /**
-   * Address: 0x0067AC40 (FUN_0067AC40)
+    * Alias of FUN_0067AC40 (non-canonical helper lane).
    *
    * What it does:
    * Builds a box collision primitive from supplied local box and installs it.
@@ -3469,7 +3768,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x0067AD30 (FUN_0067AD30)
+    * Alias of FUN_0067AD30 (non-canonical helper lane).
    *
    * What it does:
    * Builds a sphere collision primitive from local center/radius and installs it.
@@ -3480,7 +3779,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x0067AE00 (FUN_0067AE00)
+    * Alias of FUN_0067AE00 (non-canonical helper lane).
    *
    * What it does:
    * Clears active collision primitive and resets collision-cell span to zero.
@@ -6188,20 +6487,17 @@ namespace moho
 
     const LuaPlus::LuaObject entityObject(LuaPlus::LuaStackObject(state, 1));
     Entity* const entity = SCR_FromLua_Entity(entityObject, state);
-    moho::SPhysBody* const body = AccessEntityPhysBody(*entity);
-    if (body != nullptr) {
-      const Wm3::Vector3f impulse{
-        ReadLuaNumberArgument(state, 2),
-        ReadLuaNumberArgument(state, 3),
-        ReadLuaNumberArgument(state, 4),
-      };
-      const Wm3::Vector3f worldPoint{
-        ReadLuaNumberArgument(state, 5),
-        ReadLuaNumberArgument(state, 6),
-        ReadLuaNumberArgument(state, 7),
-      };
-      ApplyWorldImpulseToBody(*body, impulse, worldPoint);
-    }
+    const Wm3::Vector3f impulse{
+      ReadLuaNumberArgument(state, 2),
+      ReadLuaNumberArgument(state, 3),
+      ReadLuaNumberArgument(state, 4),
+    };
+    const Wm3::Vector3f worldPoint{
+      ReadLuaNumberArgument(state, 5),
+      ReadLuaNumberArgument(state, 6),
+      ReadLuaNumberArgument(state, 7),
+    };
+    entity->AddWorldImpulse(impulse, worldPoint);
 
     return 0;
   }
@@ -7084,6 +7380,25 @@ namespace moho
   }
 
   /**
+   * Address: 0x006926C0 (FUN_006926C0, Moho::ENTSCR_GetBonePosition)
+   * Mangled: ?ENTSCR_GetBonePosition@Moho@@YA?AV?$Vector3@M@Wm3@@PAVEntity@1@AAVLuaStackObject@LuaPlus@@_N@Z
+   *
+   * What it does:
+   * Resolves one bone index and returns the corresponding world-space position lane.
+   */
+  Wm3::Vector3f ENTSCR_GetBonePosition(
+    Entity* const entity,
+    LuaPlus::LuaStackObject& boneIdentifier,
+    [[maybe_unused]] const bool allowNilAndSpecialIndices
+  )
+  {
+    // Binary hard-codes AL=1 for the resolve call in this helper.
+    const int boneIndex = ENTSCR_ResolveBoneIndex(entity, boneIdentifier, true);
+    const VTransform boneWorldTransform = entity->GetBoneWorldTransform(boneIndex);
+    return boneWorldTransform.pos_;
+  }
+
+  /**
    * Address: 0x0050B300 (FUN_0050B300, ?COORDS_Orient@Moho@@YA?AV?$Quaternion@M@Wm3@@MMM@Z)
    *
    * What it does:
@@ -7175,6 +7490,24 @@ namespace moho
 
     (void)orientation.Normalize();
     return orientation;
+  }
+
+  /**
+   * Address: 0x0050B620 (FUN_0050B620, ?COORDS_ForwardVector@Moho@@YA?AV?$Vector3@M@Wm3@@MM@Z)
+   *
+   * What it does:
+   * Converts heading/pitch radians into one forward vector using the engine's
+   * original trigonometric sign convention.
+   */
+  Wm3::Vector3f COORDS_ForwardVector(const float heading, const float pitch) noexcept
+  {
+    const float cosPitch = std::cos(pitch);
+
+    Wm3::Vector3f result{};
+    result.x = std::sin(heading) * cosPitch;
+    result.y = -std::sin(pitch);
+    result.z = cosPitch * std::cos(heading);
+    return result;
   }
 
   /**
@@ -7343,6 +7676,23 @@ namespace moho
   }
 
   /**
+   * Address: 0x0050AF80 (FUN_0050AF80, ?COORDS_ToRect@Moho@@YA?AV?$Rect2@H@gpg@@ABUSOCellPos@1@ABUSFootprint@1@@Z)
+   *
+   * What it does:
+   * Converts one footprint-origin cell position and footprint dimensions into
+   * one half-open cell rectangle.
+   */
+  gpg::Rect2i COORDS_ToRect(const SOCellPos& cellPos, const SFootprint& footprint) noexcept
+  {
+    gpg::Rect2i result{};
+    result.x0 = static_cast<int>(cellPos.x);
+    result.z0 = static_cast<int>(cellPos.z);
+    result.x1 = result.x0 + static_cast<int>(footprint.mSizeX);
+    result.z1 = result.z0 + static_cast<int>(footprint.mSizeZ);
+    return result;
+  }
+
+  /**
    * Address: 0x0050AFA0 (FUN_0050AFA0, Moho::COORDS_ToGridRect)
    *
    * IDA signature:
@@ -7382,6 +7732,27 @@ namespace moho
     return COORDS_ToGridRect(
       result, centerXZ, static_cast<int>(footprint.mSizeX), static_cast<int>(footprint.mSizeZ)
     );
+  }
+
+  /**
+   * Address: 0x0050B090 (FUN_0050B090, ?COORDS_Elevation@Moho@@YAMPBVSTIMap@1@MME@Z)
+   *
+   * What it does:
+   * Samples terrain elevation and optionally clamps it to water elevation when
+   * the requested layer is not seabed-capable.
+   */
+  float COORDS_Elevation(const STIMap* const map, const float x, const float z, const ELayer layer) noexcept
+  {
+    const float terrainElevation = map->mHeightField->GetElevation(x, z);
+    if ((static_cast<std::uint8_t>(layer) & static_cast<std::uint8_t>(LAYER_Seabed)) != 0u) {
+      return terrainElevation;
+    }
+
+    if (map->mWaterEnabled == 0u) {
+      return terrainElevation;
+    }
+
+    return (map->mWaterElevation > terrainElevation) ? map->mWaterElevation : terrainElevation;
   }
 
   /**
@@ -7427,6 +7798,32 @@ namespace moho
       static_cast<int>(footprint.mSizeX),
       static_cast<int>(footprint.mSizeZ)
     );
+  }
+
+  /**
+   * Address: 0x0050B1D0 (FUN_0050B1D0, ?COORDS_ToWorldPos@Moho@@YA?AV?$Vector3@M@Wm3@@PBVSTIMap@1@ABUSCoordsVec2@1@ABUSFootprint@1@@Z)
+   *
+   * What it does:
+   * Builds one world-space vector from raw XZ coordinates and samples
+   * elevation using footprint occupancy and water rules.
+   */
+  Wm3::Vector3f COORDS_ToWorldPos(const STIMap* const map, const SCoordsVec2& worldPos, const SFootprint& footprint) noexcept
+  {
+    Wm3::Vector3f outPos{};
+    outPos.x = worldPos.x;
+    outPos.z = worldPos.z;
+
+    const CHeightField* const field = map->mHeightField.get();
+    const float terrainElevation = field->GetElevation(worldPos.x, worldPos.z);
+    const bool seabedOnly =
+      (static_cast<std::uint8_t>(footprint.mOccupancyCaps) & static_cast<std::uint8_t>(LAYER_Seabed)) != 0u;
+    if (seabedOnly || map->mWaterEnabled == 0u || map->mWaterElevation <= terrainElevation) {
+      outPos.y = terrainElevation;
+    } else {
+      outPos.y = map->mWaterElevation;
+    }
+
+    return outPos;
   }
 
   /**

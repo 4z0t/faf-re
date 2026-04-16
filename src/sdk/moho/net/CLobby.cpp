@@ -104,6 +104,32 @@ namespace
     int32_t mSlotIndex{-1};
     LuaPlus::LuaObject mOptions;
   };
+  static_assert(sizeof(LaunchPlayerOptionEntry) == 0x18, "LaunchPlayerOptionEntry size must be 0x18");
+
+  /**
+   * Address: 0x007CED70 (FUN_007CED70)
+   *
+   * What it does:
+   * Copy-constructs one half-open launch-player-option range into destination
+   * storage and returns the destination end pointer.
+   */
+  [[maybe_unused]] LaunchPlayerOptionEntry* CopyConstructLaunchPlayerOptionEntryRange(
+    const LaunchPlayerOptionEntry* sourceBegin,
+    LaunchPlayerOptionEntry* destinationBegin,
+    const LaunchPlayerOptionEntry* sourceEnd
+  )
+  {
+    while (sourceBegin != sourceEnd) {
+      if (destinationBegin != nullptr) {
+        destinationBegin->mSlotIndex = sourceBegin->mSlotIndex;
+        ::new (static_cast<void*>(&destinationBegin->mOptions)) LuaPlus::LuaObject(sourceBegin->mOptions);
+      }
+      ++sourceBegin;
+      ++destinationBegin;
+    }
+
+    return destinationBegin;
+  }
 
   bool sLobbyIgnoreNamesConVarRegistered = false;
 

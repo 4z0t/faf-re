@@ -1,7 +1,9 @@
 #include "moho/ai/CBuilderArmManipulator.h"
 
 #include <cmath>
+#include <typeinfo>
 
+#include "gpg/core/containers/ReadArchive.h"
 #include "moho/ai/IAiBuilder.h"
 #include "moho/animation/CAniActor.h"
 #include "moho/animation/CAniPose.h"
@@ -25,6 +27,93 @@ namespace
   constexpr std::uint8_t kTrackingModeWorldSpace = 0x04;
   constexpr std::uint8_t kTrackingResultOutsideTolerance = 0x01;
   constexpr std::uint8_t kTrackingResultHeadingMotion = 0x02;
+
+  [[nodiscard]] gpg::RType* CachedIAniManipulatorType()
+  {
+    gpg::RType* type = moho::IAniManipulator::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::IAniManipulator));
+      moho::IAniManipulator::sType = type;
+    }
+    return type;
+  }
+
+  [[nodiscard]] gpg::RType* CachedWeakPtrUnitType()
+  {
+    gpg::RType* type = moho::WeakPtr<moho::Unit>::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::WeakPtr<moho::Unit>));
+      moho::WeakPtr<moho::Unit>::sType = type;
+    }
+    return type;
+  }
+
+  /**
+   * Address: 0x00637510 (FUN_00637510)
+   *
+   * What it does:
+   * Deserializes one `CBuilderArmManipulator` lane by loading
+   * `IAniManipulator` base state, goal weak-pointer lane, and all builder-arm
+   * tracking parameters.
+   */
+  [[maybe_unused]] void DeserializeCBuilderArmManipulatorSerializerBody(
+    moho::CBuilderArmManipulator* const manipulator,
+    gpg::ReadArchive* const archive
+  )
+  {
+    if (!archive || !manipulator) {
+      return;
+    }
+
+    const gpg::RRef owner{};
+    archive->Read(CachedIAniManipulatorType(), static_cast<moho::IAniManipulator*>(manipulator), owner);
+    archive->Read(CachedWeakPtrUnitType(), &manipulator->mGoalUnit, owner);
+
+    archive->ReadFloat(&manipulator->mHeading);
+    archive->ReadFloat(&manipulator->mPitch);
+    archive->ReadInt(&manipulator->mReferenceBoneIdx);
+    archive->ReadBool(&manipulator->mTrackingScriptActive);
+    archive->ReadFloat(&manipulator->mHeadingCenter);
+    archive->ReadFloat(&manipulator->mHeadingHalfArc);
+    archive->ReadFloat(&manipulator->mHeadingMaxSlew);
+    archive->ReadFloat(&manipulator->mPitchCenter);
+    archive->ReadFloat(&manipulator->mPitchHalfArc);
+    archive->ReadFloat(&manipulator->mPitchMaxSlew);
+    archive->ReadBool(&manipulator->mOnTarget);
+  }
+
+  /**
+   * Address: 0x00637640 (FUN_00637640)
+   *
+   * What it does:
+   * Serializes one `CBuilderArmManipulator` lane by saving IAniManipulator
+   * base state, goal weak-pointer lane, and all builder-arm tracking fields.
+   */
+  [[maybe_unused]] void SerializeCBuilderArmManipulatorSerializerBody(
+    const moho::CBuilderArmManipulator* const manipulator,
+    gpg::WriteArchive* const archive
+  )
+  {
+    if (!archive || !manipulator) {
+      return;
+    }
+
+    const gpg::RRef owner{};
+    archive->Write(CachedIAniManipulatorType(), manipulator, owner);
+    archive->Write(CachedWeakPtrUnitType(), &manipulator->mGoalUnit, owner);
+
+    archive->WriteFloat(manipulator->mHeading);
+    archive->WriteFloat(manipulator->mPitch);
+    archive->WriteInt(manipulator->mReferenceBoneIdx);
+    archive->WriteBool(manipulator->mTrackingScriptActive);
+    archive->WriteFloat(manipulator->mHeadingCenter);
+    archive->WriteFloat(manipulator->mHeadingHalfArc);
+    archive->WriteFloat(manipulator->mHeadingMaxSlew);
+    archive->WriteFloat(manipulator->mPitchCenter);
+    archive->WriteFloat(manipulator->mPitchHalfArc);
+    archive->WriteFloat(manipulator->mPitchMaxSlew);
+    archive->WriteBool(manipulator->mOnTarget);
+  }
 
   [[nodiscard]] moho::CAniPoseBone* ResolvePoseBone(moho::CAniActor* const ownerActor, const std::int32_t boneIndex) noexcept
   {

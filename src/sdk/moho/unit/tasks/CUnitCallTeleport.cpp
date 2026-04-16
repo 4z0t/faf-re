@@ -92,17 +92,6 @@ namespace
     };
   }
 
-  [[nodiscard]] moho::CAiTarget BuildGroundTarget(const Wm3::Vector3f& worldPos) noexcept
-  {
-    moho::CAiTarget target{};
-    target.targetType = moho::EAiTargetType::AITARGET_Ground;
-    target.targetEntity.ClearLinkState();
-    target.position = worldPos;
-    target.targetPoint = -1;
-    target.targetIsMobile = false;
-    return target;
-  }
-
   [[nodiscard]] int FailTeleportCallTaskTick(moho::CUnitCallTeleport* const task) noexcept
   {
     if (task != nullptr && task->mTaskState == moho::TASKSTATE_Complete) {
@@ -174,6 +163,24 @@ namespace
 namespace moho
 {
   gpg::RType* CUnitCallTeleport::sType = nullptr;
+
+  /**
+   * Address: 0x005E2340 (FUN_005E2340, CUnitCallTeleport::BuildGroundTeleportTarget)
+   *
+   * What it does:
+   * Builds one ground-target payload from world position, clears entity-link
+   * lanes, and resets target-point/mobile flags.
+   */
+  CAiTarget CUnitCallTeleport::BuildGroundTeleportTarget(const Wm3::Vector3f& worldPos) noexcept
+  {
+    CAiTarget target{};
+    target.targetType = EAiTargetType::AITARGET_Ground;
+    target.targetEntity.ClearLinkState();
+    target.position = worldPos;
+    target.targetPoint = -1;
+    target.targetIsMobile = false;
+    return target;
+  }
 
   /**
    * Address: 0x006013D0 (FUN_006013D0, Moho::CUnitCallTeleport::TaskTick)
@@ -272,7 +279,7 @@ namespace moho
         mUnit->ReserveOgridRect(BuildOgridRectFromWorldPos(mUnit, teleportDestination));
         mIsOccupying = true;
 
-        CAiTarget teleportTarget = BuildGroundTarget(teleportDestination);
+        CAiTarget teleportTarget = BuildGroundTeleportTarget(teleportDestination);
         const VTransform& sourceTransform = mUnit->GetTransform();
         (void)CUnitTeleportTask::Create(&teleportTarget, this, transportUnit, &sourceTransform);
 

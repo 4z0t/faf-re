@@ -7,6 +7,7 @@
 #include "gpg/core/streams/BinaryWriter.h"
 #include "gpg/gal/backends/d3d9/EffectD3D9.hpp"
 #include "moho/misc/ID3DDeviceResources.h"
+#include "moho/particles/CWorldParticles.h"
 #include "moho/render/d3d/CD3DDevice.h"
 #include "moho/render/d3d/CD3DEffectTechnique.h"
 
@@ -155,6 +156,17 @@ namespace moho
   }
 
   /**
+   * Address: 0x007D1700 (FUN_007D1700, ?IsInitialized@Cartographic@Moho@@QBE_NXZ)
+   *
+   * What it does:
+   * Returns whether the cartographic runtime lane has been initialized.
+   */
+  bool Cartographic::IsInitialized() const
+  {
+    return mInitialized;
+  }
+
+  /**
    * Address: 0x007D1DF0 (FUN_007D1DF0, ?WriteDecals@Cartographic@Moho@@QAEXAAVBinaryWriter@gpg@@@Z)
    * Mangled: ?WriteDecals@Cartographic@Moho@@QAEXAAVBinaryWriter@gpg@@@Z
    *
@@ -210,5 +222,18 @@ namespace moho
       reinterpret_cast<gpg::gal::Effect*>(baseEffect.get()),
       CartographicEffectAliasDeleter(baseEffect)
     );
+  }
+
+  /**
+   * Address: 0x007D2E40 (FUN_007D2E40, ?RenderParticles@Cartographic@Moho@@AAEXHMABVGeomCamera3@2@@Z)
+   * Mangled: ?RenderParticles@Cartographic@Moho@@AAEXHMABVGeomCamera3@2@@Z
+   *
+   * What it does:
+   * Forwards one cartographic particle pass to `sWorldParticles::RenderEffects`
+   * with fixed flags `(renderWaterSurface=0, suppressTLight=1)`.
+   */
+  void Cartographic::RenderParticles(const std::int32_t tick, const float frameAlpha, const GeomCamera3& camera)
+  {
+    (void)moho::sWorldParticles.RenderEffects(const_cast<GeomCamera3*>(&camera), 0, 1, tick, frameAlpha);
   }
 } // namespace moho

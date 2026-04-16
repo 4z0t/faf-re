@@ -697,6 +697,15 @@ namespace moho
   void SND_Frame();
 
   /**
+   * Address: 0x004D8F90 (FUN_004D8F90)
+   *
+   * What it does:
+   * Issues one extra sound-engine work frame when the debug convar gate is
+   * enabled and more than 100ms elapsed on the global sound timer.
+   */
+  void SND_FrameExtraDoWorkTick();
+
+  /**
    * Address: 0x004D8FC0 (FUN_004D8FC0, ?SND_Mute@Moho@@YAX_N@Z)
    *
    * What it does:

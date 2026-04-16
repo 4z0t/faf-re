@@ -148,6 +148,20 @@ namespace
 namespace moho
 {
   /**
+   * Address: 0x0063D210 (FUN_0063D210, boost::shared_ptr_CAniPose::shared_ptr_CAniPose)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<CAniPose>` from one raw pose pointer lane.
+   */
+  boost::shared_ptr<CAniPose>* ConstructSharedAniPoseFromRaw(
+    boost::shared_ptr<CAniPose>* const outPose,
+    CAniPose* const pose
+  )
+  {
+    return ::new (outPose) boost::shared_ptr<CAniPose>(pose);
+  }
+
+  /**
    * Address: 0x0054C9C0 (FUN_0054C9C0, Moho::CAniPoseBone::CAniPoseBone)
    *
    * What it does:
@@ -618,6 +632,19 @@ namespace moho
         candidate.mCompositeDirty = 1u;
       }
     }
+  }
+
+  /**
+   * Address: 0x0054BD80 (FUN_0054BD80)
+   *
+   * What it does:
+   * Composes one pose-bone local transform with an incoming transform and then
+   * marks that bone dirty through its owning pose/index lanes.
+   */
+  void CAniPose::ApplyBoneLocalTransform(CAniPoseBone* const bone, const VTransform& transform)
+  {
+    bone->mLocalTransform = VTransform::Compose(transform, bone->mLocalTransform);
+    bone->mPose->MarkBoneDirty(bone->mIdx);
   }
 
   /**

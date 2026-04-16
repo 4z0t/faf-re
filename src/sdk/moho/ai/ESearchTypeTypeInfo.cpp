@@ -24,7 +24,6 @@ namespace
   {
     if (!gESearchTypeTypeInfoConstructed) {
       auto* const typeInfo = new (gESearchTypeTypeInfoStorage) ESearchTypeTypeInfo();
-      gpg::PreRegisterRType(typeid(ESearchType), typeInfo);
       gESearchTypeRuntimeType = typeInfo;
       gESearchTypeTypeInfoConstructed = true;
     }
@@ -116,6 +115,14 @@ namespace
     (void)cleanup_ESearchTypePrimitiveSerializer();
   }
 } // namespace
+
+/**
+ * Address: 0x005A9D90 (FUN_005A9D90, Moho::ESearchTypeTypeInfo::ESearchTypeTypeInfo)
+ */
+ESearchTypeTypeInfo::ESearchTypeTypeInfo()
+{
+  gpg::PreRegisterRType(typeid(ESearchType), this);
+}
 
 /**
  * Address: 0x005A9E20 (FUN_005A9E20, scalar deleting thunk)

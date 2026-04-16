@@ -14,6 +14,7 @@
 
 struct lua_State;
 struct IDirectSoundBuffer;
+struct _GUID;
 
 namespace gpg::gal
 {
@@ -409,6 +410,70 @@ namespace moho
    */
   void APP_InitializeIdentity();
 
+  /**
+   * Address: 0x008C8640 (FUN_008C8640, USER_SetCompanyName)
+   * Mangled: ?USER_SetCompanyName@Moho@@YAXVStrArg@gpg@@@Z
+   *
+   * What it does:
+   * Replaces the startup company-name lane.
+   */
+  void USER_SetCompanyName(gpg::StrArg companyName);
+
+  /**
+   * Address: 0x008C8670 (FUN_008C8670, USER_SetAppName)
+   * Mangled: ?USER_SetAppName@Moho@@YAXVStrArg@gpg@@@Z
+   *
+   * What it does:
+   * Replaces the startup app/product-name lane.
+   */
+  void USER_SetAppName(gpg::StrArg appName);
+
+  /**
+   * Address: 0x008C86A0 (FUN_008C86A0, USER_SetAppExtensionPrefix)
+   * Mangled: ?USER_SetAppExtensionPrefix@Moho@@YAXVStrArg@gpg@@@Z
+   *
+   * What it does:
+   * Replaces the startup app-extension/prefs-prefix lane.
+   */
+  void USER_SetAppExtensionPrefix(gpg::StrArg extensionPrefix);
+
+  /**
+   * Address: 0x008C86D0 (FUN_008C86D0, USER_SetGameId)
+   *
+   * What it does:
+   * Writes the fixed 4-word game-id tuple used by save/profile identity logic.
+   */
+  void USER_SetGameId();
+
+  /**
+   * Address: 0x008C8760 (FUN_008C8760, USER_SetCurrentProfile)
+   * Mangled:
+   * ?USER_SetCurrentProfile@Moho@@YAXABV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+   *
+   * What it does:
+   * Selects one profile by name in `profile.profiles`, updates that profile's
+   * `NetName`, and writes `profile.current`; if missing, invokes
+   * `/lua/user/prefs.lua:CreateProfile(profileName)`.
+   */
+  void USER_SetCurrentProfile(const msvc8::string& profileName);
+
+  /**
+   * Address: 0x008CAE10 (FUN_008CAE10, USER_GetGameId)
+   * Mangled: ?USER_GetGameId@Moho@@YAABU_GUID@@XZ
+   *
+   * What it does:
+   * Returns the process-global 128-bit game-id lane.
+   */
+  [[nodiscard]] _GUID& USER_GetGameId();
+
+  /**
+   * Address: 0x008C6730 (FUN_008C6730, USER_LuaFrame)
+   *
+   * What it does:
+   * Runs one user-task stage frame through the process-global user stage lane.
+   */
+  void USER_LuaFrame();
+
   [[nodiscard]] const msvc8::string& APP_GetCompanyName();
   [[nodiscard]] const msvc8::string& APP_GetProductName();
   [[nodiscard]] const msvc8::string& APP_GetPreferencePrefix();
@@ -445,6 +510,32 @@ namespace moho
    * its following positional arguments.
    */
   bool CFG_GetArgOption(gpg::StrArg option, std::uint32_t requiredArgCount, msvc8::vector<msvc8::string>* outArgs);
+
+  /**
+   * Address: 0x00500A90 (FUN_00500A90, Moho::P4_Info)
+   * Mangled: ?P4_Info@Moho@@YAXXZ
+   *
+   * What it does:
+   * Legacy Perforce info hook lane retained as an explicit no-op.
+   */
+  void P4_Info();
+
+  /**
+   * Address: 0x00500AA0 (FUN_00500AA0, Moho::P4_Edit)
+   * Mangled: ?P4_Edit@Moho@@YAXPBD@Z
+   *
+   * What it does:
+   * Legacy Perforce edit hook lane retained as an explicit no-op.
+   */
+  void P4_Edit(const char* filePath);
+
+  /**
+   * Address: 0x00500AC0 (FUN_00500AC0, Moho::P4_DoPrompt)
+   *
+   * What it does:
+   * Returns whether Perforce prompt UI should be shown (`/p4yes` disables it).
+   */
+  [[nodiscard]] bool P4_DoPrompt();
 
   /**
    * Address: 0x0041B690 (FUN_0041B690)

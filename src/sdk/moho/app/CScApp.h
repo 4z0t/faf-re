@@ -70,7 +70,7 @@ public:
   bool Init() override;
 
   /**
-   * Address: 0x008D1470 (FUN_008D1470)
+     * Address: 0x008D1470 (FUN_008D1470)
    * Mangled: ?Main@CScApp@@UAEXXZ
    *
    * What it does:

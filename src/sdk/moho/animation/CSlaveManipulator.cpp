@@ -8,6 +8,7 @@
 #include <new>
 #include <typeinfo>
 
+#include "gpg/core/containers/ReadArchive.h"
 #include "moho/animation/CAniActor.h"
 #include "moho/animation/CAniPose.h"
 #include "lua/LuaObject.h"
@@ -39,6 +40,71 @@ namespace
       moho::CSlaveManipulator::sType = type;
     }
     return type;
+  }
+
+  [[nodiscard]] gpg::RType* CachedIAniManipulatorType()
+  {
+    gpg::RType* type = moho::IAniManipulator::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::IAniManipulator));
+      moho::IAniManipulator::sType = type;
+    }
+    return type;
+  }
+
+  [[nodiscard]] gpg::RType* CachedQuaternionfType()
+  {
+    static gpg::RType* type = nullptr;
+    if (!type) {
+      type = gpg::LookupRType(typeid(Wm3::Quaternionf));
+    }
+    return type;
+  }
+
+  /**
+   * Address: 0x00646C40 (FUN_00646C40)
+   *
+   * What it does:
+   * Deserializes one `CSlaveManipulator` lane by loading IAniManipulator base
+   * state then source-bone, current quaternion, and max-rate fields.
+   */
+  [[maybe_unused]] void DeserializeCSlaveManipulatorSerializerBody(
+    moho::CSlaveManipulator* const manipulator,
+    gpg::ReadArchive* const archive
+  )
+  {
+    if (!archive || !manipulator) {
+      return;
+    }
+
+    const gpg::RRef owner{};
+    archive->Read(CachedIAniManipulatorType(), static_cast<moho::IAniManipulator*>(manipulator), owner);
+    archive->ReadInt(&manipulator->mSourceBoneIndex);
+    archive->Read(CachedQuaternionfType(), &manipulator->mCurrentRotation, owner);
+    archive->ReadFloat(&manipulator->mMaxRate);
+  }
+
+  /**
+   * Address: 0x00646CE0 (FUN_00646CE0)
+   *
+   * What it does:
+   * Serializes one `CSlaveManipulator` lane by saving IAniManipulator base
+   * state then source-bone, current quaternion, and max-rate fields.
+   */
+  [[maybe_unused]] void SerializeCSlaveManipulatorSerializerBody(
+    const moho::CSlaveManipulator* const manipulator,
+    gpg::WriteArchive* const archive
+  )
+  {
+    if (!archive || !manipulator) {
+      return;
+    }
+
+    const gpg::RRef owner{};
+    archive->Write(CachedIAniManipulatorType(), manipulator, owner);
+    archive->WriteInt(manipulator->mSourceBoneIndex);
+    archive->Write(CachedQuaternionfType(), &manipulator->mCurrentRotation, owner);
+    archive->WriteFloat(manipulator->mMaxRate);
   }
 
   template <class TObject>
@@ -198,7 +264,7 @@ namespace moho
 } // namespace moho
 
 /**
- * Address: 0x10015880 (constructor shape)
+  * Alias of FUN_10015880 (non-canonical helper lane).
  *
  * What it does:
  * Stores one metatable-factory index used by `CScrLuaObjectFactory::Get`.

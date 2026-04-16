@@ -13,6 +13,78 @@ namespace moho
 
 gpg::RType* RScaResource::sType = nullptr;
 
+namespace
+{
+  class RScaResourceTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "RScaResource";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(RScaResource);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
+  [[nodiscard]] CScaResourceFactory& ScaResourceFactorySingleton()
+  {
+    static CScaResourceFactory sFactory;
+    return sFactory;
+  }
+} // namespace
+
+/**
+ * Address: 0x0053A2D0 (FUN_0053A2D0, preregister_RScaResourceTypeInfo)
+ *
+ * What it does:
+ * Constructs/preregisters reflection metadata for `RScaResource`.
+ */
+[[nodiscard]] gpg::RType* preregister_RScaResourceTypeInfo()
+{
+  static RScaResourceTypeInfo typeInfo;
+  gpg::PreRegisterRType(typeid(RScaResource), &typeInfo);
+  return &typeInfo;
+}
+
+/**
+ * Address: 0x0053B2A0 (FUN_0053B2A0, boost::shared_ptr_RScaResource::shared_ptr_RScaResource)
+ *
+ * What it does:
+ * Constructs one `shared_ptr<RScaResource>` from one raw resource pointer lane.
+ */
+boost::shared_ptr<RScaResource>* ConstructSharedRScaResourceFromRaw(
+  boost::shared_ptr<RScaResource>* const outResource,
+  RScaResource* const resource
+)
+{
+  return ::new (outResource) boost::shared_ptr<RScaResource>(resource);
+}
+
+/**
+ * Address: 0x0053AA40 (FUN_0053AA40)
+ *
+ * What it does:
+ * Ensures the resource-manager singleton, attaches process-lifetime SCA
+ * factory registration, and returns the attached factory object.
+ */
+CScaResourceFactory* construct_CScaResourceFactoryPreload()
+{
+  RES_EnsureResourceManager();
+
+  ResourceManager* const manager = RES_GetResourceManager();
+  CScaResourceFactory& factory = ScaResourceFactorySingleton();
+  if (manager != nullptr) {
+    manager->AttachFactory(&factory);
+  }
+
+  return &factory;
+}
+
 /**
  * Address: 0x0053AD00 (FUN_0053AD00, Moho::ResourceFactory_RScaResource::Init)
  *
@@ -22,6 +94,8 @@ gpg::RType* RScaResource::sType = nullptr;
  */
 void CScaResourceFactory::Init()
 {
+  (void)preregister_RScaResourceTypeInfo();
+
   gpg::RType* firstResolvedType = RScaResource::sType;
   if (firstResolvedType == nullptr) {
     firstResolvedType = gpg::LookupRType(typeid(RScaResource));

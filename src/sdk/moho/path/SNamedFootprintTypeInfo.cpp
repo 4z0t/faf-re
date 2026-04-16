@@ -1,6 +1,7 @@
 #include "moho/path/SNamedFootprint.h"
 #include "moho/sim/SRuleFootprintsBlueprint.h"
 
+#include <cstdint>
 #include <cstdlib>
 #include <list>
 #include <new>
@@ -197,6 +198,62 @@ namespace
     node->prev = prev;
     (void)CopySNamedFootprintValue(source, &node->value);
     return node;
+  }
+
+  struct SNamedFootprintListNodeRuntime
+  {
+    SNamedFootprintListNodeRuntime* next; // +0x00
+    SNamedFootprintListNodeRuntime* prev; // +0x04
+    moho::SNamedFootprint value; // +0x08
+  };
+  static_assert(
+    offsetof(SNamedFootprintListNodeRuntime, value) == 0x8,
+    "SNamedFootprintListNodeRuntime::value offset must be 0x8"
+  );
+
+  struct SNamedFootprintListRuntimeView
+  {
+    std::uint32_t allocatorProxy; // +0x00
+    SNamedFootprintListNodeRuntime* sentinel; // +0x04
+    std::uint32_t count; // +0x08
+  };
+  static_assert(
+    offsetof(SNamedFootprintListRuntimeView, sentinel) == 0x4,
+    "SNamedFootprintListRuntimeView::sentinel offset must be 0x4"
+  );
+  static_assert(
+    offsetof(SNamedFootprintListRuntimeView, count) == 0x8,
+    "SNamedFootprintListRuntimeView::count offset must be 0x8"
+  );
+
+  /**
+   * Address: 0x00514340 (FUN_00514340)
+   *
+   * What it does:
+   * Detaches one intrusive `list<SNamedFootprint>` node ring from its
+   * sentinel, destroys each node's owned name string payload, deletes each
+   * detached node, and resets the list element count to zero.
+   */
+  [[maybe_unused]] void ClearSNamedFootprintListNodeRing(
+    SNamedFootprintListRuntimeView* const listRuntime
+  ) noexcept
+  {
+    if (listRuntime == nullptr || listRuntime->sentinel == nullptr) {
+      return;
+    }
+
+    SNamedFootprintListNodeRuntime* const sentinel = listRuntime->sentinel;
+    SNamedFootprintListNodeRuntime* node = sentinel->next;
+    sentinel->next = sentinel;
+    sentinel->prev = sentinel;
+    listRuntime->count = 0u;
+
+    while (node != sentinel) {
+      SNamedFootprintListNodeRuntime* const nextNode = node->next;
+      node->value.mName.tidy(true, 0u);
+      ::operator delete(static_cast<void*>(node));
+      node = nextNode;
+    }
   }
 
   [[nodiscard]] std::size_t CountSNamedFootprintList(const void* const obj) noexcept

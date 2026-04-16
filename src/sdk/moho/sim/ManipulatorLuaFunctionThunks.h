@@ -6,11 +6,19 @@ namespace LuaPlus
   class LuaState;
 } // namespace LuaPlus
 
+struct lua_State;
+
 namespace moho
 {
   class CScrLuaInitForm;
 
   // Underlying Lua function-definition publishers referenced by this thunk pack.
+  /**
+   * Address: 0x00631F40 (FUN_00631F40, func_CreateAimController_LuaFuncDef)
+   *
+   * What it does:
+   * Publishes the global `CreateAimController(...)` Lua binder.
+   */
   CScrLuaInitForm* func_CreateAimController_LuaFuncDef();
   CScrLuaInitForm* func_CAimManipulatorSetFiringArc_LuaFuncDef();
   CScrLuaInitForm* func_CAimManipulatorSetResetPoseTime_LuaFuncDef();
@@ -19,7 +27,21 @@ namespace moho
   CScrLuaInitForm* func_CAimManipulatorGetHeadingPitch_LuaFuncDef();
   CScrLuaInitForm* func_CAimManipulatorSetHeadingPitch_LuaFuncDef();
   CScrLuaInitForm* func_CAimManipulatorSetAimHeadingOffset_LuaFuncDef();
+
+  /**
+   * Address: 0x00639CA0 (FUN_00639CA0, func_CreateFootPlantController_LuaFuncDef)
+   *
+   * What it does:
+   * Publishes the global `CreateFootPlantController(...)` Lua binder.
+   */
   CScrLuaInitForm* func_CreateFootPlantController_LuaFuncDef();
+
+  /**
+   * Address: 0x00636820 (FUN_00636820, func_CreateBuilderArmController_LuaFuncDef)
+   *
+   * What it does:
+   * Publishes the global `CreateBuilderArmController(...)` Lua binder.
+   */
   CScrLuaInitForm* func_CreateBuilderArmController_LuaFuncDef();
 
   /**
@@ -194,6 +216,13 @@ namespace moho
   CScrLuaInitForm* func_CSlideManipulatorSetGoal_LuaFuncDef();
   CScrLuaInitForm* func_CSlideManipulatorBeenDestroyed_LuaFuncDef();
   CScrLuaInitForm* func_CreateStorageManip_LuaFuncDef();
+
+  /**
+   * Address: 0x0064AB60 (FUN_0064AB60, func_CreateThrustController_LuaFuncDef)
+   *
+   * What it does:
+   * Publishes the global `CreateThrustController(...)` Lua binder.
+   */
   CScrLuaInitForm* func_CreateThrustController_LuaFuncDef();
   /**
    * Address: 0x0064B380 (FUN_0064B380, func_CreateLuaCThrustManipulator)
@@ -218,6 +247,24 @@ namespace moho
    * Publishes the `CThrustManipulator:SetThrustingParam(...)` Lua binder.
    */
   CScrLuaInitForm* func_CThrustManipulatorSetThrustingParam_LuaFuncDef();
+
+  /**
+   * Address: 0x0064AD10 (FUN_0064AD10, cfunc_CThrustManipulatorSetThrustingParam)
+   *
+   * What it does:
+   * Unwraps raw Lua callback state and forwards to
+   * `cfunc_CThrustManipulatorSetThrustingParamL`.
+   */
+  int cfunc_CThrustManipulatorSetThrustingParam(lua_State* luaContext);
+
+  /**
+   * Address: 0x0064AD90 (FUN_0064AD90, cfunc_CThrustManipulatorSetThrustingParamL)
+   *
+   * What it does:
+   * Validates and reads thrust-cap/turn parameters from Lua, then writes them
+   * to one `CThrustManipulator` runtime lane.
+   */
+  int cfunc_CThrustManipulatorSetThrustingParamL(LuaPlus::LuaState* state);
   CScrLuaInitForm* func_CreateCollisionDetector_LuaFuncDef();
   CScrLuaInitForm* func_CCollisionManipulatorEnableTerrainCheck_LuaFuncDef();
   CScrLuaInitForm* func_CCollisionManipulatorEnable_LuaFuncDef();

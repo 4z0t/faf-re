@@ -103,6 +103,64 @@ namespace
 
 namespace moho
 {
+  class RPropBlueprintDefenseTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "RPropBlueprintDefense";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(RPropBlueprintDefense);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
+  class RPropBlueprintEconomyTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "RPropBlueprintEconomy";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(RPropBlueprintEconomy);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
+  /**
+   * Address: 0x0051D5F0 (FUN_0051D5F0, preregister_RPropBlueprintDefenseTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters reflection metadata for `RPropBlueprintDefense`.
+   */
+  [[nodiscard]] gpg::RType* preregister_RPropBlueprintDefenseTypeInfo()
+  {
+    static RPropBlueprintDefenseTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(RPropBlueprintDefense), &typeInfo);
+    return &typeInfo;
+  }
+
+  /**
+   * Address: 0x0051D7A0 (FUN_0051D7A0, preregister_RPropBlueprintEconomyTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters reflection metadata for `RPropBlueprintEconomy`.
+   */
+  [[nodiscard]] gpg::RType* preregister_RPropBlueprintEconomyTypeInfo()
+  {
+    static RPropBlueprintEconomyTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(RPropBlueprintEconomy), &typeInfo);
+    return &typeInfo;
+  }
+
   /**
    * Address: 0x0051D950 (FUN_0051D950, Moho::RPropBlueprintTypeInfo::RPropBlueprintTypeInfo)
    */
@@ -193,6 +251,8 @@ namespace moho
    */
   void register_RPropBlueprintTypeInfo()
   {
+    (void)preregister_RPropBlueprintDefenseTypeInfo();
+    (void)preregister_RPropBlueprintEconomyTypeInfo();
     (void)AcquireRPropBlueprintTypeInfo();
     (void)std::atexit(&cleanup_RPropBlueprintTypeInfo);
   }

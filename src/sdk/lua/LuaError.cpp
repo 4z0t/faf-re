@@ -15,6 +15,19 @@ lua::lua_Error::lua_Error(lua_State* const lua_state, const int errcode, const c
 }
 
 /**
+ * Address: 0x009137B0 (FUN_009137B0, lua_Error::lua_Error)
+ * Mangled: ??0lua_Error@@QAE@@Z
+ *
+ * What it does:
+ * Copy-constructs one Lua error payload and preserves the source state's
+ * `code` and `L` fields.
+ */
+lua::lua_Error::lua_Error(const lua::lua_Error& error)
+  : std::runtime_error(error), L(error.L), code(error.code)
+{
+}
+
+/**
  * Address: 0x009132A0 (FUN_009132A0, lua_RuntimeError::dtr)
  *
  * What it does:
@@ -22,6 +35,30 @@ lua::lua_Error::lua_Error(lua_State* const lua_state, const int errcode, const c
  * to normal `std::runtime_error` teardown.
  */
 lua::lua_Error::~lua_Error() = default;
+
+/**
+ * Address: 0x009137E0 (FUN_009137E0, lua_RuntimeError::lua_RuntimeError)
+ * Mangled: ??0lua_RuntimeError@@QAE@@Z
+ *
+ * What it does:
+ * Copy-constructs one runtime-error lane from an existing Lua error payload.
+ */
+lua_RuntimeError::lua_RuntimeError(const lua::lua_Error& error)
+  : lua::lua_Error(error)
+{
+}
+
+/**
+ * Address: 0x00914780 (FUN_00914780, lua_ErrorError::lua_ErrorError)
+ * Mangled: ??0lua_ErrorError@@QAE@@Z
+ *
+ * What it does:
+ * Copy-constructs one error-error lane from an existing Lua error payload.
+ */
+lua_ErrorError::lua_ErrorError(const lua::lua_Error& error)
+  : lua::lua_Error(error)
+{
+}
 
 /**
  * Address: 0x00919900 (FUN_00919900)
@@ -46,6 +83,18 @@ lua_SyntaxError::lua_SyntaxError(const lua::lua_Error& error)
  * is represented as the class destructor.
  */
 lua_SyntaxError::~lua_SyntaxError() = default;
+
+/**
+ * Address: 0x0091A380 (FUN_0091A380, lua_MemError::lua_MemError)
+ * Mangled: ??0lua_MemError@@QAE@@Z
+ *
+ * What it does:
+ * Copy-constructs one memory-error lane from an existing Lua error payload.
+ */
+lua_MemError::lua_MemError(const lua::lua_Error& error)
+  : lua::lua_Error(error)
+{
+}
 
 /**
  * Address: 0x0091A1F0 (FUN_0091A1F0, lua_MemError::dtr)

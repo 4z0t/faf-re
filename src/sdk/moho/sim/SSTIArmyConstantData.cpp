@@ -1,9 +1,80 @@
 #include "SSTIArmyConstantData.h"
 
+#include <new>
+
 #include "gpg/core/containers/ArchiveSerialization.h"
 #include "gpg/core/containers/ReadArchive.h"
 #include "gpg/core/containers/WriteArchive.h"
 #include "moho/sim/CIntelGrid.h"
+
+namespace
+{
+  /**
+   * Address: 0x00757390 (FUN_00757390, copy_SSTIArmyConstantData_range_with_rollback)
+   *
+   * What it does:
+   * Copy-constructs a contiguous `SSTIArmyConstantData` range into destination
+   * storage and destroys already-constructed elements before rethrowing if a
+   * construction step throws.
+   */
+  [[maybe_unused]] moho::SSTIArmyConstantData* CopySSTIArmyConstantDataRangeWithRollback(
+    const moho::SSTIArmyConstantData* sourceBegin,
+    const moho::SSTIArmyConstantData* sourceEnd,
+    moho::SSTIArmyConstantData* destinationBegin
+  )
+  {
+    moho::SSTIArmyConstantData* destinationCursor = destinationBegin;
+    try {
+      for (const moho::SSTIArmyConstantData* sourceCursor = sourceBegin;
+           sourceCursor != sourceEnd;
+           ++sourceCursor, ++destinationCursor) {
+        if (destinationCursor != nullptr) {
+          ::new (destinationCursor) moho::SSTIArmyConstantData(*sourceCursor);
+        }
+      }
+      return destinationCursor;
+    } catch (...) {
+      for (moho::SSTIArmyConstantData* destroyCursor = destinationBegin;
+           destroyCursor != destinationCursor;
+           ++destroyCursor) {
+        destroyCursor->~SSTIArmyConstantData();
+      }
+      throw;
+    }
+  }
+
+  /**
+   * Address: 0x00754170 (FUN_00754170, fill_SSTIArmyConstantData_count_with_rollback)
+   *
+   * What it does:
+   * Copy-constructs `count` contiguous `SSTIArmyConstantData` objects from one
+   * source payload into destination storage and destroys already-constructed
+   * elements before rethrowing if construction fails.
+   */
+  [[maybe_unused]] moho::SSTIArmyConstantData* FillSSTIArmyConstantDataCountWithRollback(
+    const unsigned int count,
+    moho::SSTIArmyConstantData* destinationBegin,
+    const moho::SSTIArmyConstantData* source
+  )
+  {
+    moho::SSTIArmyConstantData* destinationCursor = destinationBegin;
+    try {
+      for (unsigned int i = 0; i < count; ++i, ++destinationCursor) {
+        if (destinationCursor != nullptr) {
+          ::new (destinationCursor) moho::SSTIArmyConstantData(*source);
+        }
+      }
+      return destinationCursor;
+    } catch (...) {
+      for (moho::SSTIArmyConstantData* destroyCursor = destinationBegin;
+           destroyCursor != destinationCursor;
+           ++destroyCursor) {
+        destroyCursor->~SSTIArmyConstantData();
+      }
+      throw;
+    }
+  }
+} // namespace
 
 namespace moho
 {
@@ -28,6 +99,29 @@ namespace moho
     , mOmniReconGrid()
     , mRciReconGrid()
     , mSciReconGrid()
+  {}
+
+  /**
+   * Address: 0x00742FA0 (FUN_00742FA0, Moho::SSTIArmyConstantData::SSTIArmyConstantData copy-ctor)
+   *
+   * What it does:
+   * Clones fixed identity/string lanes and all eight tracked shared
+   * `CIntelGrid` pointer lanes from one source payload.
+   */
+  SSTIArmyConstantData::SSTIArmyConstantData(const SSTIArmyConstantData& other)
+    : mArmyIndex(other.mArmyIndex)
+    , mArmyName(other.mArmyName)
+    , mPlayerName(other.mPlayerName)
+    , mIsCivilian(other.mIsCivilian)
+    , mPad3D{other.mPad3D[0], other.mPad3D[1], other.mPad3D[2]}
+    , mExploredReconGrid(other.mExploredReconGrid)
+    , mFogReconGrid(other.mFogReconGrid)
+    , mWaterReconGrid(other.mWaterReconGrid)
+    , mRadarReconGrid(other.mRadarReconGrid)
+    , mSonarReconGrid(other.mSonarReconGrid)
+    , mOmniReconGrid(other.mOmniReconGrid)
+    , mRciReconGrid(other.mRciReconGrid)
+    , mSciReconGrid(other.mSciReconGrid)
   {}
 
   /**

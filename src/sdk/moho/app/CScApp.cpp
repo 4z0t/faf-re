@@ -233,7 +233,7 @@ namespace
   }
 
   /**
-   * Address: 0x008D1470 (FUN_008D1470) - heap stat publish prelude.
+    * Alias of FUN_008D1470 (non-canonical helper lane).
    *
    * What it does:
    * Pulls allocator counters and publishes the six heap stat strings used by UI stats.

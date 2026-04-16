@@ -94,14 +94,6 @@ namespace moho
   }
 
   /**
-   * Address: 0x006D28C0 (FUN_006D28C0, sub_6D28C0)
-   */
-  gpg::RType* construct_UnitSetTypeInfo()
-  {
-    return &AcquireUnitSetTypeInfo();
-  }
-
-  /**
    * Address: 0x00BFE3F0 (FUN_00BFE3F0, sub_BFE3F0)
    */
   void cleanup_UnitSetTypeInfo()
@@ -119,7 +111,7 @@ namespace moho
    */
   int register_UnitSetTypeInfo()
   {
-    (void)construct_UnitSetTypeInfo();
+    (void)AcquireUnitSetTypeInfo();
     return std::atexit(&cleanup_UnitSetTypeInfo);
   }
 } // namespace moho

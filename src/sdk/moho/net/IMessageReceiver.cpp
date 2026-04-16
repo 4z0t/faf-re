@@ -11,7 +11,7 @@ using namespace moho;
 namespace
 {
   /**
-   * Address: 0x0047C320 (FUN_0047C320)
+    * Alias of FUN_0047C320 (non-canonical helper lane).
    *
    * What it does:
    * Unlinks one `SMsgReceiverLinkage` from both intrusive list lanes
@@ -28,7 +28,7 @@ namespace
   }
 
   /**
-   * Address: 0x0047C2E0 (FUN_0047C2E0)
+    * Alias of FUN_0047C2E0 (non-canonical helper lane).
    *
    * What it does:
    * Unlinks one `SMsgReceiverLinkage` from both intrusive list lanes and

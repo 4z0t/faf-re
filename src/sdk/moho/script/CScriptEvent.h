@@ -239,7 +239,7 @@ namespace moho
   Unit* SCR_FromLua_Unit(const LuaPlus::LuaObject& object);
 
   /**
-   * Address: 0x00593970 (FUN_00593970, func_GetUnitOpt)
+    * Alias of FUN_00593970 (non-canonical helper lane).
    *
    * What it does:
    * Converts one Lua object to `Unit*` without throwing conversion errors:
@@ -857,7 +857,7 @@ namespace moho
   Prop* SCR_FromLua_Prop(const LuaPlus::LuaObject& object, LuaPlus::LuaState* state);
 
   /**
-   * Address: 0x004C9030 (FUN_004C9030, func_RRefCScriptObject)
+    * Alias of FUN_004C9030 (non-canonical helper lane).
    *
    * What it does:
    * Builds an RTTI-aware `gpg::RRef` for a CScriptObject pointer.

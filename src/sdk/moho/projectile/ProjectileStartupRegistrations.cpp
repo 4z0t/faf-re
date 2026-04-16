@@ -152,17 +152,6 @@ namespace
   );
   static_assert(sizeof(ProjectileTargetingRuntimeView) == 0x2B0, "ProjectileTargetingRuntimeView size must be 0x2B0");
 
-  struct ProjectileLifetimeRuntimeView
-  {
-    std::uint8_t mUnknown0000[0x330];
-    std::uint32_t mLifetimeEnd; // +0x330
-  };
-  static_assert(
-    offsetof(ProjectileLifetimeRuntimeView, mLifetimeEnd) == 0x330,
-    "ProjectileLifetimeRuntimeView::mLifetimeEnd offset must be 0x330"
-  );
-  static_assert(sizeof(ProjectileLifetimeRuntimeView) == 0x334, "ProjectileLifetimeRuntimeView size must be 0x334");
-
   struct ProjectileMotionControlRuntimeView
   {
     std::uint8_t mUnknown0000[0x2B0];
@@ -234,11 +223,6 @@ namespace
   [[nodiscard]] ProjectileVelocityRuntimeView& AccessProjectileVelocityView(moho::Projectile& projectile) noexcept
   {
     return *reinterpret_cast<ProjectileVelocityRuntimeView*>(&projectile);
-  }
-
-  [[nodiscard]] ProjectileLifetimeRuntimeView& AccessProjectileLifetimeView(moho::Projectile& projectile) noexcept
-  {
-    return *reinterpret_cast<ProjectileLifetimeRuntimeView*>(&projectile);
   }
 
   [[nodiscard]] ProjectileTargetingRuntimeView& AccessProjectileTargetingView(moho::Projectile& projectile) noexcept
@@ -335,6 +319,19 @@ namespace
   class RManyToOneBroadcasterProjectileImpactTypeInfo final : public gpg::RType
   {
   public:
+    /**
+     * Address: 0x0069FBC0 (FUN_0069FBC0, Moho::RManyBroadcasterRType_EProjectileImpactEvent::RManyBroadcasterRType_EProjectileImpactEvent)
+     *
+     * What it does:
+     * Preregisters `ManyToOneBroadcaster<EProjectileImpactEvent>` reflection
+     * metadata at startup.
+     */
+    RManyToOneBroadcasterProjectileImpactTypeInfo()
+      : gpg::RType()
+    {
+      gpg::PreRegisterRType(typeid(moho::ManyToOneBroadcaster_EProjectileImpactEvent), this);
+    }
+
     [[nodiscard]] const char* GetName() const override
     {
       return "ManyToOneBroadcaster<EProjectileImpactEvent>";
@@ -351,6 +348,19 @@ namespace
   class RManyToOneListenerProjectileImpactTypeInfo final : public gpg::RType
   {
   public:
+    /**
+     * Address: 0x0069FC20 (FUN_0069FC20, Moho::RManyListenerRType_EProjectileImpactEvent::RManyListenerRType_EProjectileImpactEvent)
+     *
+     * What it does:
+     * Preregisters `ManyToOneListener<EProjectileImpactEvent>` reflection
+     * metadata at startup.
+     */
+    RManyToOneListenerProjectileImpactTypeInfo()
+      : gpg::RType()
+    {
+      gpg::PreRegisterRType(typeid(moho::ManyToOneListener_EProjectileImpactEvent), this);
+    }
+
     [[nodiscard]] const char* GetName() const override
     {
       return "ManyToOneListener<EProjectileImpactEvent>";
@@ -453,7 +463,6 @@ namespace
     }
 
     auto& typeInfo = EProjectileImpactEventTypeInfoStorageRef();
-    gpg::PreRegisterRType(typeid(moho::EProjectileImpactEvent), &typeInfo);
     return &typeInfo;
   }
 
@@ -465,7 +474,6 @@ namespace
     }
 
     auto& typeInfo = CProjectileAttributesTypeInfoStorageRef();
-    gpg::PreRegisterRType(typeid(moho::CProjectileAttributes), &typeInfo);
     moho::CProjectileAttributes::sType = &typeInfo;
     return &typeInfo;
   }
@@ -478,7 +486,6 @@ namespace
     }
 
     auto& typeInfo = ManyToOneBroadcasterTypeInfoStorageRef();
-    gpg::PreRegisterRType(typeid(moho::ManyToOneBroadcaster_EProjectileImpactEvent), &typeInfo);
     moho::ManyToOneBroadcaster_EProjectileImpactEvent::sType = &typeInfo;
     return &typeInfo;
   }
@@ -491,7 +498,6 @@ namespace
     }
 
     auto& typeInfo = ManyToOneListenerTypeInfoStorageRef();
-    gpg::PreRegisterRType(typeid(moho::ManyToOneListener_EProjectileImpactEvent), &typeInfo);
     moho::ManyToOneListener_EProjectileImpactEvent::sType = &typeInfo;
     return &typeInfo;
   }
@@ -1093,9 +1099,7 @@ namespace moho
       LuaPlus::LuaStackObject::TypeError(&lifetimeArg, "number");
     }
 
-    const float lifetimeTicks = static_cast<float>(lua_tonumber(rawState, 2) * 10.0);
-    AccessProjectileLifetimeView(*projectile).mLifetimeEnd =
-      projectile->SimulationRef->mCurTick + static_cast<std::uint32_t>(lifetimeTicks);
+    projectile->SetLifetime(static_cast<float>(lua_tonumber(rawState, 2)));
     projectile->mLuaObj.PushStack(state);
     return 1;
   }
@@ -2766,6 +2770,14 @@ namespace moho
   }
 
   /**
+   * Address: 0x0069A720 (FUN_0069A720, Moho::EProjectileImpactEventTypeInfo::EProjectileImpactEventTypeInfo)
+   */
+  EProjectileImpactEventTypeInfo::EProjectileImpactEventTypeInfo()
+  {
+    gpg::PreRegisterRType(typeid(EProjectileImpactEvent), this);
+  }
+
+  /**
    * Address: 0x0069A7B0 (FUN_0069A7B0, Moho::EProjectileImpactEventTypeInfo::dtr)
    */
   EProjectileImpactEventTypeInfo::~EProjectileImpactEventTypeInfo() = default;
@@ -2786,6 +2798,18 @@ namespace moho
     size_ = sizeof(EProjectileImpactEvent);
     gpg::RType::Init();
     Finish();
+  }
+
+  /**
+   * Address: 0x0069A850 (FUN_0069A850, Moho::CProjectileAttributesTypeInfo::CProjectileAttributesTypeInfo)
+   *
+   * What it does:
+   * Preregisters `CProjectileAttributes` reflection metadata at startup.
+   */
+  CProjectileAttributesTypeInfo::CProjectileAttributesTypeInfo()
+    : gpg::RType()
+  {
+    gpg::PreRegisterRType(typeid(CProjectileAttributes), this);
   }
 
   /**

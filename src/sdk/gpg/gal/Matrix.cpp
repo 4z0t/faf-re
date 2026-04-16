@@ -16,6 +16,8 @@ extern "C"
     const moho::VMatrix4* source
   );
 
+  moho::VMatrix4* WINAPI D3DXMatrixTranslation(moho::VMatrix4* outMatrix, float x, float y, float z);
+  moho::VMatrix4* WINAPI D3DXMatrixScaling(moho::VMatrix4* outMatrix, float x, float y, float z);
   moho::VMatrix4* WINAPI D3DXMatrixRotationX(moho::VMatrix4* outMatrix, float angle);
   moho::VMatrix4* WINAPI D3DXMatrixRotationY(moho::VMatrix4* outMatrix, float angle);
   moho::VMatrix4* WINAPI D3DXMatrixRotationZ(moho::VMatrix4* outMatrix, float angle);
@@ -54,6 +56,31 @@ namespace gpg::gal::Math
   Matrix* invert(Matrix* const outMatrix, const Matrix* const sourceMatrix)
   {
     D3DXMatrixInverse(outMatrix, nullptr, sourceMatrix);
+    return outMatrix;
+  }
+
+  /**
+   * Address: 0x00940770 (FUN_00940770, sub_940770)
+   *
+   * What it does:
+   * Builds one translation matrix through the D3DX lane and returns
+   * `outMatrix`.
+   */
+  Matrix* translation(Matrix* const outMatrix, const float x, const float y, const float z)
+  {
+    D3DXMatrixTranslation(outMatrix, x, y, z);
+    return outMatrix;
+  }
+
+  /**
+   * Address: 0x009407A0 (FUN_009407A0, sub_9407A0)
+   *
+   * What it does:
+   * Builds one scale matrix through the D3DX lane and returns `outMatrix`.
+   */
+  Matrix* scaling(Matrix* const outMatrix, const float x, const float y, const float z)
+  {
+    D3DXMatrixScaling(outMatrix, x, y, z);
     return outMatrix;
   }
 

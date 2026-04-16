@@ -196,12 +196,17 @@ namespace moho
   }
 
   /**
-   * Address: 0x006EE970 (FUN_006EE970, helper Init)
+   * Address: 0x006F8420 (FUN_006F8420, Moho::CUnitCommandQueueSaveConstruct::RegisterSaveConstructArgsFunction)
    */
   void CUnitCommandQueueSaveConstruct::RegisterSaveConstructArgsFunction()
   {
-    gpg::RType* const type = CUnitCommandQueue::StaticGetClass();
-    GPG_ASSERT(type->serSaveConstructArgsFunc_ == nullptr || type->serSaveConstructArgsFunc_ == mSaveConstructArgsCallback);
+    gpg::RType* type = CUnitCommandQueue::sType;
+    if (type == nullptr) {
+      type = gpg::LookupRType(typeid(CUnitCommandQueue));
+      CUnitCommandQueue::sType = type;
+    }
+
+    GPG_ASSERT(type->serSaveConstructArgsFunc_ == nullptr);
     type->serSaveConstructArgsFunc_ = mSaveConstructArgsCallback;
   }
 
@@ -238,13 +243,17 @@ namespace moho
   }
 
   /**
-   * Address: 0x006EEA40 (FUN_006EEA40, helper Init)
+   * Address: 0x006F84A0 (FUN_006F84A0, Moho::CUnitCommandQueueConstruct::RegisterConstructFunction)
    */
   void CUnitCommandQueueConstruct::RegisterConstructFunction()
   {
-    gpg::RType* const type = CUnitCommandQueue::StaticGetClass();
-    GPG_ASSERT(type->serConstructFunc_ == nullptr || type->serConstructFunc_ == mConstructCallback);
-    GPG_ASSERT(type->deleteFunc_ == nullptr || type->deleteFunc_ == mDeconstructCallback);
+    gpg::RType* type = CUnitCommandQueue::sType;
+    if (type == nullptr) {
+      type = gpg::LookupRType(typeid(CUnitCommandQueue));
+      CUnitCommandQueue::sType = type;
+    }
+
+    GPG_ASSERT(type->serConstructFunc_ == nullptr);
     type->serConstructFunc_ = mConstructCallback;
     type->deleteFunc_ = mDeconstructCallback;
   }
@@ -359,4 +368,3 @@ namespace
 
   CUnitCommandQueueReflectionBootstrap gCUnitCommandQueueReflectionBootstrap;
 } // namespace
-

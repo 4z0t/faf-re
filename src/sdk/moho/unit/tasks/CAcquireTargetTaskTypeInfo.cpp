@@ -32,6 +32,22 @@ namespace
     AcquireTypeInfo().~CAcquireTargetTaskTypeInfo();
     gCAcquireTargetTaskTypeInfoConstructed = false;
   }
+
+  /**
+   * Address: 0x005D8820 (FUN_005D8820)
+   *
+   * What it does:
+   * Runs the in-place default construction path for one
+   * `CAcquireTargetTask` instance used by type-info `NewRef`/`CtrRef`.
+   */
+  [[nodiscard]] moho::CAcquireTargetTask* ConstructAcquireTargetTaskInPlace(void* const objectStorage)
+  {
+    if (objectStorage == nullptr) {
+      return nullptr;
+    }
+
+    return ::new (objectStorage) moho::CAcquireTargetTask(nullptr, nullptr);
+  }
 } // namespace
 
 namespace moho
@@ -140,7 +156,8 @@ namespace moho
    */
   gpg::RRef CAcquireTargetTaskTypeInfo::NewRef()
   {
-    auto* const task = new (std::nothrow) CAcquireTargetTask(nullptr, nullptr);
+    void* const storage = ::operator new(sizeof(CAcquireTargetTask), std::nothrow);
+    auto* const task = ConstructAcquireTargetTaskInPlace(storage);
     return gpg::RRef{task, gpg::LookupRType(typeid(CAcquireTargetTask))};
   }
 
@@ -149,10 +166,7 @@ namespace moho
    */
   gpg::RRef CAcquireTargetTaskTypeInfo::CtrRef(void* const objectStorage)
   {
-    auto* const task = static_cast<CAcquireTargetTask*>(objectStorage);
-    if (task) {
-      new (task) CAcquireTargetTask(nullptr, nullptr);
-    }
+    auto* const task = ConstructAcquireTargetTaskInPlace(objectStorage);
     return gpg::RRef{task, gpg::LookupRType(typeid(CAcquireTargetTask))};
   }
 

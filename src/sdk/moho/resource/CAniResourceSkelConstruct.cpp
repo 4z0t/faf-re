@@ -19,6 +19,29 @@ namespace gpg
 namespace moho
 {
   /**
+   * Address: 0x00539C80 (FUN_00539C80)
+   *
+   * What it does:
+   * Packages one shared `CAniSkel` lane into the construct-result shared
+   * payload with resolved `CAniSkel` runtime type metadata.
+   */
+  void SetConstructResultSharedAniSkel(
+    gpg::SerConstructResult* const result,
+    const boost::shared_ptr<const CAniSkel>& skeleton
+  )
+  {
+    gpg::RType* skelType = CAniSkel::sType;
+    if (skelType == nullptr) {
+      skelType = gpg::LookupRType(typeid(CAniSkel));
+      CAniSkel::sType = skelType;
+    }
+
+    const boost::shared_ptr<void>& sharedAny =
+      reinterpret_cast<const boost::shared_ptr<void>&>(skeleton);
+    result->SetShared(sharedAny, skelType, 1U);
+  }
+
+  /**
    * Address: 0x005388C0 (FUN_005388C0, Moho::CAniResourceSkelConstruct::Construct)
    *
    * What it does:
@@ -47,15 +70,7 @@ namespace moho
       skeleton = modelResource->GetSkeleton();
     }
 
-    gpg::RType* skelType = CAniSkel::sType;
-    if (skelType == nullptr) {
-      skelType = gpg::LookupRType(typeid(CAniSkel));
-      CAniSkel::sType = skelType;
-    }
-
-    const boost::shared_ptr<void>& sharedAny =
-      reinterpret_cast<const boost::shared_ptr<void>&>(skeleton);
-    result->SetShared(sharedAny, skelType, 1U);
+    SetConstructResultSharedAniSkel(result, skeleton);
   }
 
   /**

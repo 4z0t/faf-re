@@ -7,8 +7,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <fstream>
+#include <ios>
 #include <limits>
 #include <mutex>
+#include <ostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -40,6 +44,7 @@
 #include "moho/misc/XFileError.h"
 #include "moho/render/textures/CD3DBatchTexture.h"
 #include "moho/sim/SpecialFileType.h"
+#include "moho/task/CTaskThread.h"
 #include "moho/ui/CUIManager.h"
 
 extern int __argc;
@@ -64,6 +69,12 @@ namespace
   constexpr const char* kHeadAliases[] = {"head", "monitor", "mon", "display"};
   constexpr const char* kFullscreenAliases[] = {"fullscreen"};
   constexpr const char* kWindowedAliases[] = {"windowed", "window", "size"};
+  constexpr std::array<std::uint32_t, 4> kDefaultGameIdParts{
+    0xFA42B43Au,
+    0x68BC5B02u,
+    0x4F701F15u,
+    0x7C3E8FB0u
+  };
 
   constexpr moho::CfgAliasSet kOptionPrefixesSet{kOptionPrefixes, sizeof(kOptionPrefixes) / sizeof(kOptionPrefixes[0])};
   constexpr moho::CfgAliasSet kAdapterAliasesSet{kAdapterAliases, sizeof(kAdapterAliases) / sizeof(kAdapterAliases[0])};
@@ -82,7 +93,11 @@ namespace
   constexpr char kOptionsLogicModulePath[] = "/lua/options/optionslogic.lua";
   constexpr char kGetOptionMethodName[] = "GetOption";
   constexpr char kGetCurrentProfileMethodName[] = "GetCurrentProfile";
+  constexpr char kProfileProfilesPath[] = "profile.profiles";
+  constexpr char kProfileRootKey[] = "profile";
+  constexpr char kProfileCurrentIndexKey[] = "current";
   constexpr char kProfileNameFieldName[] = "Name";
+  constexpr char kProfileNetNameFieldName[] = "NetName";
   constexpr char kProfilesExistMethodName[] = "ProfilesExist";
   constexpr char kCreateProfileMethodName[] = "CreateProfile";
   constexpr char kApplyMethodName[] = "Apply";
@@ -163,6 +178,111 @@ namespace
         reinterpret_cast<const char*>(sourcePath),
         errorCode
       );
+    }
+  }
+
+  /**
+   * Address: 0x008C8230 (FUN_008C8230)
+   *
+   * IDA signature:
+   * void __stdcall sub_8C8230(std::ostream *lpOutputString, std::string *a2, LuaPlus::LuaObject a3, LuaPlus::LuaObject tableObj);
+   *
+   * What it does:
+   * Serializes one Lua key/value lane to preferences text, recursively formatting
+   * nested tables using indentation.
+   */
+  void SerializePreferenceLuaEntry(
+    std::ostream& output,
+    const msvc8::string& indent,
+    LuaPlus::LuaObject keyObject,
+    LuaPlus::LuaObject valueObject
+  )
+  {
+    if (keyObject.Type() == LUA_TSTRING) {
+      const char* const keyText = keyObject.GetString();
+      if (gpg::STR_IsIdent(keyText != nullptr ? keyText : "")) {
+        output << (keyText != nullptr ? keyText : "");
+      } else {
+        const msvc8::string quotedKey = moho::SCR_QuoteLuaString(keyText != nullptr ? keyText : "");
+        output << '[' << quotedKey.c_str() << ']';
+      }
+      output << " = ";
+    }
+
+    switch (valueObject.Type()) {
+      case LUA_TBOOLEAN:
+        output << (valueObject.GetBoolean() ? "true" : "false");
+        break;
+
+      case LUA_TNUMBER: {
+        const char* const valueText = valueObject.ToString();
+        output << (valueText != nullptr ? valueText : "0");
+        break;
+      }
+
+      case LUA_TSTRING: {
+        const char* const valueText = valueObject.GetString();
+        const msvc8::string quotedValue = moho::SCR_QuoteLuaString(valueText != nullptr ? valueText : "");
+        output << quotedValue.c_str();
+        break;
+      }
+
+      case LUA_TTABLE: {
+        output << "{";
+        msvc8::string nestedIndent = indent;
+        nestedIndent.append("    ");
+
+        int entryIndex = 0;
+        for (LuaPlus::LuaTableIterator iter(&valueObject, 1); !iter.m_isDone; iter.Next()) {
+          if (entryIndex > 0) {
+            output << ',';
+          }
+
+          output << '\n' << nestedIndent.c_str();
+          LuaPlus::LuaObject nestedValue(iter.GetValue());
+          LuaPlus::LuaObject nestedKey(iter.GetKey());
+          SerializePreferenceLuaEntry(output, nestedIndent, nestedKey, nestedValue);
+          ++entryIndex;
+        }
+
+        if (entryIndex == 0) {
+          output << " }";
+        } else {
+          output << '\n' << indent.c_str() << '}';
+        }
+        break;
+      }
+
+      default: {
+        LuaPlus::LuaState* const activeState = valueObject.GetActiveState();
+        lua_State* const rawState = activeState != nullptr ? activeState->m_state : nullptr;
+        const char* const typeName = rawState != nullptr ? lua_typename(rawState, valueObject.Type()) : "<unknown>";
+        gpg::Warnf("Attempting to write unsupported type in prefs: %s", typeName != nullptr ? typeName : "<unknown>");
+        break;
+      }
+    }
+  }
+
+  /**
+   * Address: 0x008C80A0 (FUN_008C80A0)
+   *
+   * IDA signature:
+   * LuaPlus::LuaObject *__usercall sub_8C80A0@<eax>(int a1@<edi>, const CHAR *a2@<esi>);
+   *
+   * What it does:
+   * Iterates root preferences table entries and emits one serialized Lua line
+   * per entry to the target output stream.
+   */
+  void SerializePreferenceRootTable(std::ostream& output, LuaPlus::LuaObject preferenceTable)
+  {
+    LuaPlus::LuaTableIterator iter(&preferenceTable, 1);
+    while (!iter.m_isDone) {
+      msvc8::string indent;
+      LuaPlus::LuaObject valueObject(iter.GetValue());
+      LuaPlus::LuaObject keyObject(iter.GetKey());
+      SerializePreferenceLuaEntry(output, indent, keyObject, valueObject);
+      output << '\n';
+      iter.Next();
     }
   }
 
@@ -788,9 +908,18 @@ namespace
     return false;
   }
 
+  /**
+   * Address: 0x008CD4F0 (FUN_008CD4F0)
+   *
+   * What it does:
+   * Formats one adapter mode label as `"<width>x<height>(<refresh>)"` for
+   * startup option state text.
+   */
   [[nodiscard]] msvc8::string BuildModeLabel(const gpg::gal::HeadAdapterMode& mode)
   {
-    return gpg::STR_Printf("%ux%u(%u)", mode.width, mode.height, mode.refreshRate);
+    std::ostringstream stream;
+    stream << mode.width << 'x' << mode.height << '(' << mode.refreshRate << ')';
+    return msvc8::string(stream.str().c_str());
   }
 
   [[nodiscard]] msvc8::string BuildModeKey(const gpg::gal::HeadAdapterMode& mode)
@@ -1995,6 +2124,128 @@ bool moho::CFG_ParseResolutionTriple(const gpg::StrArg value, ResolutionTriple* 
 }
 
 /**
+ * Address: 0x008C8640 (FUN_008C8640, USER_SetCompanyName)
+ * Mangled: ?USER_SetCompanyName@Moho@@YAXVStrArg@gpg@@@Z
+ *
+ * What it does:
+ * Replaces the startup company-name lane.
+ */
+void moho::USER_SetCompanyName(const gpg::StrArg companyName)
+{
+  SetIdentityString(gAppIdentity.mCompanyName, companyName);
+}
+
+/**
+ * Address: 0x008C8670 (FUN_008C8670, USER_SetAppName)
+ * Mangled: ?USER_SetAppName@Moho@@YAXVStrArg@gpg@@@Z
+ *
+ * What it does:
+ * Replaces the startup app/product-name lane.
+ */
+void moho::USER_SetAppName(const gpg::StrArg appName)
+{
+  SetIdentityString(gAppIdentity.mProductName, appName);
+}
+
+/**
+ * Address: 0x008C86A0 (FUN_008C86A0, USER_SetAppExtensionPrefix)
+ * Mangled: ?USER_SetAppExtensionPrefix@Moho@@YAXVStrArg@gpg@@@Z
+ *
+ * What it does:
+ * Replaces the startup app-extension/prefs-prefix lane.
+ */
+void moho::USER_SetAppExtensionPrefix(const gpg::StrArg extensionPrefix)
+{
+  SetIdentityString(gAppIdentity.mPreferencePrefix, extensionPrefix);
+}
+
+/**
+ * Address: 0x008C86D0 (FUN_008C86D0, USER_SetGameId)
+ *
+ * What it does:
+ * Writes the fixed 4-word game-id tuple used by save/profile identity logic.
+ */
+void moho::USER_SetGameId()
+{
+  gAppIdentity.mGameIdParts[0] = kDefaultGameIdParts[0];
+  gAppIdentity.mGameIdParts[1] = kDefaultGameIdParts[1];
+  gAppIdentity.mGameIdParts[2] = kDefaultGameIdParts[2];
+  gAppIdentity.mGameIdParts[3] = kDefaultGameIdParts[3];
+}
+
+/**
+ * Address: 0x008C8760 (FUN_008C8760, USER_SetCurrentProfile)
+ * Mangled:
+ * ?USER_SetCurrentProfile@Moho@@YAXABV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+ *
+ * What it does:
+ * Selects one profile by name from `profile.profiles`, updates that profile's
+ * `NetName`, and sets `profile.current`; when the profile name is missing,
+ * imports `/lua/user/prefs.lua` and invokes `CreateProfile(profileName)`.
+ */
+void moho::USER_SetCurrentProfile(const msvc8::string& profileName)
+{
+  try {
+    IUserPrefs* const preferences = USER_GetPreferences();
+    if (preferences == nullptr) {
+      return;
+    }
+
+    LuaPlus::LuaObject rootPreferences = preferences->GetPreferenceTable();
+    LuaPlus::LuaObject profileTable = rootPreferences.Lookup(kProfileProfilesPath);
+
+    int selectedProfileIndex = -1;
+    if (profileTable.IsTable()) {
+      LuaPlus::LuaTableIterator iter(&profileTable, 1);
+      while (!iter.m_isDone) {
+        LuaPlus::LuaObject profileObject = iter.GetValue();
+        LuaPlus::LuaObject nameObject = profileObject[kProfileNameFieldName];
+        if (nameObject.IsString()) {
+          const char* const candidateName = nameObject.GetString();
+          if (profileName == (candidateName != nullptr ? candidateName : "")) {
+            selectedProfileIndex = iter.GetKey().GetInteger();
+            break;
+          }
+        }
+        iter.Next();
+      }
+    }
+
+    if (selectedProfileIndex == -1) {
+      LuaPlus::LuaState* const state = USER_GetLuaState();
+      LuaPlus::LuaObject prefsModule = SCR_Import(state, kUserPrefsModulePath);
+      LuaPlus::LuaObject createProfileFnObject = prefsModule[kCreateProfileMethodName];
+      LuaPlus::LuaFunction<LuaPlus::LuaObject> createProfileFn(createProfileFnObject);
+      LuaPlus::LuaObject createdProfile = createProfileFn(profileName.c_str());
+      (void)createdProfile;
+      return;
+    }
+
+    LuaPlus::LuaObject selectedProfile = profileTable[selectedProfileIndex];
+    selectedProfile.SetString(kProfileNetNameFieldName, profileName.c_str());
+
+    LuaPlus::LuaObject profileRoot = rootPreferences[kProfileRootKey];
+    profileRoot.SetInteger(kProfileCurrentIndexKey, selectedProfileIndex);
+  } catch (const std::exception& exception) {
+    gpg::Warnf(kUserPrefsLuaRunErrorPrefix, exception.what() != nullptr ? exception.what() : "");
+  }
+}
+
+/**
+ * Address: 0x008CAE10 (FUN_008CAE10, USER_GetGameId)
+ * Mangled: ?USER_GetGameId@Moho@@YAABU_GUID@@XZ
+ *
+ * What it does:
+ * Returns the process-global 128-bit game-id lane initialized by startup
+ * identity setup.
+ */
+_GUID& moho::USER_GetGameId()
+{
+  APP_InitializeIdentity();
+  return *reinterpret_cast<_GUID*>(gAppIdentity.mGameIdParts);
+}
+
+/**
  * Address context:
  * - 0x008CE0A0 constructor path initializes these global identity lanes.
  *
@@ -2004,13 +2255,10 @@ bool moho::CFG_ParseResolutionTriple(const gpg::StrArg value, ResolutionTriple* 
 void moho::APP_InitializeIdentity()
 {
   std::call_once(gAppIdentityInitOnce, [] {
-    SetIdentityString(gAppIdentity.mCompanyName, "Gas Powered Games");
-    SetIdentityString(gAppIdentity.mProductName, "Supreme Commander Forged Alliance");
-    SetIdentityString(gAppIdentity.mPreferencePrefix, "SCFA");
-    gAppIdentity.mGameIdParts[0] = 0xFA42B43A;
-    gAppIdentity.mGameIdParts[1] = 0x68BC5B02;
-    gAppIdentity.mGameIdParts[2] = 0x4F701F15;
-    gAppIdentity.mGameIdParts[3] = 0x7C3E8FB0;
+    USER_SetCompanyName("Gas Powered Games");
+    USER_SetAppName("Supreme Commander Forged Alliance");
+    USER_SetAppExtensionPrefix("SCFA");
+    USER_SetGameId();
   });
 }
 
@@ -2058,6 +2306,17 @@ std::uint8_t moho::APP_GetAqtimeInstrumentationMode()
 }
 
 /**
+ * Address: 0x008C6730 (FUN_008C6730, USER_LuaFrame)
+ *
+ * What it does:
+ * Runs one user-task stage frame through the process-global user stage lane.
+ */
+void moho::USER_LuaFrame()
+{
+  sUserStage->UserFrame();
+}
+
+/**
  * Address: 0x0041B560 (FUN_0041B560)
  * Mangled:
  * ?CFG_GetArgOption@Moho@@YA_NVStrArg@gpg@@IPAV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@std@@@Z
@@ -2098,6 +2357,41 @@ bool moho::CFG_GetArgOption(
   }
 
   return false;
+}
+
+/**
+ * Address: 0x00500A90 (FUN_00500A90, Moho::P4_Info)
+ * Mangled: ?P4_Info@Moho@@YAXXZ
+ *
+ * What it does:
+ * Preserves one legacy Perforce info hook as a no-op.
+ */
+void moho::P4_Info()
+{
+}
+
+/**
+ * Address: 0x00500AA0 (FUN_00500AA0, Moho::P4_Edit)
+ * Mangled: ?P4_Edit@Moho@@YAXPBD@Z
+ *
+ * What it does:
+ * Preserves one legacy Perforce edit hook as a no-op.
+ */
+void moho::P4_Edit(const char* const filePath)
+{
+  (void)filePath;
+}
+
+/**
+ * Address: 0x00500AC0 (FUN_00500AC0, Moho::P4_DoPrompt)
+ *
+ * What it does:
+ * Returns whether startup should prompt for Perforce actions. Passing `/p4yes`
+ * on command line suppresses the prompt.
+ */
+bool moho::P4_DoPrompt()
+{
+  return !CFG_GetArgOption("/p4yes", 0u, nullptr);
 }
 
 /**
@@ -5393,6 +5687,45 @@ moho::IUserPrefs* moho::USER_GetPreferences()
   gpg::Warnf("preferences not loaded prior to first use, creating defaults");
   gPreferences = new CUserPrefsRuntime{};
   return gPreferences;
+}
+
+/**
+ * Address: 0x008C91A0 (FUN_008C91A0, USER_SavePreferences)
+ *
+ * What it does:
+ * Serializes the current preferences table into `<prefs>.new`, closes the
+ * stream, and atomically replaces the persisted preferences file.
+ */
+void moho::USER_SavePreferences()
+{
+  IUserPrefs* const preferences = gPreferences;
+  if (preferences == nullptr) {
+    gpg::Warnf("preferences not loaded prior to first save, nothing persisted");
+    return;
+  }
+
+  const msvc8::string* const preferencesPathUtf8 = preferences->GetStr1();
+  const char* const preferencesPathText = preferencesPathUtf8 != nullptr ? preferencesPathUtf8->c_str() : "";
+  const std::wstring preferencesPathWide = gpg::STR_Utf8ToWide(preferencesPathText != nullptr ? preferencesPathText : "");
+  const std::wstring temporaryPathWide = preferencesPathWide + L".new";
+
+  std::ofstream outputStream(temporaryPathWide.c_str());
+  if (!outputStream.is_open()) {
+    const std::wstring warningWide = std::wstring(L"Unable to open preference file: ") + temporaryPathWide;
+    const msvc8::string warningUtf8 = gpg::STR_WideToUtf8(warningWide.c_str());
+    gpg::Warnf(warningUtf8.c_str());
+    return;
+  }
+
+  SerializePreferenceRootTable(outputStream, preferences->GetPreferenceTable());
+
+  if (std::filebuf* const fileBuffer = outputStream.rdbuf(); fileBuffer != nullptr) {
+    if (fileBuffer->close() == nullptr) {
+      outputStream.setstate(std::ios::failbit);
+    }
+  }
+
+  CopyOrReplacePreferenceFile(temporaryPathWide.c_str(), preferencesPathWide.c_str());
 }
 
 /**

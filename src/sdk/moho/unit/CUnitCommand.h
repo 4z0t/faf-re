@@ -69,7 +69,7 @@ namespace moho
     gpg::RRef GetDerivedObjectRef();
 
     /**
-     * Address: 0x006E81B0 (FUN_006E81B0, ??0CUnitCommand@Moho@@QAE@PAVSim@1@ABUSSTICommandIssueData@1@@Z)
+       * Address: 0x006E81B0 (FUN_006E81B0)
      *
      * What it does:
      * Initializes one command from issue payload lanes, updates sim command
@@ -78,7 +78,7 @@ namespace moho
     CUnitCommand(Sim* sim, const SSTICommandIssueData& issueData);
 
     /**
-     * Address: 0x006E81B0 (FUN_006E81B0, command-id override lane)
+       * Address: 0x006E81B0 (FUN_006E81B0)
      *
      * What it does:
      * Initializes one command from issue payload lanes while forcing the
@@ -234,7 +234,7 @@ namespace moho
     void SetTarget(const CAiTarget& target);
 
     /**
-     * Address: 0x005BF810 (FUN_005BF810)
+      * Alias of FUN_005BF810 (non-canonical helper lane).
      *
      * What it does:
      * Refreshes cached command blip/transform state for the current frame.

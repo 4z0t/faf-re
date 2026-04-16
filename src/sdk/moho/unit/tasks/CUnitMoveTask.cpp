@@ -1,7 +1,12 @@
 #include "moho/unit/tasks/CUnitMoveTask.h"
 
 #include <new>
+#include <typeinfo>
 
+#include "gpg/core/containers/ArchiveSerialization.h"
+#include "gpg/core/containers/ReadArchive.h"
+#include "gpg/core/containers/WriteArchive.h"
+#include "gpg/core/reflection/Reflection.h"
 #include "gpg/core/containers/Rect2.h"
 #include "moho/ai/CAiAttackerImpl.h"
 #include "moho/ai/CAiTarget.h"
@@ -17,6 +22,43 @@
 
 namespace
 {
+  [[nodiscard]] gpg::RType* CachedCCommandTaskType()
+  {
+    gpg::RType* type = moho::CCommandTask::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::CCommandTask));
+      moho::CCommandTask::sType = type;
+    }
+    return type;
+  }
+
+  [[nodiscard]] gpg::RType* CachedSNavGoalType()
+  {
+    gpg::RType* type = moho::SNavGoal::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::SNavGoal));
+      moho::SNavGoal::sType = type;
+    }
+    return type;
+  }
+
+  [[nodiscard]] gpg::RType* CachedWeakPtrCUnitCommandType()
+  {
+    gpg::RType* type = moho::WeakPtr<moho::CUnitCommand>::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::WeakPtr<moho::CUnitCommand>));
+      moho::WeakPtr<moho::CUnitCommand>::sType = type;
+    }
+    return type;
+  }
+
+  void ReadBoolIntoByteLane(gpg::ReadArchive* const archive, std::uint8_t& laneValue)
+  {
+    bool value = false;
+    archive->ReadBool(&value);
+    laneValue = value ? 1u : 0u;
+  }
+
   [[nodiscard]] moho::Unit* ResolveAssignedTransportUnit(moho::Unit* const unit) noexcept
   {
     if (!unit) {
@@ -139,6 +181,72 @@ namespace moho
     , mHasPreparedDynamicGoal(0)
     , mPad_0096_0098{0, 0}
   {}
+
+  /**
+   * Address: 0x0061A750 (FUN_0061A750)
+   *
+   * What it does:
+   * Deserializes move-task runtime state in binary read order: base command
+   * task payload, dispatch pointer, move goal, command weak link, and
+   * command-lane state bytes read as booleans.
+   */
+  void CUnitMoveTask::MemberDeserialize(gpg::ReadArchive* const archive)
+  {
+    if (archive == nullptr) {
+      return;
+    }
+
+    const gpg::RRef ownerRef{};
+    archive->Read(CachedCCommandTaskType(), static_cast<CCommandTask*>(this), ownerRef);
+
+    gpg::RRef dispatchTaskRef{};
+    archive->ReadPointer_CCommandTask(&mDispatchTask, &dispatchTaskRef);
+
+    const gpg::RRef moveGoalOwnerRef{};
+    archive->Read(CachedSNavGoalType(), &mMoveGoal, moveGoalOwnerRef);
+
+    const gpg::RRef commandOwnerRef{};
+    archive->Read(CachedWeakPtrCUnitCommandType(), &mCommandRef, commandOwnerRef);
+
+    ReadBoolIntoByteLane(archive, mNextCmdIsInstant);
+    ReadBoolIntoByteLane(archive, mRequiresTransportCategoryCheck);
+    ReadBoolIntoByteLane(archive, mIsOccupying);
+    ReadBoolIntoByteLane(archive, mTransportDispatchIssued);
+    ReadBoolIntoByteLane(archive, mMoveVariant);
+    ReadBoolIntoByteLane(archive, mHasPreparedDynamicGoal);
+  }
+
+  /**
+   * Address: 0x0061A880 (FUN_0061A880)
+   *
+   * What it does:
+   * Serializes move-task runtime state in binary write order: base command
+   * task payload, dispatch pointer, move goal, command weak link, and
+   * command-lane state bytes emitted as booleans.
+   */
+  void CUnitMoveTask::MemberSerialize(gpg::WriteArchive* const archive) const
+  {
+    if (archive == nullptr) {
+      return;
+    }
+
+    const gpg::RRef ownerRef{};
+    archive->Write(CachedCCommandTaskType(), static_cast<const CCommandTask*>(this), ownerRef);
+
+    gpg::RRef dispatchTaskRef{};
+    (void)gpg::RRef_CCommandTask(&dispatchTaskRef, mDispatchTask);
+    gpg::WriteRawPointer(archive, dispatchTaskRef, gpg::TrackedPointerState::Unowned, ownerRef);
+
+    archive->Write(CachedSNavGoalType(), &mMoveGoal, ownerRef);
+    archive->Write(CachedWeakPtrCUnitCommandType(), &mCommandRef, ownerRef);
+
+    archive->WriteBool(mNextCmdIsInstant != 0u);
+    archive->WriteBool(mRequiresTransportCategoryCheck != 0u);
+    archive->WriteBool(mIsOccupying != 0u);
+    archive->WriteBool(mTransportDispatchIssued != 0u);
+    archive->WriteBool(mMoveVariant != 0u);
+    archive->WriteBool(mHasPreparedDynamicGoal != 0u);
+  }
 
   /**
    * Address: 0x00618A00 (FUN_00618A00, sub_618A00)

@@ -15,15 +15,15 @@ namespace moho
   gpg::RType* RPropBlueprint::sType = nullptr;
 
   /**
-   * Address: 0x0051D250 (FUN_0051D250, ??0RPropBlueprint@Moho@@QAE@@Z)
-   * Mangled: ??0RPropBlueprint@Moho@@QAE@@Z
+   * Address: 0x0051D250 (FUN_0051D250)
+   * Mangled: ??0RPropBlueprint@Moho@@QAE@PAVRRuleGameRules@1@ABVRResId@1@@Z
    *
    * What it does:
-   * Runs base entity-blueprint construction and restores prop blueprint
-   * display/defense/economy defaults.
+   * Runs base entity-blueprint construction with `(owner, resId)` and
+   * restores prop blueprint display/defense/economy defaults.
    */
-  RPropBlueprint::RPropBlueprint()
-    : REntityBlueprint()
+  RPropBlueprint::RPropBlueprint(RRuleGameRules* const owner, const RResId& resId)
+    : REntityBlueprint(owner, resId)
     , Display()
     , Defense()
     , Economy()
@@ -35,6 +35,13 @@ namespace moho
     Economy.ReclaimMassMax = 0.0f;
     Economy.ReclaimEnergyMax = 0.0f;
   }
+
+  /**
+   * Local source-compat convenience constructor for scratch/default lanes.
+   */
+  RPropBlueprint::RPropBlueprint()
+    : RPropBlueprint(nullptr, RResId{})
+  {}
 
   /**
    * Address: 0x0051D210 (FUN_0051D210)

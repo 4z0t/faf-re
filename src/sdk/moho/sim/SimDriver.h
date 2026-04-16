@@ -156,6 +156,15 @@ namespace moho
   FAF_RUNTIME_LAYOUT_ASSERT(sizeof(SSyncData) == 0x2B8, "SSyncData size must be 0x2B8");
 
   /**
+   * Address: 0x005C38E0 (FUN_005C38E0)
+   *
+   * What it does:
+   * Appends one unit-create sync packet to `syncData->mNewUnits` and returns
+   * a pointer to the stored element.
+   */
+  SCreateUnitParams* QueueCreateUnitParams(SSyncData* syncData, const SCreateUnitParams& params);
+
+  /**
    * 8-byte lock cell used by CSimDriver (matches +0x30..+0x37 layout).
    */
   struct SDriverMutex
@@ -183,6 +192,16 @@ namespace moho
     bool Empty() const;
     void PushBack(SSyncData* data);
     SSyncData* PopFront();
+
+    /**
+     * Address: 0x007411A0 (FUN_007411A0)
+     *
+     * What it does:
+     * Destroys every non-null queued sync payload slot, releases queue storage,
+     * and resets ring bookkeeping lanes.
+     */
+    void ReleaseOwnedSlotsAndReset();
+
     void ClearAndDelete();
   };
   FAF_RUNTIME_LAYOUT_ASSERT(sizeof(SSyncDataQueue) == 0x14, "SSyncDataQueue size must be 0x14");

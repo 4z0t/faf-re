@@ -238,6 +238,21 @@ namespace moho
   }
 
   /**
+   * Address: 0x004F04D0 (FUN_004F04D0, ??BVTransform@Moho@@QBE?AUVMatrix4@1@XZ)
+   * Mangled: ??BVTransform@Moho@@QBE?AUVMatrix4@1@XZ
+   *
+   * What it does:
+   * Materializes one matrix from this transform by forwarding to
+   * `VMatrix4::Set(orient_, pos_)`.
+   */
+  VTransform::operator VMatrix4() const
+  {
+    VMatrix4 matrix{};
+    matrix.Set(orient_, pos_);
+    return matrix;
+  }
+
+  /**
    * Address: 0x00549DC0 (FUN_00549DC0)
    *
    * What it does:

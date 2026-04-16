@@ -428,23 +428,40 @@ namespace
   }
 
   /**
+   * Address: 0x004FF620 (FUN_004FF620)
+   *
+   * What it does:
+   * Serializes one box primitive's shape payload and local-center payload
+   * through the primitive virtual accessors used by save-construct lanes.
+   */
+  void SaveBoxPrimitiveConstructArgs(
+    moho::BoxCollisionPrimitive* const primitive,
+    gpg::WriteArchive* const archive,
+    gpg::SerSaveConstructArgsResult* const result
+  )
+  {
+    Wm3::Vec3f center{};
+    gpg::RRef shapeOwnerRef{};
+    archive->Write(CachedDColPrimBoxShapeType(), primitive->GetBox(), shapeOwnerRef);
+
+    gpg::RRef centerOwnerRef{};
+    archive->Write(CachedDColPrimBoxVector3fType(), primitive->GetCenter(&center), centerOwnerRef);
+    result->SetUnowned(0u);
+  }
+
+  /**
    * Address: 0x004FF570 (FUN_004FF570)
    *
    * What it does:
-   * Saves one box collision primitive's shape and local-center construct
-   * arguments in binary archive order.
+   * Tail-forwards save-construct-args dispatch into the shared box primitive
+   * serialization helper.
    */
   void SaveConstructArgsDColPrimBox(
     gpg::WriteArchive* const archive, const int objectPtr, const int, gpg::SerSaveConstructArgsResult* const result
   )
   {
     auto* const primitive = reinterpret_cast<moho::BoxCollisionPrimitive*>(objectPtr);
-    Wm3::Vec3f center{};
-    const gpg::RRef ownerRef{};
-
-    archive->Write(CachedDColPrimBoxShapeType(), primitive->GetBox(), ownerRef);
-    archive->Write(CachedDColPrimBoxVector3fType(), primitive->GetCenter(&center), ownerRef);
-    result->SetUnowned(0u);
+    SaveBoxPrimitiveConstructArgs(primitive, archive, result);
   }
 
   /**
@@ -642,5 +659,4 @@ namespace
 
   [[maybe_unused]] DColPrimBoxBootstrap gDColPrimBoxBootstrap;
 } // namespace
-
 

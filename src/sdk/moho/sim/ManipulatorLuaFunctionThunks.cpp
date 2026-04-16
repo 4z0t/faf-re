@@ -24,6 +24,10 @@ namespace moho
   class CThrustManipulator;
   class Entity;
 
+  int cfunc_CreateAimController(lua_State* luaContext);
+  int cfunc_CreateBuilderArmController(lua_State* luaContext);
+  int cfunc_CreateFootPlantController(lua_State* luaContext);
+  int cfunc_CreateThrustController(lua_State* luaContext);
   int cfunc_CBoneEntityManipulatorSetPivot(lua_State* luaContext);
   int cfunc_EntityAttachBoneToEntityBone(lua_State* luaContext);
   int cfunc_CBuilderArmManipulatorSetAimingArc(lua_State* luaContext);
@@ -44,6 +48,7 @@ namespace moho
   int cfunc_CRotateManipulatorGetCurrentAngle(lua_State* luaContext);
   int cfunc_CRotateManipulatorSetCurrentAngle(lua_State* luaContext);
   int cfunc_CThrustManipulatorSetThrustingParam(lua_State* luaContext);
+  int cfunc_CThrustManipulatorSetThrustingParamL(LuaPlus::LuaState* state);
 
   template <>
   class CScrLuaMetatableFactory<CBoneEntityManipulator> final : public CScrLuaObjectFactory
@@ -257,6 +262,19 @@ namespace moho
 
 namespace
 {
+  constexpr const char* kGlobalLuaFactoryClassName = "<global>";
+  constexpr const char* kCreateAimControllerName = "CreateAimController";
+  constexpr const char* kCreateAimControllerHelpText =
+    "CreateAimController(weapon, label, turretBone, [barrelBone], [muzzleBone])";
+  constexpr const char* kCreateBuilderArmControllerName = "CreateBuilderArmController";
+  constexpr const char* kCreateBuilderArmControllerHelpText =
+    "CreateBuilderArmController(unit,turretBone, [barrelBone], [aimBone])";
+  constexpr const char* kCreateFootPlantControllerName = "CreateFootPlantController";
+  constexpr const char* kCreateFootPlantControllerHelpText =
+    "CreateFootPlantController(unit, footBone, kneeBone, hipBone, [straightLegs], [maxFootFall])";
+  constexpr const char* kCreateThrustControllerName = "CreateThrustController";
+  constexpr const char* kCreateThrustControllerHelpText = "CreateThrustController(unit, label, thrustBone)";
+
   constexpr const char* kCBoneEntityManipulatorSetPivotName = "SetPivot";
   constexpr const char* kCBoneEntityManipulatorSetPivotClassName = "CBoneEntityManipulator";
   constexpr const char* kCBoneEntityManipulatorSetPivotHelpText =
@@ -422,6 +440,30 @@ namespace
   {
     return Target();
   }
+
+  struct ThrustCapVector3f
+  {
+    float x;
+    float y;
+    float z;
+  };
+
+  struct CThrustManipulatorLuaRuntimeView
+  {
+    std::byte preCapStorage[0xAC];
+    ThrustCapVector3f mCapMin;
+    ThrustCapVector3f mCapMax;
+    float mTurnForceMult;
+    float mTurnSpeed;
+  };
+
+  static_assert(offsetof(CThrustManipulatorLuaRuntimeView, mCapMin) == 0xAC, "mCapMin offset must be 0xAC");
+  static_assert(offsetof(CThrustManipulatorLuaRuntimeView, mCapMax) == 0xB8, "mCapMax offset must be 0xB8");
+  static_assert(
+    offsetof(CThrustManipulatorLuaRuntimeView, mTurnForceMult) == 0xC4,
+    "mTurnForceMult offset must be 0xC4"
+  );
+  static_assert(offsetof(CThrustManipulatorLuaRuntimeView, mTurnSpeed) == 0xC8, "mTurnSpeed offset must be 0xC8");
 
   struct ManipulatorLuaFunctionThunksBootstrap
   {
@@ -651,6 +693,63 @@ namespace moho
   }
 
   /**
+   * Address: 0x0064AD10 (FUN_0064AD10, cfunc_CThrustManipulatorSetThrustingParam)
+   *
+   * What it does:
+   * Unwraps raw Lua callback state and forwards to
+   * `cfunc_CThrustManipulatorSetThrustingParamL`.
+   */
+  int cfunc_CThrustManipulatorSetThrustingParam(lua_State* const luaContext)
+  {
+    return cfunc_CThrustManipulatorSetThrustingParamL(moho::SCR_ResolveBindingState(luaContext));
+  }
+
+  /**
+   * Address: 0x0064AD90 (FUN_0064AD90, cfunc_CThrustManipulatorSetThrustingParamL)
+   *
+   * What it does:
+   * Validates and reads `SetThrustingParam(...)` numeric arguments from Lua
+   * then updates cap ranges plus turn force/speed on one thrust manipulator.
+   */
+  int cfunc_CThrustManipulatorSetThrustingParamL(LuaPlus::LuaState* const state)
+  {
+    const int argumentCount = lua_gettop(state->m_state);
+    if (argumentCount != 9) {
+      LuaPlus::LuaState::Error(
+        state,
+        kLuaExpectedArgsWarning,
+        kCThrustManipulatorSetThrustingParamHelpText,
+        9,
+        argumentCount
+      );
+    }
+
+    const LuaPlus::LuaObject manipulatorObject(LuaPlus::LuaStackObject(state, 1));
+    CThrustManipulator* const manipulator = moho::SCR_FromLua_CThrustManipulator(manipulatorObject, state);
+
+    const float turnSpeed = ReadRequiredLuaNumber(state, 9);
+    const float turnForceMult = ReadRequiredLuaNumber(state, 8);
+    const float zCapMax = ReadRequiredLuaNumber(state, 7);
+    const float yCapMax = ReadRequiredLuaNumber(state, 5);
+    const float xCapMax = ReadRequiredLuaNumber(state, 3);
+    const float zCapMin = ReadRequiredLuaNumber(state, 6);
+    const float yCapMin = ReadRequiredLuaNumber(state, 4);
+    const float xCapMin = ReadRequiredLuaNumber(state, 2);
+
+    CThrustManipulatorLuaRuntimeView* const runtimeView =
+      reinterpret_cast<CThrustManipulatorLuaRuntimeView*>(manipulator);
+    runtimeView->mCapMin.x = xCapMin;
+    runtimeView->mCapMin.y = yCapMin;
+    runtimeView->mCapMin.z = zCapMin;
+    runtimeView->mCapMax.x = xCapMax;
+    runtimeView->mCapMax.y = yCapMax;
+    runtimeView->mCapMax.z = zCapMax;
+    runtimeView->mTurnForceMult = turnForceMult;
+    runtimeView->mTurnSpeed = turnSpeed;
+    return 0;
+  }
+
+  /**
    * Address: 0x00634C90 (FUN_00634C90, func_CBoneEntityManipulatorSetPivot_LuaFuncDef)
    *
    * What it does:
@@ -742,6 +841,63 @@ namespace moho
       &CScrLuaMetatableFactory<CBuilderArmManipulator>::Instance(),
       kCBuilderArmManipulatorClassName,
       kCBuilderArmManipulatorSetHeadingPitchHelpText
+    );
+    return &binder;
+  }
+
+  /**
+   * Address: 0x00631F40 (FUN_00631F40, func_CreateAimController_LuaFuncDef)
+   *
+   * What it does:
+   * Publishes the global `CreateAimController(...)` Lua binder.
+   */
+  CScrLuaInitForm* func_CreateAimController_LuaFuncDef()
+  {
+    static CScrLuaBinder binder(
+      SimLuaInitSet(),
+      kCreateAimControllerName,
+      &cfunc_CreateAimController,
+      nullptr,
+      kGlobalLuaFactoryClassName,
+      kCreateAimControllerHelpText
+    );
+    return &binder;
+  }
+
+  /**
+   * Address: 0x00636820 (FUN_00636820, func_CreateBuilderArmController_LuaFuncDef)
+   *
+   * What it does:
+   * Publishes the global `CreateBuilderArmController(...)` Lua binder.
+   */
+  CScrLuaInitForm* func_CreateBuilderArmController_LuaFuncDef()
+  {
+    static CScrLuaBinder binder(
+      SimLuaInitSet(),
+      kCreateBuilderArmControllerName,
+      &cfunc_CreateBuilderArmController,
+      nullptr,
+      kGlobalLuaFactoryClassName,
+      kCreateBuilderArmControllerHelpText
+    );
+    return &binder;
+  }
+
+  /**
+   * Address: 0x00639CA0 (FUN_00639CA0, func_CreateFootPlantController_LuaFuncDef)
+   *
+   * What it does:
+   * Publishes the global `CreateFootPlantController(...)` Lua binder.
+   */
+  CScrLuaInitForm* func_CreateFootPlantController_LuaFuncDef()
+  {
+    static CScrLuaBinder binder(
+      SimLuaInitSet(),
+      kCreateFootPlantControllerName,
+      &cfunc_CreateFootPlantController,
+      nullptr,
+      kGlobalLuaFactoryClassName,
+      kCreateFootPlantControllerHelpText
     );
     return &binder;
   }
@@ -951,6 +1107,25 @@ namespace moho
       &CScrLuaMetatableFactory<CThrustManipulator>::Instance(),
       kCThrustManipulatorClassName,
       kCThrustManipulatorSetThrustingParamHelpText
+    );
+    return &binder;
+  }
+
+  /**
+   * Address: 0x0064AB60 (FUN_0064AB60, func_CreateThrustController_LuaFuncDef)
+   *
+   * What it does:
+   * Publishes the global `CreateThrustController(...)` Lua binder.
+   */
+  CScrLuaInitForm* func_CreateThrustController_LuaFuncDef()
+  {
+    static CScrLuaBinder binder(
+      SimLuaInitSet(),
+      kCreateThrustControllerName,
+      &cfunc_CreateThrustController,
+      nullptr,
+      kGlobalLuaFactoryClassName,
+      kCreateThrustControllerHelpText
     );
     return &binder;
   }

@@ -43,10 +43,12 @@ namespace gpg::gal
         DeviceContext& operator=(const DeviceContext& other);
 
         /**
-         * Address: 0x00430570 (FUN_00430570)
+         * Address: 0x008E69B0 (FUN_008E69B0, gpg::gal::DeviceContext::~DeviceContext)
+         * Address: 0x00430570 (FUN_00430570, scalar deleting destructor thunk)
          *
          * What it does:
-         * Owns the scalar-deleting destructor thunk for device-context interface instances.
+         * Tears down one device-context base lane; deleting-thunk dispatch uses
+         * the same canonical destructor body.
          */
         virtual ~DeviceContext();
 

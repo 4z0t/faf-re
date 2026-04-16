@@ -9,6 +9,7 @@
 #include <new>
 #include <typeinfo>
 
+#include "gpg/core/containers/ReadArchive.h"
 #include "lua/LuaObject.h"
 #include "moho/animation/CAniActor.h"
 #include "moho/animation/CAniPose.h"
@@ -208,6 +209,90 @@ namespace
       moho::CRotateManipulator::sType = gpg::LookupRType(typeid(moho::CRotateManipulator));
     }
     return moho::CRotateManipulator::sType;
+  }
+
+  [[nodiscard]] gpg::RType* CachedIAniManipulatorType()
+  {
+    gpg::RType* type = moho::IAniManipulator::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::IAniManipulator));
+      moho::IAniManipulator::sType = type;
+    }
+    return type;
+  }
+
+  [[nodiscard]] gpg::RType* CachedVector3fType()
+  {
+    static gpg::RType* type = nullptr;
+    if (!type) {
+      type = gpg::LookupRType(typeid(Wm3::Vector3f));
+    }
+    return type;
+  }
+
+  /**
+   * Address: 0x006458A0 (FUN_006458A0)
+   *
+   * What it does:
+   * Deserializes one `CRotateManipulator` lane from IAniManipulator base data
+   * plus rotate-state flags, axis, angular lanes, and follow-bone index.
+   */
+  [[maybe_unused]] void DeserializeCRotateManipulatorSerializerBody(
+    moho::CRotateManipulator* const manipulator,
+    gpg::ReadArchive* const archive
+  )
+  {
+    if (!archive || !manipulator) {
+      return;
+    }
+
+    const gpg::RRef owner{};
+    archive->Read(CachedIAniManipulatorType(), static_cast<moho::IAniManipulator*>(manipulator), owner);
+
+    bool hasGoal = manipulator->mHasGoal != 0;
+    archive->ReadBool(&hasGoal);
+    manipulator->mHasGoal = static_cast<std::uint8_t>(hasGoal ? 1 : 0);
+
+    bool spinDown = manipulator->mSpinDown != 0;
+    archive->ReadBool(&spinDown);
+    manipulator->mSpinDown = static_cast<std::uint8_t>(spinDown ? 1 : 0);
+
+    archive->Read(CachedVector3fType(), &manipulator->mAxis, owner);
+    archive->ReadFloat(&manipulator->mCurrentAngle);
+    archive->ReadFloat(&manipulator->mGoalAngle);
+    archive->ReadFloat(&manipulator->mSpeed);
+    archive->ReadFloat(&manipulator->mTargetSpeed);
+    archive->ReadFloat(&manipulator->mAccel);
+    archive->ReadInt(&manipulator->mFollowBone);
+  }
+
+  /**
+   * Address: 0x006459A0 (FUN_006459A0)
+   *
+   * What it does:
+   * Serializes one `CRotateManipulator` lane to IAniManipulator base data plus
+   * rotate-state flags, axis, angular lanes, and follow-bone index.
+   */
+  [[maybe_unused]] void SerializeCRotateManipulatorSerializerBody(
+    const moho::CRotateManipulator* const manipulator,
+    gpg::WriteArchive* const archive
+  )
+  {
+    if (!archive || !manipulator) {
+      return;
+    }
+
+    const gpg::RRef owner{};
+    archive->Write(CachedIAniManipulatorType(), manipulator, owner);
+    archive->WriteBool(manipulator->mHasGoal != 0);
+    archive->WriteBool(manipulator->mSpinDown != 0);
+    archive->Write(CachedVector3fType(), &manipulator->mAxis, owner);
+    archive->WriteFloat(manipulator->mCurrentAngle);
+    archive->WriteFloat(manipulator->mGoalAngle);
+    archive->WriteFloat(manipulator->mSpeed);
+    archive->WriteFloat(manipulator->mTargetSpeed);
+    archive->WriteFloat(manipulator->mAccel);
+    archive->WriteInt(manipulator->mFollowBone);
   }
 
   template <class TObject>
@@ -928,7 +1013,7 @@ void moho::CRotateManipulatorTypeInfo::AddBase_IAniManipulator(gpg::RType* const
 }
 
 /**
- * Address: 0x006456F0 (FUN_006456F0, gpg::RRef_CRotateManipulator)
+  * Alias of FUN_006456F0 (non-canonical helper lane).
  *
  * What it does:
  * Builds one typed reflection reference for `moho::CRotateManipulator*`,

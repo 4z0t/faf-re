@@ -128,14 +128,6 @@ namespace
 namespace moho
 {
   /**
-   * Address: 0x00509ED0 (FUN_00509ED0, preregister_EImpactTypeTypeInfo)
-   */
-  gpg::REnumType* preregister_EImpactTypeTypeInfo()
-  {
-    return ConstructEImpactTypeTypeInfoInternal();
-  }
-
-  /**
    * Address: 0x0067B240 (FUN_0067B240, Moho::ENT_GetImpactType)
    */
   EImpactType ENT_GetImpactType(Sim* const sim, Entity* const entity, const Wm3::Vector3f& hitPosition)
@@ -275,7 +267,7 @@ namespace moho
    */
   int register_EImpactTypeTypeInfo()
   {
-    (void)preregister_EImpactTypeTypeInfo();
+    (void)ConstructEImpactTypeTypeInfoInternal();
     return std::atexit(&cleanup_EImpactTypeTypeInfo);
   }
 

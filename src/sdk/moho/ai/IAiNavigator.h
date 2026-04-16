@@ -87,8 +87,25 @@ namespace moho
     void ClearContent() noexcept;
     void FreeStorage() noexcept;
     void EnsureCapacity(std::size_t requiredCount);
+
+    /**
+     * Address: 0x005AFCC0 (FUN_005AFCC0)
+     *
+     * What it does:
+     * Assigns one path span payload into this path storage while reusing or
+     * reinitializing backing allocation as needed.
+     */
     void AssignCopy(const SNavPath& src);
+
     void AppendCells(const SOCellPos* begin, const SOCellPos* end);
+
+    /**
+     * Address: 0x005B0B60 (FUN_005B0B60)
+     *
+     * What it does:
+     * Inserts one front range into this path span with vector-style growth and
+     * stable ordering semantics.
+     */
     void PrependCells(const SOCellPos* begin, const SOCellPos* end);
     void AppendCell(const SOCellPos& cell);
     void EraseFrontCell() noexcept;
@@ -311,6 +328,14 @@ namespace moho
    * `IAiNavigator` interface pointer. Returns null when allocation fails.
    */
   [[nodiscard]] IAiNavigator* AI_CreateAirNavigator(Unit* unit);
+
+  /**
+   * Address: 0x005A5850 (FUN_005A5850, ?AI_ClearPathData@Moho@@YAXXZ)
+   *
+   * What it does:
+   * Preserves the legacy global AI path-data clear hook as a deliberate no-op.
+   */
+  void AI_ClearPathData();
 
   /**
    * Address: 0x00BCC9A0 (FUN_00BCC9A0)

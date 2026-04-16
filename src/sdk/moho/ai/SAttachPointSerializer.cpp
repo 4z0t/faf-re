@@ -67,6 +67,54 @@ namespace
     return cached;
   }
 
+  /**
+   * Address: 0x005EB980 (FUN_005EB980)
+   *
+   * What it does:
+   * Deserializes one `SAttachPoint` payload lane (`index`, `localPos`,
+   * `distSq`) from the archive.
+   */
+  int ReadSAttachPointPayload(SAttachPoint* const point, gpg::ReadArchive* const archive)
+  {
+    if (point == nullptr || archive == nullptr) {
+      return 0;
+    }
+
+    archive->ReadUInt(&point->index);
+
+    const gpg::RRef ownerRef{};
+    gpg::RType* const vectorType = CachedVector3fType();
+    GPG_ASSERT(vectorType != nullptr);
+    archive->Read(vectorType, &point->localPos, ownerRef);
+
+    archive->ReadFloat(&point->distSq);
+    return 1;
+  }
+
+  /**
+   * Address: 0x005EB9E0 (FUN_005EB9E0)
+   *
+   * What it does:
+   * Serializes one `SAttachPoint` payload lane (`index`, `localPos`,
+   * `distSq`) into the archive.
+   */
+  int WriteSAttachPointPayload(const SAttachPoint* const point, gpg::WriteArchive* const archive)
+  {
+    if (point == nullptr || archive == nullptr) {
+      return 0;
+    }
+
+    archive->WriteUInt(point->index);
+
+    const gpg::RRef ownerRef{};
+    gpg::RType* const vectorType = CachedVector3fType();
+    GPG_ASSERT(vectorType != nullptr);
+    archive->Write(vectorType, &point->localPos, ownerRef);
+
+    archive->WriteFloat(point->distSq);
+    return 1;
+  }
+
   void cleanup_SAttachPointSerializer()
   {
     if (!gSAttachPointSerializerConstructed) {
@@ -90,14 +138,7 @@ void SAttachPointSerializer::Deserialize(gpg::ReadArchive* const archive, const 
   }
 
   auto* const point = reinterpret_cast<SAttachPoint*>(static_cast<std::uintptr_t>(objectPtr));
-  archive->ReadUInt(&point->index);
-
-  const gpg::RRef ownerRef{};
-  gpg::RType* const vectorType = CachedVector3fType();
-  GPG_ASSERT(vectorType != nullptr);
-  archive->Read(vectorType, &point->localPos, ownerRef);
-
-  archive->ReadFloat(&point->distSq);
+  (void)ReadSAttachPointPayload(point, archive);
 }
 
 /**
@@ -110,14 +151,7 @@ void SAttachPointSerializer::Serialize(gpg::WriteArchive* const archive, const i
   }
 
   auto* const point = reinterpret_cast<const SAttachPoint*>(static_cast<std::uintptr_t>(objectPtr));
-  archive->WriteUInt(point->index);
-
-  const gpg::RRef ownerRef{};
-  gpg::RType* const vectorType = CachedVector3fType();
-  GPG_ASSERT(vectorType != nullptr);
-  archive->Write(vectorType, &point->localPos, ownerRef);
-
-  archive->WriteFloat(point->distSq);
+  (void)WriteSAttachPointPayload(point, archive);
 }
 
 void SAttachPointSerializer::RegisterSerializeFunctions()
@@ -146,4 +180,3 @@ int moho::register_SAttachPointSerializer()
   serializer->RegisterSerializeFunctions();
   return std::atexit(&cleanup_SAttachPointSerializer);
 }
-

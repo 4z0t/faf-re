@@ -6,6 +6,8 @@
 #include "legacy/containers/Set.h"
 #include "legacy/containers/String.h"
 #include "moho/lua/CScrLuaBinderFwd.h"
+#include "moho/math/Vector3f.h"
+#include "Wm3AxisAlignedBox3.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +30,7 @@ namespace moho
   struct RUnitBlueprint;
   struct SCoordsVec2;
   struct SFootprint;
+  struct SOccupationResult;
   struct SOCellPos;
 } // namespace moho
 
@@ -670,6 +673,21 @@ namespace moho
   bool USERUNIT_CanOccupy(CWldSession& session, const SFootprint& footprint, SOCellPos& position);
 
   /**
+   * Address: 0x008C1BC0 (FUN_008C1BC0, ?USERUNIT_CanBeBuiltAt@Moho@@YA_NAAVCWldSession@1@PBVRUnitBlueprint@1@ABUSOCellPos@1@_NPAUSBuildInfo@1@@Z)
+   *
+   * What it does:
+   * Converts one cell-origin placement probe into world-space center
+   * coordinates and forwards to the world-space buildability path.
+   */
+  bool USERUNIT_CanBeBuiltAt(
+    CWldSession& session,
+    const RUnitBlueprint* buildBlueprint,
+    const SOCellPos& cellPosition,
+    bool allowCommandOverlap,
+    SOccupationResult* buildInfo
+  );
+
+  /**
    * Address: 0x008C1610 (FUN_008C1610, ?USERUNIT_WithinBuildDistance@Moho@@YA_NAAVCWldSession@1@PBVRUnitBlueprint@1@ABUSCoordsVec2@1@@Z)
    *
    * What it does:
@@ -679,6 +697,18 @@ namespace moho
    */
   bool USERUNIT_WithinBuildDistance(
     CWldSession& session, const RUnitBlueprint* buildBlueprint, const SCoordsVec2& buildPosition
+  );
+
+  /**
+   * Address: 0x008C1C30 (FUN_008C1C30, ?USERUNIT_GetBounds@Moho@@YA?AV?$AxisAlignedBox3@M@Wm3@@PBVRUnitBlueprint@1@ABV?$Vector3@M@3@@Z)
+   *
+   * What it does:
+   * Builds one world-space unit bounds AABB from blueprint collision/skirt
+   * lanes and one world position sample.
+   */
+  [[nodiscard]] Wm3::AxisAlignedBox3f USERUNIT_GetBounds(
+    const RUnitBlueprint* unitBlueprint,
+    const Wm3::Vector3f& worldPosition
   );
 
   /**

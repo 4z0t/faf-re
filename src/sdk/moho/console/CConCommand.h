@@ -153,7 +153,7 @@ namespace moho
   void CON_Printf(const char* format, ...);
 
   /**
-   * Address: 0x0041CC90 (FUN_0041CC90)
+     * Address: 0x0041CC90 (FUN_0041CC90)
    *
    * What it does:
    * Tokenizes and executes a single console command text line through the global registry.
@@ -161,7 +161,7 @@ namespace moho
   void ExecuteConsoleCommandText(const char* commandText);
 
   /**
-   * Address: 0x0041CC90 (FUN_0041CC90, ?CON_Execute@Moho@@YAXPBD@Z)
+    * Alias of FUN_0041CC90 (non-canonical helper lane).
    *
    * What it does:
    * Public console-execution entry point; forwards to command tokenizer/dispatcher.
@@ -843,7 +843,7 @@ namespace moho
 
   /**
    * Address: 0x007FDE00 (FUN_007FDE00, Moho::TConVar_uint::Process)
-   * Address: 0x103C8880 (FUN_103C8880)
+    * Alias of FUN_103C8880 (non-canonical helper lane).
    *
    * What it does:
    * Handles uint32 console-convar commands.

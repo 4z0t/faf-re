@@ -185,8 +185,8 @@ namespace gpg
         PipeBuf();
 
         /**
-         * Address: 0x00906BD0 (FUN_00906BD0)
-         * Demangled: gpg::PipeBuf deleting dtor thunk
+         * Address: 0x00906B30 (FUN_00906B30, complete dtor body)
+         * Address: 0x00906BD0 (FUN_00906BD0, deleting dtor thunk)
          *
          * What it does:
          * Releases all queued stream chunks and destroys synchronization state.

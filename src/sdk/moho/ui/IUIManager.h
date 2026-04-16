@@ -157,6 +157,14 @@ namespace moho
      * Default-constructs command-mode name and payload Lua-object lanes.
      */
     UICommandModeData();
+
+    /**
+     * Address: 0x0081F700 (FUN_0081F700, ??1UICommandModeData@Moho@@QAE@XZ)
+     *
+     * What it does:
+     * Releases one payload Lua object and one command-mode text lane.
+     */
+    ~UICommandModeData();
   };
 
   static_assert(sizeof(UICommandModeData) == 0x30, "moho::UICommandModeData size must be 0x30");

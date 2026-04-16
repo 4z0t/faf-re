@@ -76,6 +76,15 @@ namespace moho
      */
     int Execute() override;
 
+    /**
+     * Address: 0x00629880 (FUN_00629880, Moho::CUnitUnloadUnits::MemberDeserialize)
+     *
+     * What it does:
+     * Reads base command-task state, unload-goal payload, task-state booleans,
+     * and loaded-unit entity-set lanes from archive storage.
+     */
+    void MemberDeserialize(gpg::ReadArchive* archive);
+
   public:
     SNavGoal mUnloadGoal;                     // 0x30
     bool mIsStagingPlatform;                  // 0x54

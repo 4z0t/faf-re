@@ -1205,6 +1205,15 @@ namespace
     }
 
     /**
+     * Address: 0x00904810 (FUN_00904810)
+     *
+     * What it does:
+     * Runs non-deleting teardown for one binary-read archive lane, releasing
+     * file shared-owner state before base `ReadArchive` destruction.
+     */
+    ~BinaryReadArchive() override = default;
+
+    /**
      * Address: 0x00904960 (FUN_00904960, gpg::BinaryReadArchive::ReadBytes)
      *
      * What it does:
@@ -1717,6 +1726,20 @@ namespace
       (*reinterpret_cast<TextReadArchiveRuntimeView*>(this)->stream) >> *value;
     }
   };
+
+  /**
+   * Address: 0x00952C90 (FUN_00952C90)
+   *
+   * What it does:
+   * Appends one reflected `TypeHandle` lane to the archive-local handle table,
+   * preserving the in-capacity fast path and vector-growth fallback behavior.
+   */
+  TypeHandle* AppendTypeHandle(msvc8::vector<TypeHandle>& typeHandles, const TypeHandle& handle)
+  {
+    const std::size_t insertIndex = typeHandles.size();
+    typeHandles.push_back(handle);
+    return &typeHandles[insertIndex];
+  }
 } // namespace
 
 /**
@@ -1756,7 +1779,7 @@ TypeHandle ReadArchive::ReadTypeHandle()
     TypeHandle handle{};
     handle.type = type;
     handle.version = version;
-    mTypeHandles.push_back(handle);
+    static_cast<void>(AppendTypeHandle(mTypeHandles, handle));
     return handle;
   }
 
@@ -7334,6 +7357,31 @@ ReadArchive& ReadArchive::TrackPointer(const RRef& objectRef)
   return *this;
 }
 
+namespace
+{
+  /**
+   * Address: 0x00950F20 (FUN_00950F20, func_ReleaseRefsRange_TrackedPointerInfo)
+   *
+   * What it does:
+   * Releases shared control blocks for one half-open tracked-pointer range and
+   * clears released shared-pointer lanes.
+   */
+  void ReleaseTrackedPointerInfoSharedRange(
+    gpg::TrackedPointerInfo* trackedBegin,
+    gpg::TrackedPointerInfo* const trackedEnd
+  ) noexcept
+  {
+    while (trackedBegin != trackedEnd) {
+      if (trackedBegin->sharedControl != nullptr) {
+        trackedBegin->sharedControl->release();
+        trackedBegin->sharedControl = nullptr;
+        trackedBegin->sharedObject = nullptr;
+      }
+      ++trackedBegin;
+    }
+  }
+} // namespace
+
 /**
  * Address: 0x00952BD0 (FUN_00952BD0)
  * Demangled: public: virtual void __thiscall gpg::ReadArchive::EndSection(bool)
@@ -7351,11 +7399,11 @@ void ReadArchive::EndSection(const bool)
       ref.mObj = tracked.object;
       ref.mType = tracked.type;
       ref.Delete();
-    } else if (tracked.state == TrackedPointerState::Shared && tracked.sharedControl) {
-      tracked.sharedControl->release();
-      tracked.sharedControl = nullptr;
-      tracked.sharedObject = nullptr;
     }
+  }
+
+  if (!mTrackedPtrs.empty()) {
+    ReleaseTrackedPointerInfoSharedRange(&mTrackedPtrs[0], &mTrackedPtrs[0] + mTrackedPtrs.size());
   }
 
   mTypeHandles.clear();

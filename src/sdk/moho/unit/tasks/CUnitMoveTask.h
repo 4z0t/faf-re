@@ -8,6 +8,12 @@
 #include "moho/task/CCommandTask.h"
 #include "moho/unit/Broadcaster.h"
 
+namespace gpg
+{
+  class ReadArchive;
+  class WriteArchive;
+}
+
 namespace moho
 {
   class CUnitCommand;
@@ -17,6 +23,24 @@ namespace moho
   class CUnitMoveTask : public CCommandTask
   {
   public:
+    /**
+     * Address: 0x0061A750 (FUN_0061A750)
+     *
+     * What it does:
+     * Deserializes move-task runtime state (base command-task lane, dispatch
+     * command pointer, move goal, command weak-link lane, and state flags).
+     */
+    void MemberDeserialize(gpg::ReadArchive* archive);
+
+    /**
+     * Address: 0x0061A880 (FUN_0061A880)
+     *
+     * What it does:
+     * Serializes move-task runtime state (base command-task lane, dispatch
+     * command pointer, move goal, command weak-link lane, and state flags).
+     */
+    void MemberSerialize(gpg::WriteArchive* archive) const;
+
     /**
      * Address: 0x00618030 (FUN_00618030, Moho::CUnitMoveTask::CUnitMoveTask)
      *

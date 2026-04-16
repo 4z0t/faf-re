@@ -3,7 +3,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <typeinfo>
 
+#include "gpg/core/containers/ArchiveSerialization.h"
+#include "gpg/core/containers/ReadArchive.h"
+#include "gpg/core/containers/WriteArchive.h"
+#include "gpg/core/reflection/Reflection.h"
 #include "moho/unit/Broadcaster.h"
 #include "moho/unit/CUnitCommand.h"
 #include "moho/unit/CUnitCommandQueue.h"
@@ -11,6 +16,26 @@
 
 namespace
 {
+  [[nodiscard]] gpg::RType* CachedCCommandTaskType()
+  {
+    gpg::RType* type = moho::CCommandTask::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::CCommandTask));
+      moho::CCommandTask::sType = type;
+    }
+    return type;
+  }
+
+  [[nodiscard]] gpg::RType* CachedWeakPtrUnitType()
+  {
+    gpg::RType* type = moho::WeakPtr<moho::Unit>::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::WeakPtr<moho::Unit>));
+      moho::WeakPtr<moho::Unit>::sType = type;
+    }
+    return type;
+  }
+
   struct CUnitCommandCommandEventLinkView
   {
     std::uint8_t pad_0000_0034[0x34];
@@ -117,4 +142,46 @@ namespace moho
 
   void CUnitSacrificeTask::OnEvent(ECommandEvent)
   {}
+
+  /**
+   * Address: 0x005FF2C0 (FUN_005FF2C0, Moho::CUnitSacrificeTask::MemberDeserialize)
+   *
+   * What it does:
+   * Deserializes sacrifice-task runtime state in binary lane order: command-task
+   * base, current command pointer lane, then target weak unit lane.
+   */
+  void CUnitSacrificeTask::MemberDeserialize(gpg::ReadArchive* const archive)
+  {
+    if (archive == nullptr) {
+      return;
+    }
+
+    const gpg::RRef ownerRef{};
+    archive->Read(CachedCCommandTaskType(), static_cast<CCommandTask*>(this), ownerRef);
+    archive->ReadPointer_CUnitCommand(&mCommand, &ownerRef);
+    archive->Read(CachedWeakPtrUnitType(), &mTargetUnit, ownerRef);
+  }
+
+  /**
+   * Address: 0x005FF360 (FUN_005FF360)
+   *
+   * What it does:
+   * Serializes sacrifice-task runtime state in binary lane order: command-task
+   * base, current command raw pointer lane, then target weak unit lane.
+   */
+  void CUnitSacrificeTask::MemberSerialize(gpg::WriteArchive* const archive) const
+  {
+    if (archive == nullptr) {
+      return;
+    }
+
+    const gpg::RRef ownerRef{};
+    archive->Write(CachedCCommandTaskType(), static_cast<const CCommandTask*>(this), ownerRef);
+
+    gpg::RRef commandRef{};
+    (void)gpg::RRef_CUnitCommand(&commandRef, mCommand);
+    gpg::WriteRawPointer(archive, commandRef, gpg::TrackedPointerState::Unowned, ownerRef);
+
+    archive->Write(CachedWeakPtrUnitType(), &mTargetUnit, ownerRef);
+  }
 } // namespace moho

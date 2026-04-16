@@ -16,6 +16,71 @@ namespace moho
 {
   namespace
   {
+    /**
+     * Address: 0x0051AF70 (FUN_0051AF70, copy_RMeshBlueprintLOD_counted_range_with_rollback)
+     *
+     * What it does:
+     * Copy-constructs `count` contiguous `RMeshBlueprintLOD` elements from
+     * `source` into `destination`, then destroys already-built elements before
+     * rethrowing if one copy step throws.
+     */
+    [[maybe_unused]] RMeshBlueprintLOD* CopyRMeshBlueprintLODCountedRangeWithRollback(
+      RMeshBlueprintLOD* destination,
+      int count,
+      const RMeshBlueprintLOD* source
+    )
+    {
+      RMeshBlueprintLOD* destinationCursor = destination;
+      try {
+        while (count > 0) {
+          if (destinationCursor != nullptr) {
+            ::new (destinationCursor) RMeshBlueprintLOD(*source);
+          }
+          --count;
+          ++source;
+          ++destinationCursor;
+        }
+        return destinationCursor;
+      } catch (...) {
+        for (RMeshBlueprintLOD* destroyCursor = destination; destroyCursor != destinationCursor; ++destroyCursor) {
+          destroyCursor->~RMeshBlueprintLOD();
+        }
+        throw;
+      }
+    }
+
+    /**
+     * Address: 0x0051B330 (FUN_0051B330, copy_RMeshBlueprintLOD_range_with_rollback)
+     *
+     * What it does:
+     * Copy-constructs one contiguous source range into destination storage and
+     * destroys already-built destination elements before rethrowing on failure.
+     */
+    [[maybe_unused]] RMeshBlueprintLOD* CopyRMeshBlueprintLODRangeWithRollback(
+      RMeshBlueprintLOD* destinationBegin,
+      RMeshBlueprintLOD* destinationEnd,
+      const RMeshBlueprintLOD* sourceBegin
+    )
+    {
+      RMeshBlueprintLOD* destinationCursor = destinationBegin;
+      const RMeshBlueprintLOD* sourceCursor = sourceBegin;
+      try {
+        while (destinationCursor != destinationEnd) {
+          if (sourceCursor != nullptr) {
+            ::new (destinationCursor) RMeshBlueprintLOD(*sourceCursor);
+          }
+          ++destinationCursor;
+          ++sourceCursor;
+        }
+        return destinationCursor;
+      } catch (...) {
+        for (RMeshBlueprintLOD* destroyCursor = destinationBegin; destroyCursor != destinationCursor; ++destroyCursor) {
+          destroyCursor->~RMeshBlueprintLOD();
+        }
+        throw;
+      }
+    }
+
     [[nodiscard]] std::string ExtractMeshFamilyPrefix(const std::string_view sourcePath)
     {
       const std::size_t markerPos = sourcePath.rfind('_');

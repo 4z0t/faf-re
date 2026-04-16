@@ -1358,6 +1358,7 @@ namespace
   {
     SDelayedSubVizInfoReflectionBootstrap()
     {
+      (void)moho::preregister_SDelayedSubVizInfoTypeInfo();
       (void)moho::initialize_SDelayedSubVizInfoSerializer();
       gSDelayedSubVizInfoSerializer.RegisterSerializeFunctions();
       (void)std::atexit(&CleanupSDelayedSubVizInfoSerializerAtexit);
@@ -1371,6 +1372,35 @@ namespace
 
 namespace moho
 {
+  class SDelayedSubVizInfoTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "SDelayedSubVizInfo";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(SDelayedSubVizInfo);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
+  /**
+   * Address: 0x00506ED0 (FUN_00506ED0, preregister_SDelayedSubVizInfoTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters reflection metadata for `SDelayedSubVizInfo`.
+   */
+  gpg::RType* preregister_SDelayedSubVizInfoTypeInfo()
+  {
+    static SDelayedSubVizInfoTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SDelayedSubVizInfo), &typeInfo);
+    return &typeInfo;
+  }
+
   gpg::RType* SDelayedSubVizInfo::sType = nullptr;
 
   gpg::RType* SDelayedSubVizInfo::StaticGetClass()

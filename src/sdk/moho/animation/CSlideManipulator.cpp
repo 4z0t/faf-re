@@ -9,6 +9,8 @@
 #include <new>
 #include <typeinfo>
 
+#include "gpg/core/containers/ReadArchive.h"
+#include "gpg/core/containers/WriteArchive.h"
 #include "lua/LuaObject.h"
 #include "moho/animation/CAniActor.h"
 #include "moho/animation/CAniPose.h"
@@ -46,6 +48,94 @@ namespace
   constexpr const char* kSetGoalHelpText = "CSlideManipulator:SetGoal(goal_x, goal_y, goal_z)";
   constexpr const char* kBeenDestroyedName = "BeenDestroyed";
   constexpr const char* kBeenDestroyedHelpText = "CSlideManipulator:BeenDestroyed()";
+
+  [[nodiscard]] gpg::RType* CachedIAniManipulatorType()
+  {
+    gpg::RType* type = moho::IAniManipulator::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::IAniManipulator));
+      moho::IAniManipulator::sType = type;
+    }
+    return type;
+  }
+
+  [[nodiscard]] gpg::RType* CachedVector3fSerializationType()
+  {
+    static gpg::RType* type = nullptr;
+    if (!type) {
+      type = gpg::LookupRType(typeid(Wm3::Vector3f));
+    }
+    return type;
+  }
+
+  /**
+   * Address: 0x00648B10 (FUN_00648B10)
+   *
+   * What it does:
+   * Deserializes one `CSlideManipulator` lane by loading `IAniManipulator`
+   * base state, current/goal vectors, scalar motion parameters, and the
+   * world-units flag.
+   */
+  [[maybe_unused]] void DeserializeCSlideManipulatorSerializerBody(
+    moho::CSlideManipulator* const manipulator,
+    gpg::ReadArchive* const archive
+  )
+  {
+    if (!archive || !manipulator) {
+      return;
+    }
+
+    const gpg::RRef owner{};
+    archive->Read(CachedIAniManipulatorType(), static_cast<moho::IAniManipulator*>(manipulator), owner);
+
+    gpg::RType* const vectorType = CachedVector3fSerializationType();
+    archive->Read(vectorType, &manipulator->mCurrentPosition, owner);
+    archive->Read(vectorType, &manipulator->mGoal, owner);
+
+    archive->ReadFloat(&manipulator->mSpeed);
+    archive->ReadFloat(&manipulator->mCurrentSpeed);
+    archive->ReadFloat(&manipulator->mAcceleration);
+    archive->ReadFloat(&manipulator->mDeceleration);
+
+    bool worldUnits = manipulator->mWorldUnits != 0u;
+    archive->ReadBool(&worldUnits);
+    manipulator->mWorldUnits = worldUnits ? 1u : 0u;
+  }
+
+  /**
+   * Address: 0x00648C20 (FUN_00648C20)
+   *
+   * What it does:
+   * Serializes one `CSlideManipulator` lane by writing `IAniManipulator` base
+   * state, current/goal vectors, scalar motion parameters, and the world-units
+   * flag.
+   */
+  [[maybe_unused]] void SerializeCSlideManipulatorSerializerBody(
+    const moho::CSlideManipulator* const manipulator,
+    gpg::WriteArchive* const archive
+  )
+  {
+    if (!archive || !manipulator) {
+      return;
+    }
+
+    const gpg::RRef owner{};
+    archive->Write(
+      CachedIAniManipulatorType(),
+      const_cast<moho::IAniManipulator*>(static_cast<const moho::IAniManipulator*>(manipulator)),
+      owner
+    );
+
+    gpg::RType* const vectorType = CachedVector3fSerializationType();
+    archive->Write(vectorType, &manipulator->mCurrentPosition, owner);
+    archive->Write(vectorType, &manipulator->mGoal, owner);
+
+    archive->WriteFloat(manipulator->mSpeed);
+    archive->WriteFloat(manipulator->mCurrentSpeed);
+    archive->WriteFloat(manipulator->mAcceleration);
+    archive->WriteFloat(manipulator->mDeceleration);
+    archive->WriteBool(manipulator->mWorldUnits != 0u);
+  }
 
   [[nodiscard]] moho::CScrLuaInitFormSet& SimLuaInitSet()
   {
@@ -328,7 +418,7 @@ namespace moho
 } // namespace moho
 
 /**
- * Address: 0x10015880 (constructor shape)
+  * Alias of FUN_10015880 (non-canonical helper lane).
  *
  * What it does:
  * Stores one metatable-factory index used by `CScrLuaObjectFactory::Get`.

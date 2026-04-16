@@ -14,6 +14,22 @@
 
 namespace
 {
+  class SSTIArmyConstantDataTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "SSTIArmyConstantData";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::SSTIArmyConstantData);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
   struct IArmySerializedView
   {
     moho::SSTIArmyConstantData mConstantData; // +0x000
@@ -86,6 +102,9 @@ namespace
   {
     if (!gSSTIArmyConstantDataType) {
       gSSTIArmyConstantDataType = gpg::LookupRType(typeid(moho::SSTIArmyConstantData));
+      if (!gSSTIArmyConstantDataType) {
+        gSSTIArmyConstantDataType = moho::preregister_SSTIArmyConstantDataTypeInfo();
+      }
     }
     return gSSTIArmyConstantDataType;
   }
@@ -113,6 +132,19 @@ namespace
 
 namespace moho
 {
+  /**
+   * Address: 0x005506B0 (FUN_005506B0, preregister_SSTIArmyConstantDataTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SSTIArmyConstantData`.
+   */
+  gpg::RType* preregister_SSTIArmyConstantDataTypeInfo()
+  {
+    static SSTIArmyConstantDataTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SSTIArmyConstantData), &typeInfo);
+    return &typeInfo;
+  }
+
   /**
    * Address: 0x005517A0 (FUN_005517A0, Moho::IArmy::MemberDeserialize)
    */
@@ -254,6 +286,7 @@ namespace moho
    */
   void register_IArmySerializer()
   {
+    (void)preregister_SSTIArmyConstantDataTypeInfo();
     auto* const serializer = AcquireIArmySerializer();
     InitializeSerializerNode(*serializer);
     serializer->mLoadCallback = &IArmySerializer::Deserialize;

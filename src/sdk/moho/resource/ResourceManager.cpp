@@ -4504,7 +4504,7 @@ moho::ResourceManager::~ResourceManager()
 }
 
 /**
- * Address: 0x00461DC0 (?OnEvent@CDiskWatchListener@Moho@@EAEXABUSDiskWatchEvent@2@@Z)
+  * Alias of FUN_00461DC0 (non-canonical helper lane).
  */
 void moho::ResourceManager::OnEvent(const SDiskWatchEvent& event)
 {
@@ -5158,7 +5158,7 @@ boost::SharedCountPair* moho::RES_GetResource(
 }
 
 /**
- * Address: 0x004AA090 (FUN_004AA090)
+  * Alias of FUN_004AA090 (non-canonical helper lane).
  *
  * What it does:
  * Executes the startup pending-factory activation phase on the singleton.

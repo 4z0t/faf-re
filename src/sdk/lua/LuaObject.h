@@ -94,8 +94,10 @@ namespace LuaPlus
 
 		/**
 		 * Address: 0x009075D0 (FUN_009075D0, LuaPlus::LuaObject::~LuaObject)
-		 * Address: 0x005D0A90 (FUN_005D0A90, LuaObject::j_Dtr_6 thunk)
-		 * Address: 0x00624120 (FUN_00624120, LuaObject::j_Dtr_7 thunk)
+		   * Address: 0x005790D0 (FUN_005790D0)
+		   * Address: 0x005791A0 (FUN_005791A0)
+		   * Address: 0x005D0A90 (FUN_005D0A90)
+		   * Address: 0x00624120 (FUN_00624120)
 		 * Address: 0x00BA2E8B (FUN_00BA2E8B, LuaObject::j_Dtr_9 thunk)
 		 *
 		 * What it does:

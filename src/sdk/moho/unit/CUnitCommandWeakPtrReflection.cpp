@@ -120,7 +120,7 @@ namespace
   }
 
   /**
-   * Address: 0x005F5100 (FUN_005F5100, gpg::ReadArchive::ReadPointer_CUnitCommand)
+    * Alias of FUN_005F5100 (non-canonical helper lane).
    */
   [[nodiscard]] moho::CUnitCommand* ReadPointerCUnitCommand(gpg::ReadArchive* archive, const gpg::RRef& ownerRef)
   {
@@ -421,6 +421,26 @@ namespace moho
     }
 
     return &destination;
+  }
+
+  /**
+   * Address: 0x005A07A0 (FUN_005A07A0, std::vector_WeakPtr_CUnitCommand::reset_storage)
+   *
+   * What it does:
+   * Destroys one `vector<WeakPtr<CUnitCommand>>` payload, releases the backing
+   * heap block, and clears the vector storage lanes to empty.
+   */
+  void ResetWeakPtrCUnitCommandVectorStorage(WeakPtrVector& storage)
+  {
+    auto& view = msvc8::AsVectorRuntimeView(storage);
+    if (view.begin != nullptr) {
+      DetachWeakPtrCUnitCommandRange(view.begin, view.end);
+      ::operator delete(view.begin);
+    }
+
+    view.begin = nullptr;
+    view.end = nullptr;
+    view.capacityEnd = nullptr;
   }
 } // namespace moho
 

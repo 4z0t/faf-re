@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <limits>
 #include <new>
+#include <typeinfo>
 
+#include "gpg/core/containers/ReadArchive.h"
 #include "gpg/core/containers/Rect2.h"
 #include "moho/ai/IAiCommandDispatchImpl.h"
 #include "moho/ai/IAiNavigator.h"
@@ -51,6 +53,36 @@ namespace
   {
     const std::uintptr_t raw = reinterpret_cast<std::uintptr_t>(unit);
     return raw != 0u && raw != kEntitySetInvalidEntry;
+  }
+
+  [[nodiscard]] gpg::RType* CachedCCommandTaskType()
+  {
+    gpg::RType* type = moho::CCommandTask::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::CCommandTask));
+      moho::CCommandTask::sType = type;
+    }
+    return type;
+  }
+
+  [[nodiscard]] gpg::RType* CachedSNavGoalType()
+  {
+    gpg::RType* type = moho::SNavGoal::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::SNavGoal));
+      moho::SNavGoal::sType = type;
+    }
+    return type;
+  }
+
+  [[nodiscard]] gpg::RType* CachedUnitEntitySetType()
+  {
+    gpg::RType* type = moho::EntitySetTemplate<moho::Unit>::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::EntitySetTemplate<moho::Unit>));
+      moho::EntitySetTemplate<moho::Unit>::sType = type;
+    }
+    return type;
   }
 
   [[nodiscard]]
@@ -103,6 +135,27 @@ namespace moho
     }
 
     mOwnerCommandLinkLane.UnlinkFromOwnerChain();
+  }
+
+  /**
+   * Address: 0x00629880 (FUN_00629880, Moho::CUnitUnloadUnits::MemberDeserialize)
+   *
+   * What it does:
+   * Reads base command-task state, unload-goal payload, task-state booleans,
+   * and loaded-unit entity-set lanes from archive storage.
+   */
+  void CUnitUnloadUnits::MemberDeserialize(gpg::ReadArchive* const archive)
+  {
+    if (archive == nullptr) {
+      return;
+    }
+
+    const gpg::RRef ownerRef{};
+    archive->Read(CachedCCommandTaskType(), static_cast<CCommandTask*>(this), ownerRef);
+    archive->Read(CachedSNavGoalType(), &mUnloadGoal, ownerRef);
+    archive->ReadBool(&mIsStagingPlatform);
+    archive->ReadBool(&mHasEligibleLoadedUnits);
+    archive->Read(CachedUnitEntitySetType(), &mLoadedUnits, ownerRef);
   }
 
   /**

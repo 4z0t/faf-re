@@ -45,10 +45,22 @@ namespace
   moho::SSavedGameArmyInfoTypeInfo gSavedGameArmyInfoTypeInfo;
   moho::SSavedGameArmyInfoSerializer gSavedGameArmyInfoSerializer;
 
+  /**
+   * Address: 0x0087FF00 (FUN_0087FF00, preregister_SSavedGameArmyInfoTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `moho::SSavedGameArmyInfo`.
+   */
+  [[nodiscard]] gpg::RType* preregister_SSavedGameArmyInfoTypeInfo()
+  {
+    gpg::PreRegisterRType(typeid(moho::SSavedGameArmyInfo), &gSavedGameArmyInfoTypeInfo);
+    return &gSavedGameArmyInfoTypeInfo;
+  }
+
   void EnsureSavedGameArmyInfoRegistered()
   {
     static const bool kRegistered = []() {
-      gpg::PreRegisterRType(typeid(moho::SSavedGameArmyInfo), &gSavedGameArmyInfoTypeInfo);
+      (void)preregister_SSavedGameArmyInfoTypeInfo();
       gSavedGameArmyInfoSerializer.mNext = nullptr;
       gSavedGameArmyInfoSerializer.mPrev = nullptr;
       gSavedGameArmyInfoSerializer.mSerLoadFunc = &LoadSavedGameArmyInfo;

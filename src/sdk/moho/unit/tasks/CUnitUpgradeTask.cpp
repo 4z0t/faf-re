@@ -1,7 +1,12 @@
 #include "moho/unit/tasks/CUnitUpgradeTask.h"
 
 #include <new>
+#include <typeinfo>
 
+#include "gpg/core/containers/ArchiveSerialization.h"
+#include "gpg/core/containers/ReadArchive.h"
+#include "gpg/core/containers/WriteArchive.h"
+#include "gpg/core/reflection/Reflection.h"
 #include "gpg/core/utils/Global.h"
 #include "moho/ai/IAiNavigator.h"
 #include "moho/entity/EntityId.h"
@@ -31,10 +36,86 @@ namespace
     void* const valueStorage = instance ? instance->GetValueStorage() : nullptr;
     return valueStorage != nullptr && (*reinterpret_cast<const std::uint8_t*>(valueStorage) != 0u);
   }
+
+  template <class T>
+  [[nodiscard]] gpg::RType* ResolveCachedType()
+  {
+    static gpg::RType* sType = nullptr;
+    if (!sType) {
+      sType = gpg::LookupRType(typeid(T));
+    }
+    return sType;
+  }
 } // namespace
 
 namespace moho
 {
+  /**
+   * Address: 0x005FEBC0 (FUN_005FEBC0)
+   *
+   * What it does:
+   * Deserializes upgrade-task runtime state (base command-task lane, target
+   * blueprint pointer, build-helper lane, and upgraded-unit weak pointer).
+   */
+  void CUnitUpgradeTask::MemberDeserialize(gpg::ReadArchive* const archive)
+  {
+    if (!archive) {
+      return;
+    }
+
+    const gpg::RRef ownerRef{};
+    if (gpg::RType* const commandTaskType = ResolveCachedType<CCommandTask>()) {
+      archive->Read(commandTaskType, this, ownerRef);
+    }
+
+    gpg::RRef blueprintRef{};
+    RUnitBlueprint* toBlueprint = const_cast<RUnitBlueprint*>(mToBlueprint);
+    archive->ReadPointer_RUnitBlueprint(&toBlueprint, &blueprintRef);
+    mToBlueprint = toBlueprint;
+
+    if (gpg::RType* const buildHelperType = ResolveCachedType<CBuildTaskHelper>()) {
+      const gpg::RRef buildHelperRef{};
+      archive->Read(buildHelperType, &mBuildHelper, buildHelperRef);
+    }
+
+    if (gpg::RType* const weakUnitType = ResolveCachedType<WeakPtr<Unit>>()) {
+      const gpg::RRef upgradedUnitRef{};
+      archive->Read(weakUnitType, &mUpgradedUnit, upgradedUnitRef);
+    }
+  }
+
+  /**
+   * Address: 0x005FEC90 (FUN_005FEC90)
+   *
+   * What it does:
+   * Serializes upgrade-task runtime state (base command-task lane, target
+   * blueprint pointer, build-helper lane, and upgraded-unit weak pointer).
+   */
+  void CUnitUpgradeTask::MemberSerialize(gpg::WriteArchive* const archive) const
+  {
+    if (!archive) {
+      return;
+    }
+
+    const gpg::RRef ownerRef{};
+
+    if (gpg::RType* const commandTaskType = ResolveCachedType<CCommandTask>()) {
+      archive->Write(commandTaskType, this, ownerRef);
+    }
+
+    gpg::RRef blueprintRef{};
+    gpg::RRef_RUnitBlueprint(&blueprintRef, const_cast<RUnitBlueprint*>(mToBlueprint));
+    gpg::WriteRawPointer(archive, blueprintRef, gpg::TrackedPointerState::Unowned, ownerRef);
+
+    if (gpg::RType* const buildHelperType = ResolveCachedType<CBuildTaskHelper>()) {
+      archive->Write(buildHelperType, &mBuildHelper, ownerRef);
+    }
+
+    if (gpg::RType* const weakUnitType = ResolveCachedType<WeakPtr<Unit>>()) {
+      archive->Write(weakUnitType, &mUpgradedUnit, ownerRef);
+    }
+  }
+
   /**
    * Address: 0x005F83D0 (FUN_005F83D0, ??0CUnitUpgradeTask@Moho@@QAE@@Z)
    */

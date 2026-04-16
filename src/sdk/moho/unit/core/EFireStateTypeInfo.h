@@ -21,6 +21,14 @@ namespace moho
   {
   public:
     /**
+     * Address: 0x0055B990 (FUN_0055B990, Moho::EFireStateTypeInfo::EFireStateTypeInfo)
+     *
+     * What it does:
+     * Preregisters the enum type descriptor for `EFireState` with the reflection registry.
+     */
+    EFireStateTypeInfo();
+
+    /**
      * Address: 0x0055BA20 (FUN_0055BA20, Moho::EFireStateTypeInfo::dtr)
      */
     ~EFireStateTypeInfo() override;

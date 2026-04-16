@@ -19,6 +19,17 @@ namespace
 {
   using ShoreCellRef = boost::shared_ptr<moho::ShoreCell>;
 
+  /**
+   * Address: 0x00813DB0 (FUN_00813DB0, boost::shared_ptr_ShoreCell::shared_ptr_ShoreCell)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<ShoreCell>` from one raw shoreline-cell pointer lane.
+   */
+  ShoreCellRef* ConstructSharedShoreCellFromRaw(ShoreCellRef* const outShoreCell, moho::ShoreCell* const shoreCell)
+  {
+    return ::new (outShoreCell) ShoreCellRef(shoreCell);
+  }
+
   struct ShoreCorner3
   {
     float x;
@@ -585,6 +596,18 @@ namespace
   }
 
   /**
+   * Address: 0x008135A0 (FUN_008135A0, sub_8135A0)
+   *
+   * What it does:
+   * Appends one shoreline-cell shared pointer at vector tail, using the
+   * in-place lane when capacity is available and growing storage otherwise.
+   */
+  void AppendShoreCellRef(msvc8::vector<ShoreCellRef>& shorelineCells, const ShoreCellRef& cell)
+  {
+    shorelineCells.push_back(cell);
+  }
+
+  /**
    * Address: 0x00813300 (FUN_00813300, func_CreateShoreCell)
    *
    * What it does:
@@ -627,7 +650,7 @@ namespace
     }
 
     InitializeShoreCellSpatialEntry(*cell, shoreline.mSpatialDbEntry, terrainResource);
-    shoreline.mCells.push_back(cell);
+    AppendShoreCellRef(shoreline.mCells, cell);
   }
 
   /**

@@ -13,6 +13,22 @@
 
 namespace
 {
+  class SSTIEntityConstantDataTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "SSTIEntityConstantData";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::SSTIEntityConstantData);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
   [[nodiscard]] gpg::RType* ResolveTypeByAnyName(const std::initializer_list<const char*> names)
   {
     for (const char* const name : names) {
@@ -80,6 +96,19 @@ namespace
 namespace moho
 {
   /**
+   * Address: 0x00557FC0 (FUN_00557FC0, preregister_SSTIEntityConstantDataTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SSTIEntityConstantData`.
+   */
+  gpg::RType* preregister_SSTIEntityConstantDataTypeInfo()
+  {
+    static SSTIEntityConstantDataTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SSTIEntityConstantData), &typeInfo);
+    return &typeInfo;
+  }
+
+  /**
    * Address: 0x00559990 (FUN_00559990, Moho::SSTIEntityConstantData::MemberDeserialize)
    *
    * What it does:
@@ -121,3 +150,16 @@ namespace moho
     archive->WriteUInt(mTickCreated);
   }
 } // namespace moho
+
+namespace
+{
+  struct SSTIEntityConstantDataTypeInfoBootstrap
+  {
+    SSTIEntityConstantDataTypeInfoBootstrap()
+    {
+      (void)moho::preregister_SSTIEntityConstantDataTypeInfo();
+    }
+  };
+
+  [[maybe_unused]] SSTIEntityConstantDataTypeInfoBootstrap gSSTIEntityConstantDataTypeInfoBootstrap;
+} // namespace

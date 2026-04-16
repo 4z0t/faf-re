@@ -254,6 +254,13 @@ namespace
     binding->mFlags = static_cast<std::int32_t>(combined);
   }
 
+  /**
+   * Address: 0x0063CD00 (FUN_0063CD00)
+   *
+   * What it does:
+   * Serializes one `SAniManipBinding`, preserving the version-1 raw-pointer
+   * compatibility lane when older archive versions are requested.
+   */
   void SerializeSAniManipBindingFields(
     const moho::SAniManipBinding* const binding,
     gpg::WriteArchive* const archive,

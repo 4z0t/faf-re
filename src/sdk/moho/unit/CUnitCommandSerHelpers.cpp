@@ -1,6 +1,7 @@
 #include "moho/unit/CUnitCommandSerHelpers.h"
 
 #include <cstdlib>
+#include <typeinfo>
 
 namespace gpg
 {
@@ -158,17 +159,20 @@ namespace moho
   }
 
   /**
-   * Address: 0x00BD8F50 (FUN_00BD8F50, register_CUnitCommandConstruct)
+   * Address: 0x006EA060 (FUN_006EA060, Moho::CUnitCommandConstruct::RegisterConstructFunction)
    *
    * What it does:
-   * Binds `CUnitCommand` construct/delete callbacks into RTTI and schedules
-   * helper cleanup at process exit.
+   * Binds `CUnitCommand` construct/delete callbacks into RTTI.
    */
   void CUnitCommandConstruct::RegisterConstructFunction()
   {
-    gpg::RType* const type = CUnitCommand::StaticGetClass();
-    GPG_ASSERT(type->serConstructFunc_ == nullptr || type->serConstructFunc_ == mConstructCallback);
-    GPG_ASSERT(type->deleteFunc_ == nullptr || type->deleteFunc_ == mDeconstructCallback);
+    gpg::RType* type = CUnitCommand::sType;
+    if (type == nullptr) {
+      type = gpg::LookupRType(typeid(CUnitCommand));
+      CUnitCommand::sType = type;
+    }
+
+    GPG_ASSERT(type->serConstructFunc_ == nullptr);
     type->serConstructFunc_ = mConstructCallback;
     type->deleteFunc_ = mDeconstructCallback;
   }
@@ -190,7 +194,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00BD8F50 (FUN_00BD8F50, register_CUnitCommandConstruct)
+    * Alias of FUN_00BD8F50 (non-canonical helper lane).
    *
    * What it does:
    * Initializes and registers the `CUnitCommand` construct helper.
@@ -206,7 +210,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00BD8F90 (FUN_00BD8F90, register_CUnitCommandSerializer)
+    * Alias of FUN_00BD8F90 (non-canonical helper lane).
    *
    * What it does:
    * Initializes and registers the `CUnitCommand` serializer helper.

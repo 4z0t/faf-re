@@ -161,6 +161,30 @@ namespace moho
   }
 
   /**
+   * Address: 0x0089B370 (FUN_0089B370, ??1CFormation@Moho@@QAE@XZ)
+   *
+   * What it does:
+   * Releases the active formation-instance lane, destroys the RB-tree node
+   * chain under the sentinel head, and clears node-head/count ownership.
+   */
+  CFormation::~CFormation()
+  {
+    IFormationInstance* const curInstance = mCurInstance;
+    mCurInstance = nullptr;
+    if (curInstance != nullptr) {
+      curInstance->operator_delete(1);
+    }
+
+    Node* const nodeHead = mNodeHead;
+    if (nodeHead != nullptr) {
+      ClearFormationNodes(nodeHead->mParent);
+      ::operator delete(nodeHead);
+      mNodeHead = nullptr;
+    }
+    mNodeCount = 0u;
+  }
+
+  /**
    * Address: 0x008380E0 (FUN_008380E0, Moho::CFormation::Reset)
    */
   void CFormation::Reset()

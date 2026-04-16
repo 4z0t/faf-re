@@ -3764,7 +3764,7 @@ namespace
   void NoOpHelperThunkB(const std::uint32_t /*unused*/) noexcept {}
 
   /**
-   * Address: 0x00498AA0 (FUN_00498AA0, sub_498AA0)
+    * Alias of FUN_00498AA0 (non-canonical helper lane).
    *
    * What it does:
    * Shifts one `uint32_t` vector tail left from `source` into `destination`,
@@ -3819,7 +3819,7 @@ namespace
   }
 
   /**
-   * Address: 0x00498AF0 (FUN_00498AF0, sub_498AF0)
+    * Alias of FUN_00498AF0 (non-canonical helper lane).
    *
    * What it does:
    * Initializes one `uint32_t` debug-vector storage lane with requested
@@ -3851,7 +3851,7 @@ namespace
   }
 
   /**
-   * Address: 0x00498B80 (FUN_00498B80, sub_498B80)
+    * Alias of FUN_00498B80 (non-canonical helper lane).
    *
    * What it does:
    * Fills one `uint32_t` range with scalar value from caller slot and returns
@@ -3870,23 +3870,7 @@ namespace
   }
 
   /**
-   * Address: 0x00498BB0 (FUN_00498BB0, nullsub_573)
-   *
-   * What it does:
-   * No-op helper thunk retained for binary parity.
-   */
-  void NoOpHelperThunkR(const std::uint32_t /*unused*/) noexcept {}
-
-  /**
-   * Address: 0x00498BC0 (FUN_00498BC0, nullsub_574)
-   *
-   * What it does:
-   * No-op helper thunk retained for binary parity.
-   */
-  void NoOpHelperThunkS() noexcept {}
-
-  /**
-   * Address: 0x00498BE0 (FUN_00498BE0, sub_498BE0)
+    * Alias of FUN_00498BE0 (non-canonical helper lane).
    *
    * What it does:
    * Writes one `uint32_t` scalar into caller-provided output storage.
@@ -3901,7 +3885,7 @@ namespace
   }
 
   /**
-   * Address: 0x00498BF0 (FUN_00498BF0, sub_498BF0)
+    * Alias of FUN_00498BF0 (non-canonical helper lane).
    *
    * What it does:
    * Reads one `uint32_t` scalar from caller-provided storage.
@@ -3912,7 +3896,7 @@ namespace
   }
 
   /**
-   * Address: 0x00498C30 (FUN_00498C30, sub_498C30)
+    * Alias of FUN_00498C30 (non-canonical helper lane).
    *
    * What it does:
    * Writes one `uint32_t` scalar into caller-provided output storage.
@@ -3927,7 +3911,7 @@ namespace
   }
 
   /**
-   * Address: 0x00498C40 (FUN_00498C40, sub_498C40)
+    * Alias of FUN_00498C40 (non-canonical helper lane).
    *
    * What it does:
    * Reads one `uint32_t` scalar from caller-provided storage.
@@ -3938,7 +3922,7 @@ namespace
   }
 
   /**
-   * Address: 0x00498C80 (FUN_00498C80, sub_498C80)
+    * Alias of FUN_00498C80 (non-canonical helper lane).
    *
    * What it does:
    * Writes one `uint32_t` scalar into caller-provided output storage.
@@ -3953,7 +3937,7 @@ namespace
   }
 
   /**
-   * Address: 0x00498CA0 (FUN_00498CA0, sub_498CA0)
+    * Alias of FUN_00498CA0 (non-canonical helper lane).
    *
    * What it does:
    * Reads one `uint32_t` scalar from caller-provided storage.

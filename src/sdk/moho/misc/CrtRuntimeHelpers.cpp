@@ -1,6 +1,9 @@
 #include <Windows.h>
 
+#include "gpg/core/containers/CheckedArrayAllocationLanes.h"
+
 #include <bit>
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <clocale>
@@ -12,10 +15,13 @@
 #include <cstring>
 #include <ctime>
 #include <cwchar>
+#include <cwctype>
 #include <exception>
+#include <fstream>
 #include <float.h>
 #include <io.h>
 #include <intrin.h>
+#include <limits>
 #include <locale>
 #include <list>
 #include <mutex>
@@ -113,6 +119,7 @@ extern "C" int __cdecl _fclose_nolock(std::FILE* stream);
 extern "C" int __cdecl _getdrive();
 extern "C" void __cdecl _dosmaperr(unsigned long osErrorCode);
 extern "C" int __cdecl _get_winmajor(unsigned int* majorVersion);
+extern "C" lconv* __cdecl RuntimeGetlconv();
 extern "C" int __cdecl _tsopen_helper(
   const char* fileName,
   int openFlags,
@@ -130,6 +137,7 @@ extern "C" std::FILE** __piob;
 extern "C" unsigned char _exitflag;
 extern "C" std::uintptr_t __security_cookie;
 extern "C" std::uintptr_t __enable_percent_n;
+extern "C" int global_compat_flag;
 /**
  * Address: 0x00A89E54 (FUN_00A89E54, __iob_func)
  *
@@ -154,6 +162,7 @@ extern "C" std::size_t __cdecl _wcsftime_l(
   _locale_t locale
 );
 extern "C" int __cdecl _stricmp(const char* lhs, const char* rhs);
+extern "C" const char* __cdecl _get_sys_err_msg(int errorCode);
 extern "C" void* __cdecl _calloc_crt(std::size_t num, std::size_t size);
 extern "C" void __cdecl __amsg_exit(int runtimeMessageId);
 extern "C" void* __cdecl _decode_pointer(void* encodedPointer);
@@ -168,6 +177,13 @@ extern "C" int __mbctype_initialized;
 extern "C" int __cdecl __initmbctable();
 extern "C" int __cdecl _ismbblead(unsigned int value);
 extern "C" BOOL __cdecl __local_unwind4(void* registrationFrame, int currentTryLevel, unsigned int targetTryLevel);
+extern "C" int __cdecl __local_unwind2(void* registrationFrame, unsigned int targetTryLevel);
+extern "C" void __cdecl __FrameUnwindToState(
+  void* registrationNode,
+  void* dispatcherContext,
+  const void* functionInfo,
+  int targetState
+);
 extern "C" char* _acmdln;
 extern "C" char* _aenvptr;
 extern "C" char** _environ;
@@ -186,7 +202,7 @@ extern "C" int __cdecl __init_collate()
 }
 
 /**
- * Address: 0x00ACE110 (FUN_00ACE110, _SFUO_Init)
+  * Alias of FUN_00ACE110 (non-canonical helper lane).
  *
  * What it does:
  * Preserves one CRT SFUO startup lane as a success no-op.
@@ -197,7 +213,7 @@ extern "C" int __cdecl _SFUO_Init()
 }
 
 /**
- * Address: 0x00ACE120 (FUN_00ACE120, _SFUO_Finish)
+  * Alias of FUN_00ACE120 (non-canonical helper lane).
  *
  * What it does:
  * Preserves one CRT SFUO finish lane as a success no-op.
@@ -208,7 +224,7 @@ extern "C" int __cdecl _SFUO_Finish()
 }
 
 /**
- * Address: 0x00ACE2E0 (FUN_00ACE2E0, _SFUO_Destroy)
+  * Alias of FUN_00ACE2E0 (non-canonical helper lane).
  *
  * What it does:
  * Preserves one CRT SFUO teardown lane as a success no-op.
@@ -371,6 +387,978 @@ RuntimeTypeInfoMapNode* RuntimeTypeInfoMapAllocateNode(
     node->isNil = 0;
   }
   return node;
+}
+
+struct RuntimeListNodePayload24Words
+{
+  std::uint32_t words[6];
+};
+static_assert(sizeof(RuntimeListNodePayload24Words) == 0x18, "RuntimeListNodePayload24Words size must be 0x18");
+
+struct RuntimeListNodePayload32Words
+{
+  std::uint32_t words[8];
+};
+static_assert(sizeof(RuntimeListNodePayload32Words) == 0x20, "RuntimeListNodePayload32Words size must be 0x20");
+
+struct RuntimeListNodePayload40Words
+{
+  std::uint32_t words[10];
+};
+static_assert(sizeof(RuntimeListNodePayload40Words) == 0x28, "RuntimeListNodePayload40Words size must be 0x28");
+
+struct RuntimeListNode24
+{
+  RuntimeListNode24* next;
+  RuntimeListNode24* prev;
+  RuntimeListNodePayload24Words payload;
+};
+static_assert(sizeof(RuntimeListNode24) == 0x20, "RuntimeListNode24 size must be 0x20");
+static_assert(offsetof(RuntimeListNode24, next) == 0x00, "RuntimeListNode24::next offset must be 0x00");
+static_assert(offsetof(RuntimeListNode24, prev) == 0x04, "RuntimeListNode24::prev offset must be 0x04");
+static_assert(offsetof(RuntimeListNode24, payload) == 0x08, "RuntimeListNode24::payload offset must be 0x08");
+
+struct RuntimeListNode32
+{
+  RuntimeListNode32* next;
+  RuntimeListNode32* prev;
+  RuntimeListNodePayload32Words payload;
+};
+static_assert(sizeof(RuntimeListNode32) == 0x28, "RuntimeListNode32 size must be 0x28");
+static_assert(offsetof(RuntimeListNode32, next) == 0x00, "RuntimeListNode32::next offset must be 0x00");
+static_assert(offsetof(RuntimeListNode32, prev) == 0x04, "RuntimeListNode32::prev offset must be 0x04");
+static_assert(offsetof(RuntimeListNode32, payload) == 0x08, "RuntimeListNode32::payload offset must be 0x08");
+
+struct RuntimeListNode40
+{
+  RuntimeListNode40* next;
+  RuntimeListNode40* prev;
+  RuntimeListNodePayload40Words payload;
+};
+static_assert(sizeof(RuntimeListNode40) == 0x30, "RuntimeListNode40 size must be 0x30");
+static_assert(offsetof(RuntimeListNode40, next) == 0x00, "RuntimeListNode40::next offset must be 0x00");
+static_assert(offsetof(RuntimeListNode40, prev) == 0x04, "RuntimeListNode40::prev offset must be 0x04");
+static_assert(offsetof(RuntimeListNode40, payload) == 0x08, "RuntimeListNode40::payload offset must be 0x08");
+
+struct RuntimeTreeNodePayload24Words
+{
+  std::uint32_t words[6];
+};
+static_assert(sizeof(RuntimeTreeNodePayload24Words) == 0x18, "RuntimeTreeNodePayload24Words size must be 0x18");
+
+struct RuntimeTreeNode24
+{
+  RuntimeTreeNode24* left;
+  RuntimeTreeNode24* parent;
+  RuntimeTreeNode24* right;
+  RuntimeTreeNodePayload24Words payload;
+  std::uint8_t color;
+  std::uint8_t isNil;
+  std::uint8_t reserved26;
+  std::uint8_t reserved27;
+};
+static_assert(sizeof(RuntimeTreeNode24) == 0x28, "RuntimeTreeNode24 size must be 0x28");
+static_assert(offsetof(RuntimeTreeNode24, left) == 0x00, "RuntimeTreeNode24::left offset must be 0x00");
+static_assert(offsetof(RuntimeTreeNode24, parent) == 0x04, "RuntimeTreeNode24::parent offset must be 0x04");
+static_assert(offsetof(RuntimeTreeNode24, right) == 0x08, "RuntimeTreeNode24::right offset must be 0x08");
+static_assert(offsetof(RuntimeTreeNode24, payload) == 0x0C, "RuntimeTreeNode24::payload offset must be 0x0C");
+static_assert(offsetof(RuntimeTreeNode24, color) == 0x24, "RuntimeTreeNode24::color offset must be 0x24");
+static_assert(offsetof(RuntimeTreeNode24, isNil) == 0x25, "RuntimeTreeNode24::isNil offset must be 0x25");
+
+struct RuntimeTreeNode20PayloadWords
+{
+  std::uint32_t words[5];
+};
+static_assert(sizeof(RuntimeTreeNode20PayloadWords) == 0x14, "RuntimeTreeNode20PayloadWords size must be 0x14");
+
+struct RuntimeTreeNode20
+{
+  RuntimeTreeNode20* left;
+  RuntimeTreeNode20* parent;
+  RuntimeTreeNode20* right;
+  RuntimeTreeNode20PayloadWords payload;
+  std::uint8_t color;
+  std::uint8_t isNil;
+  std::uint8_t reserved22;
+  std::uint8_t reserved23;
+};
+static_assert(sizeof(RuntimeTreeNode20) == 0x24, "RuntimeTreeNode20 size must be 0x24");
+static_assert(offsetof(RuntimeTreeNode20, left) == 0x00, "RuntimeTreeNode20::left offset must be 0x00");
+static_assert(offsetof(RuntimeTreeNode20, parent) == 0x04, "RuntimeTreeNode20::parent offset must be 0x04");
+static_assert(offsetof(RuntimeTreeNode20, right) == 0x08, "RuntimeTreeNode20::right offset must be 0x08");
+static_assert(offsetof(RuntimeTreeNode20, payload) == 0x0C, "RuntimeTreeNode20::payload offset must be 0x0C");
+static_assert(offsetof(RuntimeTreeNode20, color) == 0x20, "RuntimeTreeNode20::color offset must be 0x20");
+static_assert(offsetof(RuntimeTreeNode20, isNil) == 0x21, "RuntimeTreeNode20::isNil offset must be 0x21");
+
+struct RuntimeTreeHeadNodeBare
+{
+  RuntimeTreeHeadNodeBare* left;
+  RuntimeTreeHeadNodeBare* parent;
+  RuntimeTreeHeadNodeBare* right;
+  std::uint8_t color;
+  std::uint8_t isNil;
+  std::uint8_t reserved12;
+  std::uint8_t reserved13;
+};
+static_assert(sizeof(RuntimeTreeHeadNodeBare) == 0x14, "RuntimeTreeHeadNodeBare size must be 0x14");
+static_assert(offsetof(RuntimeTreeHeadNodeBare, left) == 0x00, "RuntimeTreeHeadNodeBare::left offset must be 0x00");
+static_assert(offsetof(RuntimeTreeHeadNodeBare, parent) == 0x04, "RuntimeTreeHeadNodeBare::parent offset must be 0x04");
+static_assert(offsetof(RuntimeTreeHeadNodeBare, right) == 0x08, "RuntimeTreeHeadNodeBare::right offset must be 0x08");
+static_assert(offsetof(RuntimeTreeHeadNodeBare, color) == 0x10, "RuntimeTreeHeadNodeBare::color offset must be 0x10");
+static_assert(offsetof(RuntimeTreeHeadNodeBare, isNil) == 0x11, "RuntimeTreeHeadNodeBare::isNil offset must be 0x11");
+
+[[nodiscard]] RuntimeTypeInfoMapNode* RuntimeAllocateTypeInfoMapHeadNodeCommon()
+{
+  auto* const node = static_cast<RuntimeTypeInfoMapNode*>(::operator new(sizeof(RuntimeTypeInfoMapNode)));
+  if (node != nullptr) {
+    node->left = nullptr;
+    node->parent = nullptr;
+    node->right = nullptr;
+    node->pair.keyTypeInfo = nullptr;
+    node->pair.valueTypeInfo = nullptr;
+    node->color = 1u;
+    node->isNil = 0u;
+  }
+  return node;
+}
+
+[[nodiscard]] RuntimeTypeInfoMapNode* RuntimeAllocateTypeInfoMapNodeFromRawPair(
+  RuntimeTypeInfoMapNode* const left,
+  RuntimeTypeInfoMapNode* const parent,
+  RuntimeTypeInfoMapNode* const right,
+  const std::uint32_t* const rawPairWords,
+  const std::uint8_t color
+)
+{
+  RuntimeTypeInfoMapPair pair{};
+  pair.keyTypeInfo = reinterpret_cast<const std::type_info*>(static_cast<std::uintptr_t>(rawPairWords[0]));
+  pair.valueTypeInfo = reinterpret_cast<void*>(static_cast<std::uintptr_t>(rawPairWords[1]));
+  return RuntimeTypeInfoMapAllocateNode(left, parent, right, &pair, color);
+}
+
+[[nodiscard]] RuntimeListNode40* RuntimeAllocateListNode40SentinelCommon()
+{
+  auto* const node = static_cast<RuntimeListNode40*>(::operator new(sizeof(RuntimeListNode40)));
+  if (node != nullptr) {
+    node->next = node;
+    node->prev = node;
+  }
+  return node;
+}
+
+[[nodiscard]] RuntimeListNode32* RuntimeAllocateListNode32SentinelCommon()
+{
+  auto* const node = static_cast<RuntimeListNode32*>(::operator new(sizeof(RuntimeListNode32)));
+  if (node != nullptr) {
+    node->next = node;
+    node->prev = node;
+  }
+  return node;
+}
+
+[[nodiscard]] RuntimeListNode32* RuntimeAllocateListNode32WithPayloadCommon(
+  RuntimeListNode32* const next,
+  RuntimeListNode32* const prev,
+  const RuntimeListNodePayload32Words* const payload
+)
+{
+  auto* const node = static_cast<RuntimeListNode32*>(::operator new(sizeof(RuntimeListNode32)));
+  if (node != nullptr) {
+    node->next = next;
+    node->prev = prev;
+    node->payload = *payload;
+  }
+  return node;
+}
+
+[[nodiscard]] RuntimeListNode24* RuntimeAllocateListNode24SentinelCommon()
+{
+  auto* const node = static_cast<RuntimeListNode24*>(::operator new(sizeof(RuntimeListNode24)));
+  if (node != nullptr) {
+    node->next = node;
+    node->prev = node;
+  }
+  return node;
+}
+
+[[nodiscard]] RuntimeListNode24* RuntimeAllocateListNode24WithPayloadCommon(
+  RuntimeListNode24* const next,
+  RuntimeListNode24* const prev,
+  const RuntimeListNodePayload24Words* const payload
+)
+{
+  auto* const node = static_cast<RuntimeListNode24*>(::operator new(sizeof(RuntimeListNode24)));
+  if (node != nullptr) {
+    node->next = next;
+    node->prev = prev;
+    node->payload = *payload;
+  }
+  return node;
+}
+
+[[nodiscard]] RuntimeTreeNode24* RuntimeAllocateTreeNode24WithPayloadCommon(
+  RuntimeTreeNode24* const left,
+  RuntimeTreeNode24* const parent,
+  RuntimeTreeNode24* const right,
+  const RuntimeTreeNodePayload24Words* const payload,
+  const std::uint8_t color
+)
+{
+  auto* const node = static_cast<RuntimeTreeNode24*>(::operator new(sizeof(RuntimeTreeNode24)));
+  if (node != nullptr) {
+    node->left = left;
+    node->parent = parent;
+    node->right = right;
+    node->payload = *payload;
+    node->color = color;
+    node->isNil = 0u;
+  }
+  return node;
+}
+
+[[nodiscard]] RuntimeTreeNode24* RuntimeAllocateTreeNode24HeadCommon()
+{
+  auto* const node = static_cast<RuntimeTreeNode24*>(::operator new(sizeof(RuntimeTreeNode24)));
+  if (node != nullptr) {
+    node->left = nullptr;
+    node->parent = nullptr;
+    node->right = nullptr;
+    node->color = 1u;
+    node->isNil = 0u;
+  }
+  return node;
+}
+
+[[nodiscard]] RuntimeTreeHeadNodeBare* RuntimeAllocateTreeHeadNodeBareCommon()
+{
+  auto* const node = static_cast<RuntimeTreeHeadNodeBare*>(::operator new(sizeof(RuntimeTreeHeadNodeBare)));
+  if (node != nullptr) {
+    node->left = nullptr;
+    node->parent = nullptr;
+    node->right = nullptr;
+    node->color = 1u;
+    node->isNil = 0u;
+  }
+  return node;
+}
+
+[[nodiscard]] RuntimeTreeNode20* RuntimeAllocateTreeNode20HeadCommon()
+{
+  auto* const node = static_cast<RuntimeTreeNode20*>(::operator new(sizeof(RuntimeTreeNode20)));
+  if (node != nullptr) {
+    node->left = nullptr;
+    node->parent = nullptr;
+    node->right = nullptr;
+    node->color = 1u;
+    node->isNil = 0u;
+  }
+  return node;
+}
+
+/**
+ * Address: 0x008DA0D0 (FUN_008DA0D0)
+ *
+ * What it does:
+ * Allocates one 24-byte red-black node and initializes links, pair payload,
+ * and marker lanes from caller-provided raw pair words.
+ */
+[[nodiscard]] RuntimeTypeInfoMapNode* RuntimeAllocateTypeInfoMapNodeLaneB(
+  RuntimeTypeInfoMapNode* const left,
+  RuntimeTypeInfoMapNode* const parent,
+  RuntimeTypeInfoMapNode* const right,
+  const std::uint32_t* const rawPairWords,
+  const std::uint8_t color
+)
+{
+  return RuntimeAllocateTypeInfoMapNodeFromRawPair(left, parent, right, rawPairWords, color);
+}
+
+/**
+ * Address: 0x008E42C0 (FUN_008E42C0)
+ *
+ * What it does:
+ * Allocates one 48-byte intrusive list sentinel node and self-links the
+ * `next/prev` lanes.
+ */
+[[nodiscard]] RuntimeListNode40* RuntimeAllocateListNode40SentinelLaneA()
+{
+  return RuntimeAllocateListNode40SentinelCommon();
+}
+
+/**
+ * Address: 0x0092DC30 (FUN_0092DC30)
+ *
+ * What it does:
+ * Allocates one 40-byte intrusive list sentinel node and self-links the
+ * `next/prev` lanes.
+ */
+[[nodiscard]] RuntimeListNode32* RuntimeAllocateListNode32SentinelLaneA()
+{
+  return RuntimeAllocateListNode32SentinelCommon();
+}
+
+/**
+ * Address: 0x0092DED0 (FUN_0092DED0)
+ *
+ * What it does:
+ * Allocates one 40-byte intrusive list node, writes the caller-provided
+ * `next/prev` links, and copies eight payload dwords.
+ */
+[[nodiscard]] RuntimeListNode32* RuntimeAllocateListNode32WithPayloadLaneA(
+  RuntimeListNode32* const next,
+  RuntimeListNode32* const prev,
+  const RuntimeListNodePayload32Words* const payload
+)
+{
+  return RuntimeAllocateListNode32WithPayloadCommon(next, prev, payload);
+}
+
+/**
+ * Address: 0x009327A0 (FUN_009327A0)
+ *
+ * What it does:
+ * Allocates one 32-byte intrusive list sentinel node and self-links the
+ * `next/prev` lanes.
+ */
+[[nodiscard]] RuntimeListNode24* RuntimeAllocateListNode24SentinelLaneA()
+{
+  return RuntimeAllocateListNode24SentinelCommon();
+}
+
+/**
+ * Address: 0x009328C0 (FUN_009328C0)
+ *
+ * What it does:
+ * Allocates one 32-byte intrusive list node, writes the caller-provided
+ * `next/prev` links, and copies six payload dwords.
+ */
+[[nodiscard]] RuntimeListNode24* RuntimeAllocateListNode24WithPayloadLaneA(
+  RuntimeListNode24* const next,
+  RuntimeListNode24* const prev,
+  const RuntimeListNodePayload24Words* const payload
+)
+{
+  return RuntimeAllocateListNode24WithPayloadCommon(next, prev, payload);
+}
+
+/**
+ * Address: 0x00946F90 (FUN_00946F90)
+ *
+ * What it does:
+ * Allocates one 24-byte red-black tree head node with null links and marker
+ * bytes initialized to `{color=1, isNil=0}`.
+ */
+[[nodiscard]] RuntimeTypeInfoMapNode* RuntimeAllocateTypeInfoMapHeadNodeLaneA()
+{
+  return RuntimeAllocateTypeInfoMapHeadNodeCommon();
+}
+
+/**
+ * Address: 0x00946FE0 (FUN_00946FE0)
+ *
+ * What it does:
+ * Allocates one 24-byte red-black tree head node with null links and marker
+ * bytes initialized to `{color=1, isNil=0}`.
+ */
+[[nodiscard]] RuntimeTypeInfoMapNode* RuntimeAllocateTypeInfoMapHeadNodeLaneB()
+{
+  return RuntimeAllocateTypeInfoMapHeadNodeCommon();
+}
+
+/**
+ * Address: 0x00947030 (FUN_00947030)
+ *
+ * What it does:
+ * Allocates one 24-byte red-black tree head node with null links and marker
+ * bytes initialized to `{color=1, isNil=0}`.
+ */
+[[nodiscard]] RuntimeTypeInfoMapNode* RuntimeAllocateTypeInfoMapHeadNodeLaneC()
+{
+  return RuntimeAllocateTypeInfoMapHeadNodeCommon();
+}
+
+/**
+ * Address: 0x00948CC0 (FUN_00948CC0)
+ *
+ * What it does:
+ * Allocates one 24-byte red-black node and initializes links, pair payload,
+ * and color/isNil marker bytes.
+ */
+[[nodiscard]] RuntimeTypeInfoMapNode* RuntimeAllocateTypeInfoMapNodeLaneC(
+  RuntimeTypeInfoMapNode* const left,
+  RuntimeTypeInfoMapNode* const parent,
+  RuntimeTypeInfoMapNode* const right,
+  const std::uint32_t* const rawPairWords,
+  const std::uint8_t color
+)
+{
+  return RuntimeAllocateTypeInfoMapNodeFromRawPair(left, parent, right, rawPairWords, color);
+}
+
+/**
+ * Address: 0x00948D00 (FUN_00948D00)
+ *
+ * What it does:
+ * Allocates one 24-byte red-black node and initializes links, pair payload,
+ * and color/isNil marker bytes.
+ */
+[[nodiscard]] RuntimeTypeInfoMapNode* RuntimeAllocateTypeInfoMapNodeLaneD(
+  RuntimeTypeInfoMapNode* const left,
+  RuntimeTypeInfoMapNode* const parent,
+  RuntimeTypeInfoMapNode* const right,
+  const std::uint32_t* const rawPairWords,
+  const std::uint8_t color
+)
+{
+  return RuntimeAllocateTypeInfoMapNodeFromRawPair(left, parent, right, rawPairWords, color);
+}
+
+/**
+ * Address: 0x00948D40 (FUN_00948D40)
+ *
+ * What it does:
+ * Allocates one 24-byte red-black node and initializes links, pair payload,
+ * and color/isNil marker bytes.
+ */
+[[nodiscard]] RuntimeTypeInfoMapNode* RuntimeAllocateTypeInfoMapNodeLaneE(
+  RuntimeTypeInfoMapNode* const left,
+  RuntimeTypeInfoMapNode* const parent,
+  RuntimeTypeInfoMapNode* const right,
+  const std::uint32_t* const rawPairWords,
+  const std::uint8_t color
+)
+{
+  return RuntimeAllocateTypeInfoMapNodeFromRawPair(left, parent, right, rawPairWords, color);
+}
+
+/**
+ * Address: 0x00950430 (FUN_00950430)
+ *
+ * What it does:
+ * Allocates one 40-byte red-black node, stores link lanes and six payload
+ * dwords, then writes color/isNil marker bytes.
+ */
+[[nodiscard]] RuntimeTreeNode24* RuntimeAllocateTreeNode24WithPayloadLaneA(
+  RuntimeTreeNode24* const left,
+  RuntimeTreeNode24* const parent,
+  RuntimeTreeNode24* const right,
+  const RuntimeTreeNodePayload24Words* const payload,
+  const std::uint8_t color
+)
+{
+  return RuntimeAllocateTreeNode24WithPayloadCommon(left, parent, right, payload, color);
+}
+
+/**
+ * Address: 0x00950540 (FUN_00950540)
+ *
+ * What it does:
+ * Allocates one 24-byte red-black tree head node with null links and marker
+ * bytes initialized to `{color=1, isNil=0}`.
+ */
+[[nodiscard]] RuntimeTypeInfoMapNode* RuntimeAllocateTypeInfoMapHeadNodeLaneD()
+{
+  return RuntimeAllocateTypeInfoMapHeadNodeCommon();
+}
+
+/**
+ * Address: 0x00950380 (FUN_00950380)
+ *
+ * What it does:
+ * Recursively deletes one 24-byte red-black tree lane by erasing each node's
+ * right subtree, then walking the left spine and deleting each visited node.
+ */
+void RuntimeDeleteTypeInfoMapTreeLaneA(RuntimeTypeInfoMapNode* node)
+{
+  RuntimeTypeInfoMapNode* cursor = node;
+  if (cursor->isNil == 0u) {
+    do {
+      RuntimeDeleteTypeInfoMapTreeLaneA(cursor->right);
+      RuntimeTypeInfoMapNode* const next = cursor->left;
+      ::operator delete(cursor);
+      cursor = next;
+    } while (cursor->isNil == 0u);
+  }
+}
+
+/**
+ * Address: 0x009503E0 (FUN_009503E0)
+ *
+ * What it does:
+ * Recursively deletes one 40-byte red-black tree lane by erasing each node's
+ * right subtree, then walking the left spine and deleting each visited node.
+ */
+void RuntimeDeleteTreeNode24LaneA(RuntimeTreeNode24* node)
+{
+  RuntimeTreeNode24* cursor = node;
+  if (cursor->isNil == 0u) {
+    do {
+      RuntimeDeleteTreeNode24LaneA(cursor->right);
+      RuntimeTreeNode24* const next = cursor->left;
+      ::operator delete(cursor);
+      cursor = next;
+    } while (cursor->isNil == 0u);
+  }
+}
+
+/**
+ * Address: 0x009505D0 (FUN_009505D0)
+ *
+ * What it does:
+ * Allocates one 40-byte red-black tree head node with null links and marker
+ * bytes initialized to `{color=1, isNil=0}`.
+ */
+[[nodiscard]] RuntimeTreeNode24* RuntimeAllocateTreeNode24HeadLaneA()
+{
+  return RuntimeAllocateTreeNode24HeadCommon();
+}
+
+/**
+ * Address: 0x00A58370 (FUN_00A58370)
+ * Address: 0x00A583C0 (FUN_00A583C0)
+ *
+ * What it does:
+ * Allocates one 20-byte bare red-black tree head node with null links and
+ * marker bytes initialized to `{color=1, isNil=0}`.
+ */
+[[nodiscard]] RuntimeTreeHeadNodeBare* RuntimeAllocateTreeHeadNodeBareLaneA()
+{
+  return RuntimeAllocateTreeHeadNodeBareCommon();
+}
+
+/**
+ * Address: 0x00A58410 (FUN_00A58410)
+ * Address: 0x00A584E0 (FUN_00A584E0)
+ *
+ * What it does:
+ * Allocates one 36-byte red-black tree head node with null links and marker
+ * bytes initialized to `{color=1, isNil=0}`.
+ */
+[[nodiscard]] RuntimeTreeNode20* RuntimeAllocateTreeNode20HeadLaneA()
+{
+  return RuntimeAllocateTreeNode20HeadCommon();
+}
+
+struct RuntimeListPointerNode
+{
+  RuntimeListPointerNode* next;
+  RuntimeListPointerNode* prev;
+  void* value;
+};
+static_assert(sizeof(RuntimeListPointerNode) == 0x0C, "RuntimeListPointerNode size must be 0x0C");
+static_assert(offsetof(RuntimeListPointerNode, next) == 0x00, "RuntimeListPointerNode::next offset must be 0x00");
+static_assert(offsetof(RuntimeListPointerNode, prev) == 0x04, "RuntimeListPointerNode::prev offset must be 0x04");
+static_assert(offsetof(RuntimeListPointerNode, value) == 0x08, "RuntimeListPointerNode::value offset must be 0x08");
+
+using RuntimePairSlot = RuntimeTypeInfoMapPair;
+using RuntimePairTreeNode = RuntimeTypeInfoMapNode;
+static_assert(sizeof(RuntimePairSlot) == 0x08, "RuntimePairSlot size must be 0x08");
+
+struct RuntimePairTreeContainer
+{
+  void* proxy;
+  RuntimePairTreeNode* head;
+  std::uint32_t size;
+};
+static_assert(sizeof(RuntimePairTreeContainer) == 0x0C, "RuntimePairTreeContainer size must be 0x0C");
+static_assert(offsetof(RuntimePairTreeContainer, head) == 0x04, "RuntimePairTreeContainer::head offset must be 0x04");
+static_assert(offsetof(RuntimePairTreeContainer, size) == 0x08, "RuntimePairTreeContainer::size offset must be 0x08");
+
+struct RuntimeListPointerContainer
+{
+  void* proxy;
+  RuntimeListPointerNode* head;
+  std::uint32_t size;
+};
+static_assert(sizeof(RuntimeListPointerContainer) == 0x0C, "RuntimeListPointerContainer size must be 0x0C");
+static_assert(offsetof(RuntimeListPointerContainer, head) == 0x04, "RuntimeListPointerContainer::head offset must be 0x04");
+static_assert(offsetof(RuntimeListPointerContainer, size) == 0x08, "RuntimeListPointerContainer::size offset must be 0x08");
+
+struct RuntimeListIteratorView
+{
+  void* owner;
+  RuntimeListPointerNode* node;
+};
+static_assert(sizeof(RuntimeListIteratorView) == 0x08, "RuntimeListIteratorView size must be 0x08");
+static_assert(offsetof(RuntimeListIteratorView, node) == 0x04, "RuntimeListIteratorView::node offset must be 0x04");
+
+#pragma pack(push, 1)
+struct RuntimeWordByteRecord
+{
+  std::uint32_t word;
+  std::uint8_t flag;
+};
+#pragma pack(pop)
+static_assert(sizeof(RuntimeWordByteRecord) == 0x05, "RuntimeWordByteRecord size must be 0x05");
+
+struct RuntimeDwordPairRecord
+{
+  std::uint32_t first;
+  std::uint32_t second;
+};
+static_assert(sizeof(RuntimeDwordPairRecord) == 0x08, "RuntimeDwordPairRecord size must be 0x08");
+
+struct RuntimeContainerBase;
+
+struct RuntimeIteratorBase
+{
+  RuntimeContainerBase* container;
+  RuntimeIteratorBase* next;
+};
+static_assert(sizeof(RuntimeIteratorBase) == 0x08, "RuntimeIteratorBase size must be 0x08");
+
+struct RuntimeContainerBase
+{
+  std::uint32_t reserved0;
+  RuntimeIteratorBase* firstIterator;
+};
+static_assert(sizeof(RuntimeContainerBase) == 0x08, "RuntimeContainerBase size must be 0x08");
+static_assert(offsetof(RuntimeContainerBase, firstIterator) == 0x04, "RuntimeContainerBase::firstIterator offset must be 0x04");
+
+RuntimeContainerBase gRuntimeSndParamsCacheStorage{};
+
+[[nodiscard]] inline void** RuntimeAssignPointerCommon(void** const outSlot, void* const value) noexcept
+{
+  *outSlot = value;
+  return outSlot;
+}
+
+/**
+ * Address: 0x004E2680 (FUN_004E2680)
+ *
+ * What it does:
+ * Stores one pointer payload into the destination slot and returns that slot.
+ */
+void** RuntimeAssignPointerLaneA(void** const outSlot, void* const value)
+{
+  return RuntimeAssignPointerCommon(outSlot, value);
+}
+
+/**
+ * Address: 0x004E26D0 (FUN_004E26D0)
+ *
+ * What it does:
+ * Stores one pointer payload into the destination slot and returns that slot.
+ */
+void** RuntimeAssignPointerLaneB(void** const outSlot, void* const value)
+{
+  return RuntimeAssignPointerCommon(outSlot, value);
+}
+
+/**
+ * Address: 0x004E26E0 (FUN_004E26E0)
+ *
+ * What it does:
+ * Stores one pointer payload into the destination slot and returns that slot.
+ */
+void** RuntimeAssignPointerLaneC(void** const outSlot, void* const value)
+{
+  return RuntimeAssignPointerCommon(outSlot, value);
+}
+
+/**
+ * Address: 0x004E2700 (FUN_004E2700)
+ *
+ * What it does:
+ * Advances one node-slot pointer to the next intrusive list link.
+ */
+RuntimeListPointerNode** RuntimeAdvanceListNodeSlot(RuntimeListPointerNode** const nodeSlot)
+{
+  *nodeSlot = (*nodeSlot)->next;
+  return nodeSlot;
+}
+
+/**
+ * Address: 0x004E2720 (FUN_004E2720)
+ *
+ * What it does:
+ * Copies one 4-byte value and trailing 1-byte flag record.
+ */
+RuntimeWordByteRecord* RuntimeCopyWordByteRecordLaneA(
+  RuntimeWordByteRecord* const outRecord,
+  const std::uint32_t* const wordSource,
+  const std::uint8_t* const flagSource
+)
+{
+  outRecord->word = *wordSource;
+  outRecord->flag = *flagSource;
+  return outRecord;
+}
+
+[[nodiscard]] inline RuntimeDwordPairRecord* RuntimeCopyDwordPairRecordCommon(
+  RuntimeDwordPairRecord* const outRecord,
+  const std::uint32_t* const firstSource,
+  const std::uint32_t* const secondSource
+) noexcept
+{
+  outRecord->first = *firstSource;
+  outRecord->second = *secondSource;
+  return outRecord;
+}
+
+/**
+ * Address: 0x004E2730 (FUN_004E2730)
+ *
+ * What it does:
+ * Copies one 8-byte pair record from separate dword sources.
+ */
+RuntimeDwordPairRecord* RuntimeCopyDwordPairRecordLaneA(
+  RuntimeDwordPairRecord* const outRecord,
+  const std::uint32_t* const firstSource,
+  const std::uint32_t* const secondSource
+)
+{
+  return RuntimeCopyDwordPairRecordCommon(outRecord, firstSource, secondSource);
+}
+
+/**
+ * Address: 0x004E2770 (FUN_004E2770)
+ *
+ * What it does:
+ * Copies one 8-byte pair record from separate dword sources.
+ */
+RuntimeDwordPairRecord* RuntimeCopyDwordPairRecordLaneB(
+  RuntimeDwordPairRecord* const outRecord,
+  const std::uint32_t* const firstSource,
+  const std::uint32_t* const secondSource
+)
+{
+  return RuntimeCopyDwordPairRecordCommon(outRecord, firstSource, secondSource);
+}
+
+/**
+ * Address: 0x004E2880 (FUN_004E2880)
+ *
+ * What it does:
+ * Publishes the owning container pointer of the first debug iterator in the
+ * static sound-parameter cache container lane.
+ */
+RuntimeContainerBase** RuntimeGetSndParamsCacheIteratorContainer(RuntimeContainerBase** const outContainer)
+{
+  *outContainer = gRuntimeSndParamsCacheStorage.firstIterator->container;
+  return outContainer;
+}
+
+/**
+ * Address: 0x004E2890 (FUN_004E2890)
+ *
+ * What it does:
+ * Publishes the first debug-iterator link from the static sound-parameter
+ * cache container lane.
+ */
+RuntimeIteratorBase** RuntimeGetSndParamsCacheFirstIterator(RuntimeIteratorBase** const outIterator)
+{
+  *outIterator = gRuntimeSndParamsCacheStorage.firstIterator;
+  return outIterator;
+}
+
+/**
+ * Address: 0x004E2BC0 (FUN_004E2BC0)
+ *
+ * What it does:
+ * Returns the address of the static sound-parameter cache container storage.
+ */
+void* RuntimeGetSndParamsCacheStorageAddress(const int /*unused*/)
+{
+  return &gRuntimeSndParamsCacheStorage;
+}
+
+/**
+ * Address: 0x004E2C60 (FUN_004E2C60)
+ *
+ * What it does:
+ * Reads one list-iterator node and returns its `next` link.
+ */
+RuntimeListPointerNode** RuntimeReadListIteratorNext(
+  RuntimeListPointerNode** const outNode,
+  const RuntimeListIteratorView* const iterator
+)
+{
+  *outNode = iterator->node->next;
+  return outNode;
+}
+
+/**
+ * Address: 0x004E2C70 (FUN_004E2C70)
+ *
+ * What it does:
+ * Reads one list-iterator node pointer into the destination slot.
+ */
+RuntimeListPointerNode** RuntimeReadListIteratorNode(
+  RuntimeListPointerNode** const outNode,
+  const RuntimeListIteratorView* const iterator
+)
+{
+  *outNode = iterator->node;
+  return outNode;
+}
+
+/**
+ * Address: 0x004E3140 (FUN_004E3140)
+ *
+ * What it does:
+ * Performs one left rotation around a red-black tree pivot node and updates
+ * parent/head links.
+ */
+RuntimePairTreeNode* RuntimeRotatePairTreeLeft(
+  RuntimePairTreeNode* const pivot,
+  RuntimePairTreeContainer* const container
+)
+{
+  RuntimePairTreeNode* const promoted = pivot->right;
+  pivot->right = promoted->left;
+  if (promoted->left->isNil == 0) {
+    promoted->left->parent = pivot;
+  }
+
+  promoted->parent = pivot->parent;
+  RuntimePairTreeNode* const head = container->head;
+  if (pivot == head->parent) {
+    head->parent = promoted;
+    promoted->left = pivot;
+    pivot->parent = promoted;
+    return promoted;
+  }
+
+  RuntimePairTreeNode* const pivotParent = pivot->parent;
+  if (pivot == pivotParent->left) {
+    pivotParent->left = promoted;
+  } else {
+    pivotParent->right = promoted;
+  }
+
+  promoted->left = pivot;
+  pivot->parent = promoted;
+  return promoted;
+}
+
+/**
+ * Address: 0x004E31A0 (FUN_004E31A0)
+ *
+ * What it does:
+ * Performs one right rotation around a red-black tree pivot node and updates
+ * parent/head links.
+ */
+RuntimePairTreeNode* RuntimeRotatePairTreeRight(
+  RuntimePairTreeNode* const pivot,
+  RuntimePairTreeContainer* const container
+)
+{
+  RuntimePairTreeNode* const promoted = pivot->left;
+  pivot->left = promoted->right;
+  if (promoted->right->isNil == 0) {
+    promoted->right->parent = pivot;
+  }
+
+  promoted->parent = pivot->parent;
+  RuntimePairTreeNode* const head = container->head;
+  if (pivot == head->parent) {
+    head->parent = promoted;
+    promoted->right = pivot;
+    pivot->parent = promoted;
+    return promoted;
+  }
+
+  RuntimePairTreeNode* const pivotParent = pivot->parent;
+  if (pivot == pivotParent->right) {
+    pivotParent->right = promoted;
+  } else {
+    pivotParent->left = promoted;
+  }
+
+  promoted->right = pivot;
+  pivot->parent = promoted;
+  return promoted;
+}
+
+/**
+ * Address: 0x004E31F0 (FUN_004E31F0)
+ *
+ * What it does:
+ * Allocates one 24-byte red-black tree node and initializes links, payload
+ * pair, and marker bytes.
+ */
+RuntimePairTreeNode* RuntimeAllocatePairTreeNodeLaneA(
+  const RuntimePairSlot* const valueSource,
+  RuntimePairTreeNode* const left,
+  RuntimePairTreeNode* const parent,
+  RuntimePairTreeNode* const right
+)
+{
+  auto* const node = static_cast<RuntimePairTreeNode*>(::operator new(sizeof(RuntimePairTreeNode)));
+  if (node == nullptr) {
+    return nullptr;
+  }
+
+  node->left = left;
+  node->parent = parent;
+  node->right = right;
+  node->value = *valueSource;
+  node->color = 0;
+  node->isNil = 0;
+  return node;
+}
+
+/**
+ * Address: 0x004E3290 (FUN_004E3290)
+ * Address: 0x008D63B0 (FUN_008D63B0)
+ *
+ * What it does:
+ * Clears one intrusive pointer-list lane, resets the sentinel links, and
+ * deletes each detached node.
+ */
+RuntimeListPointerNode* RuntimeClearPointerListLaneA(RuntimeListPointerContainer* const container)
+{
+  RuntimeListPointerNode* const head = container->head;
+  RuntimeListPointerNode* node = head->next;
+  head->next = head;
+  head->prev = head;
+  container->size = 0;
+
+  if (node != head) {
+    do {
+      RuntimeListPointerNode* const nextNode = node->next;
+      ::operator delete(node);
+      node = nextNode;
+    } while (node != head);
+  }
+
+  return node;
+}
+
+/**
+ * Address: 0x004E32D0 (FUN_004E32D0)
+ * Address: 0x0081BA00 (FUN_0081BA00)
+ * Address: 0x008C5EF0 (FUN_008C5EF0)
+ *
+ * What it does:
+ * Allocates one 12-byte intrusive list node and initializes next/prev/value
+ * links from caller-provided slots.
+ */
+RuntimeListPointerNode* RuntimeBuildPointerListNodeLaneA(
+  RuntimeListPointerNode* const next,
+  RuntimeListPointerNode* const prev,
+  void* const* const valueSlot
+)
+{
+  auto* const node = static_cast<RuntimeListPointerNode*>(gpg::core::legacy::AllocateChecked12ByteLane(1u));
+  if (node != nullptr) {
+    node->next = next;
+    node->prev = prev;
+    node->value = *valueSlot;
+  }
+  return node;
+}
+
+/**
+ * Address: 0x004E33C0 (FUN_004E33C0)
+ *
+ * What it does:
+ * Allocates one raw 12-byte intrusive node lane.
+ */
+void* RuntimeAllocatePointerListNodeLaneA()
+{
+  return gpg::core::legacy::AllocateChecked12ByteLane(1u);
 }
 
 struct RuntimePmd
@@ -630,6 +1618,7 @@ extern "C" int __cdecl __crtLCMapStringW(
   int destinationCount,
   int codePage
 );
+extern "C" int __cdecl _iswctype_l(wint_t character, wctype_t characterClass, _locale_t localeInfo);
 extern "C" int __cdecl __crtGetStringTypeW(
   int localeType,
   unsigned int infoType,
@@ -811,6 +1800,7 @@ extern "C" RuntimeLocaleCodePageView* __cdecl __updatetlocinfo();
 extern "C" int _getvalueindex;
 extern "C" void __cdecl _freefls(void* ptd);
 extern "C" int __cdecl _flsbuf(int character, std::FILE* stream);
+extern "C" void __cdecl _getbuf(std::FILE* stream);
 extern "C" int __cdecl _isctype_l(int character, int mask, _locale_t localeInfo);
 extern "C" int __cdecl _setmbcp(int codePageMode);
 extern "C" void __cdecl _invalid_parameter(
@@ -850,13 +1840,30 @@ extern "C" int __cdecl _strnicoll_l(
 );
 extern "C" int __cdecl _mbsicmp_l(const unsigned char* lhsText, const unsigned char* rhsText, _locale_t localeInfo);
 extern "C" int __cdecl _wcsicmp_l(const wchar_t* lhsText, const wchar_t* rhsText, _locale_t localeInfo);
+extern "C" int __cdecl _wcsnicoll_l(
+  const wchar_t* lhsText,
+  const wchar_t* rhsText,
+  std::size_t maxCount,
+  _locale_t localeInfo
+);
 extern "C" int __cdecl _mbsnbcmp_l(
   const unsigned char* lhsText,
   const unsigned char* rhsText,
   std::size_t maxCount,
   _locale_t localeInfo
 );
+extern "C" int __cdecl _mbsnbicmp_l(
+  const unsigned char* lhsText,
+  const unsigned char* rhsText,
+  std::size_t maxCount,
+  _locale_t localeInfo
+);
 extern "C" unsigned char* __cdecl _mbschr_l(const unsigned char* text, unsigned int ch, _locale_t localeInfo);
+extern "C" unsigned char* __cdecl _mbspbrk_l(
+  const unsigned char* text,
+  const unsigned char* accept,
+  _locale_t localeInfo
+);
 extern "C" wint_t __cdecl _fputwc_nolock(wchar_t wideChar, std::FILE* stream);
 extern "C" unsigned char* __cdecl _mbsrchr_l(const unsigned char* text, unsigned int ch, _locale_t localeInfo);
 extern "C" int __cdecl _wcstombs_s_l(
@@ -887,6 +1894,12 @@ extern "C" int __cdecl _vsnprintf_l(
   const char* format,
   _locale_t localeInfo,
   va_list argList
+);
+extern "C" int __cdecl _output_l(
+  std::FILE* stream,
+  const char* format,
+  _locale_t localeInfo,
+  va_list arguments
 );
 extern "C" int __cdecl _ismbblead_l(unsigned int value, _locale_t localeInfo);
 extern "C" int __cdecl _mbsnbicoll_l(
@@ -924,8 +1937,32 @@ extern "C" long _dstbias;
 extern "C" char* _tzname[2];
 extern "C" int daylight;
 extern "C" HANDLE _crtheap;
+extern "C" char* _pgmptr;
 extern "C" int _active_heap;
 extern "C" void __cdecl _CrtSetCheckCount();
+
+/**
+ * Address: 0x00AAAA55 (FUN_00AAAA55, _set_pgmptr)
+ *
+ * What it does:
+ * Stores one raw program-path pointer in `_pgmptr` and returns that pointer.
+ */
+extern "C" char* __cdecl _set_pgmptr(char* const programPath)
+{
+  _pgmptr = programPath;
+  return programPath;
+}
+
+/**
+ * Address: 0x00AAAF0E (FUN_00AAAF0E, __get_heap_handle)
+ *
+ * What it does:
+ * Returns the CRT process-heap handle as one integer-sized lane.
+ */
+extern "C" std::intptr_t __cdecl __get_heap_handle()
+{
+  return reinterpret_cast<std::intptr_t>(_crtheap);
+}
 
 using BITVEC = std::uint32_t;
 
@@ -1012,6 +2049,7 @@ extern "C" int __cdecl __crtsetenv(const unsigned char** option, int primary);
  */
 extern "C" int __cdecl _heap_select();
 extern "C" int __cdecl _sbh_heap_init(std::size_t regionSize);
+extern "C" tagHeader* __cdecl _sbh_heapmin();
 extern "C" unsigned long* __cdecl doserrno();
 extern "C" __time64_t __cdecl __loctotime64_t(
   int year,
@@ -1092,6 +2130,47 @@ extern "C" double __cdecl strtod(const char* text, char** endPtr)
   }
 
   return std::strtod(text, endPtr);
+}
+
+/**
+ * Address: 0x00AC04F1 (FUN_00AC04F1)
+ *
+ * What it does:
+ * Parses one decimal string through `strtod`, captures parse errno into
+ * `outParseErrno`, restores caller errno state, then scales the parsed value
+ * by `10^decimalScale`.
+ */
+double RuntimeStrtodScaledByPowerOfTen(
+  const char* const text,
+  char** const endPtr,
+  const int decimalScale,
+  int* const outParseErrno
+)
+{
+  const int callerErrno = *_errno();
+  *_errno() = 0;
+
+  double parsedValue = strtod(text, endPtr);
+  const int parseErrno = *_errno();
+  if (outParseErrno != nullptr) {
+    *outParseErrno = parseErrno;
+  }
+
+  *_errno() = callerErrno;
+
+  if (decimalScale > 0) {
+    int remaining = decimalScale;
+    while (remaining-- > 0) {
+      parsedValue *= 10.0;
+    }
+  } else if (decimalScale < 0) {
+    int remaining = -decimalScale;
+    while (remaining-- > 0) {
+      parsedValue /= 10.0;
+    }
+  }
+
+  return parsedValue;
 }
 
 /**
@@ -1247,6 +2326,76 @@ namespace
 
     return 0;
   }
+
+  /**
+   * Address: 0x00AA4755 (FUN_00AA4755, 64-bit integer-to-text core lane)
+   *
+   * What it does:
+   * Formats one 64-bit integer into a caller-provided narrow buffer using the
+   * requested radix and optional signed-minus handling.
+   */
+  errno_t RuntimeInteger64ToText(
+    const std::uint64_t rawValue,
+    char* const buffer,
+    const std::size_t bufferSize,
+    const unsigned int radix,
+    const bool signedLane
+  )
+  {
+    if (buffer == nullptr || bufferSize == 0u) {
+      *_errno() = EINVAL;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+      return EINVAL;
+    }
+
+    *buffer = '\0';
+    const std::size_t minimumChars = signedLane ? 2u : 1u;
+    if (bufferSize <= minimumChars) {
+      *_errno() = ERANGE;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+      return ERANGE;
+    }
+
+    if (radix < 2u || radix > 36u) {
+      *_errno() = EINVAL;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+      return EINVAL;
+    }
+
+    std::uint64_t value = rawValue;
+    std::size_t charsWritten = 0u;
+    char* writeCursor = buffer;
+    if (signedLane && static_cast<std::int64_t>(rawValue) < 0) {
+      *writeCursor++ = '-';
+      ++charsWritten;
+      value = 0u - value;
+    }
+
+    char* digitStart = writeCursor;
+    do {
+      const unsigned int digit = static_cast<unsigned int>(value % radix);
+      value /= radix;
+      *writeCursor++ = static_cast<char>(digit <= 9u ? digit + static_cast<unsigned int>('0') : digit + 87u);
+      ++charsWritten;
+    } while (value != 0u && charsWritten < bufferSize);
+
+    if (charsWritten >= bufferSize) {
+      *buffer = '\0';
+      *_errno() = ERANGE;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+      return ERANGE;
+    }
+
+    *writeCursor = '\0';
+    char* reverseCursor = writeCursor - 1;
+    while (digitStart < reverseCursor) {
+      const char temp = *reverseCursor;
+      *reverseCursor-- = *digitStart;
+      *digitStart++ = temp;
+    }
+
+    return 0;
+  }
 } // namespace
 
 /**
@@ -1288,6 +2437,44 @@ extern "C" errno_t __cdecl _itoa_s(
     static_cast<unsigned int>(radix),
     decimalNegative
   );
+}
+
+/**
+ * Address: 0x00AA487E (FUN_00AA487E, _i64toa_s)
+ *
+ * What it does:
+ * Formats one signed 64-bit integer into a caller-provided narrow buffer.
+ */
+extern "C" errno_t __cdecl _i64toa_s(
+  const __int64 value,
+  char* const buffer,
+  const std::size_t bufferSize,
+  const int radix
+)
+{
+  return RuntimeInteger64ToText(
+    static_cast<std::uint64_t>(value),
+    buffer,
+    bufferSize,
+    static_cast<unsigned int>(radix),
+    true
+  );
+}
+
+/**
+ * Address: 0x00AA4876 (FUN_00AA4876, _ui64toa_s)
+ *
+ * What it does:
+ * Formats one unsigned 64-bit integer into a caller-provided narrow buffer.
+ */
+extern "C" errno_t __cdecl _ui64toa_s(
+  const unsigned __int64 value,
+  char* const buffer,
+  const std::size_t bufferSize,
+  const int radix
+)
+{
+  return RuntimeInteger64ToText(value, buffer, bufferSize, static_cast<unsigned int>(radix), false);
 }
 
 extern "C" tagHeader* _sbh_pHeaderList = nullptr;
@@ -1402,6 +2589,44 @@ extern "C" int __cdecl _get_osplatform(unsigned int* const outPlatform)
   return EINVAL;
 }
 
+namespace
+{
+  using RuntimeEhVectorStepFn = void(__thiscall*)(void* element);
+
+  /**
+   * Address: 0x00A83A4E (FUN_00A83A4E)
+   *
+   * What it does:
+   * Runs reverse-order EH vector cleanup by stepping backward one element at a
+   * time and invoking the element callback; C++ EH exceptions trigger
+   * `terminate`, while non-C++ SEH exceptions continue search.
+   */
+  int __stdcall RuntimeEhVectorReverseIteratorCore(
+    char* currentElement,
+    const unsigned int elementSize,
+    int elementCount,
+    const RuntimeEhVectorStepFn stepFn
+  )
+  {
+    constexpr unsigned long kRuntimeMsvcCppExceptionCode = 0xE06D7363u;
+
+    __try {
+      while (--elementCount >= 0) {
+        currentElement -= elementSize;
+        stepFn(currentElement);
+      }
+    } __except (
+      (GetExceptionCode() == static_cast<long>(kRuntimeMsvcCppExceptionCode))
+        ? EXCEPTION_EXECUTE_HANDLER
+        : EXCEPTION_CONTINUE_SEARCH
+    ) {
+      std::terminate();
+    }
+
+    return 0;
+  }
+}
+
 // Shared helpers for the CRT ctype family (`_is*[_l]`) recovered below.
 namespace
 {
@@ -1447,6 +2672,154 @@ namespace
 
     const auto* const initialLocale = reinterpret_cast<const RuntimeLocaleCTypeTableView*>(&__initiallocinfo);
     return static_cast<int>(initialLocale->pctype[character] & initialMask);
+  }
+
+  struct RuntimeToupperLocaleView
+  {
+    std::uint8_t reserved00_03[0x4]{};
+    std::int32_t lcCodepage = 0;               // +0x04
+    std::uint8_t reserved08_0B[0x4]{};
+    LCID lcHandle[6]{};                        // +0x0C
+    std::uint8_t reserved24_AB[0x88]{};
+    std::int32_t mbCurMax = 0;                 // +0xAC
+    std::uint8_t reservedB0_C7[0x18]{};
+    const std::uint16_t* pctype = nullptr;     // +0xC8
+    std::uint8_t reservedCC_CF[0x4]{};
+    const unsigned char* pcumap = nullptr;     // +0xD0
+  };
+  static_assert(offsetof(RuntimeToupperLocaleView, lcCodepage) == 0x4, "RuntimeToupperLocaleView::lcCodepage offset must be 0x4");
+  static_assert(offsetof(RuntimeToupperLocaleView, lcHandle) == 0xC, "RuntimeToupperLocaleView::lcHandle offset must be 0xC");
+  static_assert((offsetof(RuntimeToupperLocaleView, lcHandle) + sizeof(LCID) * 2u) == 0x14, "RuntimeToupperLocaleView::lcHandle[2] offset must be 0x14");
+  static_assert(offsetof(RuntimeToupperLocaleView, mbCurMax) == 0xAC, "RuntimeToupperLocaleView::mbCurMax offset must be 0xAC");
+  static_assert(offsetof(RuntimeToupperLocaleView, pctype) == 0xC8, "RuntimeToupperLocaleView::pctype offset must be 0xC8");
+  static_assert(offsetof(RuntimeToupperLocaleView, pcumap) == 0xD0, "RuntimeToupperLocaleView::pcumap offset must be 0xD0");
+
+  /**
+   * Address: 0x00A8E5CD (FUN_00A8E5CD)
+   *
+   * What it does:
+   * Locale-aware uppercase helper for `toupper`; uses `_LocaleUpdate`-equivalent
+   * locale resolution, supports DBCS lead-byte mapping through
+   * `__crtLCMapStringA(LCMAP_UPPERCASE)`, and preserves `EILSEQ` fallback lanes.
+   */
+  int RuntimeToupperLocaleHelper(const int character, _locale_t const localeInfo)
+  {
+    RuntimeTidDataLocaleView* threadData = nullptr;
+    bool updated = false;
+    const auto* const localeView = reinterpret_cast<const RuntimeToupperLocaleView*>(
+      RuntimeResolveLocaleLocInfo(localeInfo, &threadData, &updated)
+    );
+
+    int result = character;
+    if (localeView != nullptr) {
+      if (static_cast<unsigned int>(character) < 0x100u) {
+        int lowerMask = 0;
+        if (localeView->mbCurMax <= 1) {
+          lowerMask = static_cast<int>(localeView->pctype[character] & 0x2u);
+        } else {
+          lowerMask = _isctype_l(character, 0x2, localeInfo);
+        }
+
+        if (lowerMask != 0) {
+          result = static_cast<int>(localeView->pcumap[character]);
+        }
+      } else {
+        int inputLength = 1;
+        char inputBuffer[3]{};
+        inputBuffer[0] = static_cast<char>(character & 0xFF);
+
+        const unsigned int highByte = static_cast<unsigned int>(character >> 8) & 0xFFu;
+        if (localeView->mbCurMax > 1 && _ismbblead_l(highByte, localeInfo) != 0) {
+          inputBuffer[0] = static_cast<char>(highByte);
+          inputBuffer[1] = static_cast<char>(character & 0xFF);
+          inputLength = 2;
+        } else {
+          *_errno() = EILSEQ;
+        }
+
+        char mappedBytes[3]{};
+        const int mappedLength = __crtLCMapStringA(
+          0,
+          localeView->lcHandle[2],
+          LCMAP_UPPERCASE,
+          inputBuffer,
+          inputLength,
+          reinterpret_cast<LPWSTR>(mappedBytes),
+          3,
+          localeView->lcCodepage,
+          1
+        );
+        if (mappedLength == 1) {
+          result = static_cast<unsigned char>(mappedBytes[0]);
+        } else if (mappedLength > 1) {
+          result = (static_cast<int>(static_cast<unsigned char>(mappedBytes[0])) << 8)
+            | static_cast<int>(static_cast<unsigned char>(mappedBytes[1]));
+        }
+      }
+    }
+
+    RuntimeReleaseLocaleUpdate(threadData, updated);
+    return result;
+  }
+
+  /**
+   * Address: 0x00A8F9E7 (FUN_00A8F9E7)
+   *
+   * What it does:
+   * Converts one wide character to uppercase using the active locale-update
+   * lane (`_LocaleUpdate` equivalent), falling back to ASCII-only uppercase
+   * conversion when no locale handle is active.
+   */
+  int RuntimeTowupperLocaleHelperWide(
+    const std::uint16_t sourceCharacter,
+    _locale_t const localeInfo
+  )
+  {
+    int result = static_cast<int>(sourceCharacter);
+    if (sourceCharacter == 0xFFFFu) {
+      return result;
+    }
+
+    RuntimeTidDataLocaleView* threadData = nullptr;
+    bool updated = false;
+    const auto* const localeView = reinterpret_cast<const RuntimeToupperLocaleView*>(
+      RuntimeResolveLocaleLocInfo(localeInfo, &threadData, &updated)
+    );
+
+    if (localeView != nullptr) {
+      const LCID localeHandle = localeView->lcHandle[2];
+      if (localeHandle != 0) {
+        if (sourceCharacter >= 0x100u) {
+          wchar_t sourceWide = static_cast<wchar_t>(sourceCharacter);
+          wchar_t destinationWide = sourceWide;
+          const int mapResult = __crtLCMapStringW(
+            0,
+            localeHandle,
+            LCMAP_UPPERCASE,
+            &sourceWide,
+            1,
+            &destinationWide,
+            1,
+            localeView->lcCodepage
+          );
+          if (mapResult != 0) {
+            result = static_cast<int>(static_cast<std::uint16_t>(destinationWide));
+          }
+        } else if (_iswctype_l(
+                     static_cast<wint_t>(sourceCharacter),
+                     static_cast<wctype_t>(C1_LOWER),
+                     localeInfo
+                   ) != 0) {
+          result = static_cast<int>(localeView->pcumap[sourceCharacter]);
+        }
+      } else if (sourceCharacter >= static_cast<std::uint16_t>('a')
+                 && sourceCharacter <= static_cast<std::uint16_t>('z')) {
+        result = static_cast<int>(sourceCharacter - static_cast<std::uint16_t>('a' - 'A'));
+      }
+    }
+
+    RuntimeReleaseLocaleUpdate(threadData, updated);
+    return result;
   }
 }
 
@@ -1703,7 +3076,7 @@ extern "C" int __cdecl iscntrl(const int character)
 extern "C" int __cdecl toupper(const int character)
 {
   if (__locale_changed != 0) {
-    return ::_toupper_l(character, nullptr);
+    return RuntimeToupperLocaleHelper(character, nullptr);
   }
 
   if (static_cast<unsigned int>(character - static_cast<int>('a'))
@@ -1712,6 +3085,21 @@ extern "C" int __cdecl toupper(const int character)
   }
 
   return character;
+}
+
+/**
+ * Address: 0x00A8FA95 (FUN_00A8FA95, towupper)
+ *
+ * What it does:
+ * Converts one wide character to uppercase through the shared locale-update
+ * helper lane with default-locale dispatch.
+ */
+extern "C" wint_t __cdecl towupper(const wint_t character)
+{
+  return static_cast<wint_t>(RuntimeTowupperLocaleHelperWide(
+    static_cast<std::uint16_t>(character),
+    nullptr
+  ));
 }
 
 /**
@@ -1873,6 +3261,67 @@ __int64 __cdecl Runtime_wcstoi64_l(
 }
 
 /**
+ * Address: 0x00A8FC7B (FUN_00A8FC7B, _wtoi64)
+ *
+ * What it does:
+ * Parses one base-10 wide integer lane by forwarding to `_wcstoi64` with a
+ * null end-pointer lane.
+ */
+extern "C" __int64 __cdecl _wtoi64(const wchar_t* const text)
+{
+  return static_cast<__int64>(RuntimeWcstoi64(text, nullptr, 10));
+}
+
+/**
+ * Address: 0x00A8FC8C (FUN_00A8FC8C, _wtoi64_l)
+ *
+ * What it does:
+ * Parses one base-10 wide integer lane by forwarding to `_wcstoi64_l` with a
+ * null end-pointer lane and caller-provided locale.
+ */
+extern "C" __int64 __cdecl _wtoi64_l(const wchar_t* const text, _locale_t localeInfo)
+{
+  return Runtime_wcstoi64_l(text, nullptr, 10, reinterpret_cast<RuntimeLocaleInfoStruct*>(localeInfo));
+}
+
+/**
+ * Address: 0x00AAC33A (FUN_00AAC33A, _wcstoui64)
+ *
+ * What it does:
+ * Forwards wide-string unsigned 64-bit parsing to `wcstoxq`, selecting either
+ * the active thread locale or `__initiallocalestructinfo`.
+ */
+extern "C" unsigned __int64 __cdecl _wcstoui64(
+  const wchar_t* const text,
+  wchar_t** const endPointer,
+  const int radix
+)
+{
+  RuntimeLocaleInfoStruct* const localeInfo =
+    (__locale_changed != 0) ? nullptr : &__initiallocalestructinfo;
+  constexpr int kUnsignedParseFlags = 1;
+  return wcstoxq(localeInfo, text, endPointer, radix, kUnsignedParseFlags);
+}
+
+/**
+ * Address: 0x00AAC364 (FUN_00AAC364, _wcstoui64_l)
+ *
+ * What it does:
+ * Locale-explicit wide-string unsigned 64-bit parse wrapper forwarding into
+ * `wcstoxq(..., flags=1)`.
+ */
+extern "C" unsigned __int64 __cdecl _wcstoui64_l(
+  const wchar_t* const text,
+  wchar_t** const endPointer,
+  const int radix,
+  _locale_t localeInfo
+)
+{
+  constexpr int kUnsignedParseFlags = 1;
+  return wcstoxq(reinterpret_cast<RuntimeLocaleInfoStruct*>(localeInfo), text, endPointer, radix, kUnsignedParseFlags);
+}
+
+/**
  * Address: 0x00A8869E (FUN_00A8869E, mbstowcs)
  *
  * What it does:
@@ -1884,6 +3333,89 @@ mbstowcs(wchar_t* const destination, const char* const source, const std::size_t
 {
   RuntimeLocaleInfoStruct* localeInfo = (__locale_changed != 0) ? nullptr : &__initiallocalestructinfo;
   return ::_mbstowcs_l(destination, source, maxCount, reinterpret_cast<_locale_t>(localeInfo));
+}
+
+/**
+ * Address: 0x00A886C6 (FUN_00A886C6, _mbstowcs_s_l)
+ *
+ * What it does:
+ * Performs secure multibyte-to-wide conversion with locale resolution and
+ * CRT-compatible invalid-parameter, errno, truncation, and output-nulling
+ * semantics.
+ */
+extern "C" errno_t __cdecl _mbstowcs_s_l(
+  std::size_t* const outConvertedCount,
+  wchar_t* const destination,
+  const std::size_t destinationCount,
+  const char* const source,
+  const std::size_t maxCount,
+  _locale_t const localeInfo
+)
+{
+  if (destination != nullptr) {
+    if (destinationCount == 0u) {
+      *_errno() = EINVAL;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+      return EINVAL;
+    }
+    destination[0] = L'\0';
+  } else if (destinationCount != 0u) {
+    *_errno() = EINVAL;
+    _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+    return EINVAL;
+  }
+
+  if (outConvertedCount != nullptr) {
+    *outConvertedCount = 0u;
+  }
+
+  RuntimeTidDataLocaleView* threadData = nullptr;
+  bool updated = false;
+  RuntimeThreadLocInfoView* const resolvedLocaleInfo =
+    RuntimeResolveLocaleLocInfo(localeInfo, &threadData, &updated);
+
+  const std::size_t conversionCount = (maxCount > destinationCount) ? destinationCount : maxCount;
+  const std::size_t convertedWideChars = ::_mbstowcs_l(
+    destination,
+    source,
+    conversionCount,
+    reinterpret_cast<_locale_t>(resolvedLocaleInfo)
+  );
+  if (convertedWideChars == static_cast<std::size_t>(-1)) {
+    if (destination != nullptr) {
+      destination[0] = L'\0';
+    }
+
+    const errno_t result = *_errno();
+    RuntimeReleaseLocaleUpdate(threadData, updated);
+    return result;
+  }
+
+  std::size_t requiredWideChars = convertedWideChars + 1u;
+  errno_t result = 0;
+  if (destination != nullptr) {
+    if (requiredWideChars > destinationCount) {
+      if (maxCount != static_cast<std::size_t>(-1)) {
+        destination[0] = L'\0';
+        *_errno() = ERANGE;
+        _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+        RuntimeReleaseLocaleUpdate(threadData, updated);
+        return ERANGE;
+      }
+
+      requiredWideChars = destinationCount;
+      result = 80;
+    }
+
+    destination[requiredWideChars - 1u] = L'\0';
+  }
+
+  if (outConvertedCount != nullptr) {
+    *outConvertedCount = requiredWideChars;
+  }
+
+  RuntimeReleaseLocaleUpdate(threadData, updated);
+  return result;
 }
 
 /**
@@ -2260,6 +3792,52 @@ extern "C" int __cdecl _sbh_alloc_new_group(tagHeader* const header)
 }
 
 /**
+ * Address: 0x00ABA75E (FUN_00ABA75E, __sbh_heapmin)
+ *
+ * What it does:
+ * Decommits one deferred small-block heap group, updates owner header state,
+ * and compacts the header table when the deferred header becomes fully free.
+ */
+extern "C" tagHeader* __cdecl _sbh_heapmin()
+{
+  tagHeader* result = _sbh_pHeaderDefer;
+  if (_sbh_pHeaderDefer == nullptr) {
+    return result;
+  }
+
+  (void)::VirtualFree(
+    reinterpret_cast<std::uint8_t*>(_sbh_pHeaderDefer->pHeapData)
+      + (static_cast<std::size_t>(_sbh_indGroupDefer) * kSbhCommittedGroupBytes),
+    kSbhCommittedGroupBytes,
+    MEM_DECOMMIT
+  );
+  _sbh_pHeaderDefer->bitvCommit |= 0x80000000u >> _sbh_indGroupDefer;
+  _sbh_pHeaderDefer->pRegion->bitvGroupLo[_sbh_indGroupDefer] = 0u;
+  --_sbh_pHeaderDefer->pRegion->cntRegionSize[63];
+
+  result = _sbh_pHeaderDefer;
+  if (_sbh_pHeaderDefer->pRegion->cntRegionSize[63] == 0u) {
+    _sbh_pHeaderDefer->bitvEntryLo &= ~1u;
+    result = _sbh_pHeaderDefer;
+  }
+
+  if (result->bitvCommit == 0xFFFFFFFFu && _sbh_cntHeaderList > 1) {
+    (void)::HeapFree(_crtheap, 0u, result->pRegion);
+
+    const std::size_t deferredIndex = static_cast<std::size_t>(_sbh_pHeaderDefer - _sbh_pHeaderList);
+    const std::size_t headersToMove = static_cast<std::size_t>(_sbh_cntHeaderList) - deferredIndex - 1u;
+    if (headersToMove != 0u) {
+      std::memmove(_sbh_pHeaderDefer, _sbh_pHeaderDefer + 1, headersToMove * sizeof(tagHeader));
+    }
+
+    --_sbh_cntHeaderList;
+  }
+
+  _sbh_pHeaderDefer = nullptr;
+  return result;
+}
+
+/**
  * Address: 0x00AB9FB5 (FUN_00AB9FB5, __sbh_free_block)
  *
  * What it does:
@@ -2398,6 +3976,57 @@ extern "C" int __cdecl _heap_init(const int mtflag)
 }
 
 /**
+ * Address: 0x00AAAE9A (FUN_00AAAE9A, __heap_term)
+ *
+ * What it does:
+ * Releases small-block heap region/header storage when the V6 heap backend is
+ * active, destroys the CRT process heap, and clears `_crtheap`.
+ */
+extern "C" BOOL __cdecl _heap_term()
+{
+  if (_active_heap == 3 && _sbh_pHeaderList != nullptr) {
+    const int headerCount = _sbh_cntHeaderList;
+    for (int index = 0; index < headerCount; ++index) {
+      tagHeader& header = _sbh_pHeaderList[index];
+      (void)::VirtualFree(header.pHeapData, 0u, MEM_RELEASE);
+      (void)::HeapFree(_crtheap, 0u, header.pRegion);
+    }
+    (void)::HeapFree(_crtheap, 0u, _sbh_pHeaderList);
+  }
+
+  const BOOL result = ::HeapDestroy(_crtheap);
+  _crtheap = nullptr;
+  return result;
+}
+
+/**
+ * Address: 0x00A89DF5 (FUN_00A89DF5, strerror_s)
+ *
+ * What it does:
+ * Copies one CRT system-error text for `errorCode` into caller buffer and
+ * triggers Watson on secure-copy failure.
+ */
+extern "C" int __cdecl strerror_s(char* const outText, const int outTextChars, const int errorCode)
+{
+  if (outText != nullptr && outTextChars != 0) {
+    const char* const errorText = _get_sys_err_msg(errorCode);
+    if (strncpy_s(
+          outText,
+          static_cast<std::size_t>(outTextChars),
+          errorText,
+          static_cast<std::size_t>(outTextChars - 1)
+        ) != 0) {
+      _invoke_watson(nullptr, nullptr, nullptr, 0u, 0u);
+    }
+    return 0;
+  }
+
+  *_errno() = EINVAL;
+  _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+  return EINVAL;
+}
+
+/**
  * Address: 0x00A9CC78 (FUN_00A9CC78, __get_daylight)
  *
  * What it does:
@@ -2499,6 +4128,24 @@ extern "C" int __cdecl _get_timezone(long* const outTimezone)
 }
 
 /**
+ * Address: 0x00AA6489 (FUN_00AA6489, ___mb_cur_max_func)
+ *
+ * What it does:
+ * Returns the active CRT `mb_cur_max` lane for the current thread locale,
+ * refreshing thread-locale state when global-locale ownership is not active.
+ */
+extern "C" int __cdecl ___mb_cur_max_func()
+{
+  RuntimeTidDataLocaleView* const threadData = __getptd();
+  RuntimeLocaleCodePageView* locale = threadData->ptlocinfo;
+  if (locale != __ptlocinfo && (__globallocalestatus & threadData->ownlocale) == 0) {
+    locale = __updatetlocinfo();
+  }
+
+  return locale->mbCurMax;
+}
+
+/**
  * Address: 0x00AA64C8 (FUN_00AA64C8, ___lc_codepage_func)
  *
  * What it does:
@@ -2582,6 +4229,38 @@ extern "C" int __cdecl getSystemCP(const int codePage)
   default:
     return codePage;
   }
+}
+
+namespace
+{
+  using RuntimeValidatedOutputFn = int(__cdecl*)(void* stream, int format, int localeInfo, int arguments);
+}
+
+/**
+ * Address: 0x00A9790A (FUN_00A9790A, sub_A9790A)
+ *
+ * What it does:
+ * Builds one stack-file scratch lane for CRT output callbacks; null stream
+ * pointer follows `_invalid_parameter` failure semantics and returns `-1`.
+ */
+[[maybe_unused]] static int __cdecl RuntimeDispatchValidatedOutputCall(
+  RuntimeValidatedOutputFn outputFn,
+  const int stream,
+  const int localeInfo,
+  const int arguments
+)
+{
+  if (stream != 0) {
+    std::uint32_t scratchFile[8]{};
+    scratchFile[1] = 0x7FFFFFFFu;
+    scratchFile[2] = 0u;
+    scratchFile[3] = 0x42u;
+    return outputFn(scratchFile, stream, localeInfo, arguments);
+  }
+
+  *_errno() = EINVAL;
+  _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+  return -1;
 }
 
 /**
@@ -2837,6 +4516,55 @@ static void write_string(int* const pnumwritten, char* string, std::FILE* const 
 }
 
 /**
+ * Address: 0x00A97877 (FUN_00A97877)
+ *
+ * What it does:
+ * Runs the `_vsprintf` stack-`FILE` formatter core: validates format/buffer,
+ * dispatches to `_output_l`, then commits the trailing null through direct
+ * store or `_flsbuf` when the sink counter underflows.
+ */
+int RuntimeVsprintfOutputCore(
+  char* const buffer,
+  const char* const format,
+  _locale_t const localeInfo,
+  va_list arguments
+)
+{
+  if (format == nullptr || buffer == nullptr) {
+    *_errno() = EINVAL;
+    _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+    return -1;
+  }
+
+  std::FILE outputFile{};
+  legacy_file(outputFile)._base = buffer;
+  legacy_file(outputFile)._ptr = buffer;
+  legacy_file(outputFile)._cnt = 0x7FFFFFFF;
+  legacy_file(outputFile)._flag = 0x42;
+
+  const int formatResult = _output_l(&outputFile, format, localeInfo, arguments);
+  if (--legacy_file(outputFile)._cnt < 0) {
+    (void)_flsbuf(0, &outputFile);
+  } else {
+    *legacy_file(outputFile)._ptr = '\0';
+  }
+
+  return formatResult;
+}
+
+/**
+ * Address: 0x00A978F3 (FUN_00A978F3, _vsprintf)
+ *
+ * What it does:
+ * Forwards variadic narrow formatting to the recovered stack-`FILE` helper
+ * lane with the default thread locale.
+ */
+extern "C" int __cdecl _vsprintf(char* const buffer, const char* const format, va_list arguments)
+{
+  return RuntimeVsprintfOutputCore(buffer, format, nullptr, arguments);
+}
+
+/**
  * Address: 0x00A95342 (FUN_00A95342, _vsnprintf_helper)
  *
  * What it does:
@@ -3015,6 +4743,93 @@ vwprintf_helper(const RuntimeWideOutputFn woutfn, const wchar_t* const format, _
 int __cdecl Runtime_vwprintf(const wchar_t* const format, va_list arguments)
 {
   return vwprintf_helper(woutput_l, format, nullptr, arguments);
+}
+
+/**
+ * Address: 0x00A90485 (FUN_00A90485, _wprintf_l)
+ *
+ * What it does:
+ * Variadic wide-print wrapper that forwards one format+arg-pack lane to
+ * `vwprintf`.
+ */
+extern "C" int __cdecl _wprintf_l(const wchar_t* const format, ...)
+{
+  va_list arguments;
+  va_start(arguments, format);
+  const int result = Runtime_vwprintf(format, arguments);
+  va_end(arguments);
+  return result;
+}
+
+/**
+ * Address: 0x00AAB19C (FUN_00AAB19C, is_wctype)
+ *
+ * What it does:
+ * Thunk wrapper over `iswctype` for one wide character and classification
+ * mask lane.
+ */
+extern "C" int __cdecl is_wctype(const wint_t character, const wctype_t characterClass)
+{
+  return ::iswctype(character, characterClass);
+}
+
+/**
+ * Address: 0x00A8F023 (FUN_00A8F023)
+ *
+ * What it does:
+ * Returns non-zero when one wide character is classified as alphabetic by the
+ * CRT wide-ctype lane.
+ */
+int RuntimeIsWideAlpha(const wchar_t character)
+{
+  return ::iswctype(static_cast<wint_t>(character), static_cast<wctype_t>(C1_ALPHA));
+}
+
+/**
+ * Address: 0x00A8F089 (FUN_00A8F089)
+ *
+ * What it does:
+ * Returns non-zero when one wide character is classified as a decimal digit by
+ * the CRT wide-ctype lane.
+ */
+int RuntimeIsWideDigit(const wchar_t character)
+{
+  return ::iswctype(static_cast<wint_t>(character), static_cast<wctype_t>(C1_DIGIT));
+}
+
+/**
+ * Address: 0x00A8F0D1 (FUN_00A8F0D1)
+ *
+ * What it does:
+ * Returns non-zero when one wide character is classified as whitespace by the
+ * CRT wide-ctype lane.
+ */
+int RuntimeIsWideSpace(const wchar_t character)
+{
+  return ::iswctype(static_cast<wint_t>(character), static_cast<wctype_t>(C1_SPACE));
+}
+
+/**
+ * Address: 0x00A8F116 (FUN_00A8F116)
+ *
+ * What it does:
+ * Returns non-zero when one wide character is classified as alphabetic or
+ * decimal-digit in the CRT wide-ctype table.
+ */
+int RuntimeIsWideAlphaNumeric(const wchar_t character)
+{
+  return ::iswctype(static_cast<wint_t>(character), static_cast<wctype_t>(0x107));
+}
+
+/**
+ * Address: 0x00A8FB50 (FUN_00A8FB50)
+ *
+ * What it does:
+ * Lowercases one wide character under the current CRT locale lane.
+ */
+int RuntimeToLowerWideWithCurrentLocale(const wchar_t character)
+{
+  return static_cast<int>(_towlower_l(static_cast<wint_t>(character), nullptr));
 }
 
 /**
@@ -3242,6 +5057,20 @@ extern "C" void* __cdecl _recalloc(void* const memblock, const std::size_t count
 }
 
 /**
+ * Address: 0x00A95F69 (FUN_00A95F69, func_SetAllocationSleepMax)
+ *
+ * What it does:
+ * Replaces the CRT retry-sleep upper bound (`_maxwait`) and returns the
+ * previous value.
+ */
+extern "C" unsigned long __cdecl func_SetAllocationSleepMax(const unsigned long millis)
+{
+  const unsigned long previousMaxWait = _maxwait;
+  _maxwait = millis;
+  return previousMaxWait;
+}
+
+/**
  * Address: 0x00A9604C (FUN_00A9604C, __recalloc_crt)
  *
  * What it does:
@@ -3327,7 +5156,8 @@ namespace
   void* gRuntimeTerminateActionEncoded = nullptr;
   RuntimeInvalidArgHandler gRuntimeInvalidArgHandler = nullptr;
   RuntimePurecallHandler gRuntimePurecallHandler = nullptr;
-  RuntimeHeapFailureHandler gRuntimeHeapFailureHandler = nullptr;
+  static_assert(sizeof(RuntimeHeapFailureHandler) == sizeof(void*), "RuntimeHeapFailureHandler pointer size must match void*");
+  void* gRuntimeHeapFailureHandlerEncoded = nullptr;
   std::int32_t gRuntimeRandomSImportAddress = 0;
   RuntimeInitCritSecAndSpinCountFn gRuntimeInitCritSecAndSpinCount = nullptr;
   void* gRuntimeCfltCvtTable[10]{};
@@ -3463,6 +5293,333 @@ namespace
   void RuntimeMtxDestroy(CRITICAL_SECTION* const lock) noexcept
   {
     ::DeleteCriticalSection(lock);
+  }
+
+  /**
+   * Address: 0x00AC0CA0 (FUN_00AC0CA0)
+   *
+   * What it does:
+   * Parses one decimal mantissa/exponent lane from `cursor`, normalizes and
+   * rounds significant digits into base-10 chunk lanes, updates decimal
+   * exponent in `mantissaChunks[0]`, and optionally publishes the parse stop.
+   */
+  int RuntimeParseDecimalMantissaChunks(
+    const char* const scanBegin,
+    const char* cursor,
+    char** const outScanEnd,
+    std::uint32_t* const mantissaChunks,
+    const int precisionDigits
+  )
+  {
+    int maxDigits = 9 * precisionDigits;
+    if (maxDigits > 45) {
+      maxDigits = 45;
+    }
+    if (maxDigits < 1) {
+      maxDigits = 1;
+    }
+
+    int digitCount = 0;
+    mantissaChunks[0] = 0;
+    mantissaChunks[1] = 0;
+
+    int sawDigit = 0;
+    if (*cursor == '0') {
+      sawDigit = 1;
+      do {
+        ++cursor;
+      } while (*cursor == '0');
+    }
+
+    int trimmedDigitCount = 0;
+    std::uint8_t digits[48]{};
+    if (isdigit(static_cast<unsigned char>(*cursor))) {
+      sawDigit = 1;
+      do {
+        if (digitCount > maxDigits) {
+          ++mantissaChunks[0];
+        } else {
+          digits[digitCount++] = static_cast<std::uint8_t>(*cursor - '0');
+        }
+        ++cursor;
+      } while (isdigit(static_cast<unsigned char>(*cursor)));
+      trimmedDigitCount = digitCount;
+    }
+
+    const lconv* const localeConv = RuntimeGetlconv();
+    if (localeConv != nullptr && localeConv->decimal_point != nullptr && *cursor == *localeConv->decimal_point) {
+      ++cursor;
+    }
+
+    if (digitCount == 0 && *cursor == '0') {
+      sawDigit = 1;
+      do {
+        --mantissaChunks[0];
+        ++cursor;
+      } while (*cursor == '0');
+    }
+
+    if (isdigit(static_cast<unsigned char>(*cursor))) {
+      sawDigit = 1;
+      do {
+        if (digitCount <= maxDigits) {
+          digits[digitCount++] = static_cast<std::uint8_t>(*cursor - '0');
+          --mantissaChunks[0];
+        }
+        ++cursor;
+      } while (isdigit(static_cast<unsigned char>(*cursor)));
+      trimmedDigitCount = digitCount;
+    }
+
+    if (digitCount > maxDigits) {
+      if (digits[maxDigits] >= 5u) {
+        ++digits[maxDigits - 1];
+      }
+      ++mantissaChunks[0];
+      digitCount = maxDigits;
+      trimmedDigitCount = maxDigits;
+    }
+
+    bool isZero = digitCount == 0;
+    while (digitCount > 0) {
+      if (digits[digitCount - 1] != 0u) {
+        break;
+      }
+      ++mantissaChunks[0];
+      --digitCount;
+      trimmedDigitCount = digitCount;
+    }
+    isZero = digitCount == 0;
+    if (isZero) {
+      digitCount = 1;
+      trimmedDigitCount = 1;
+      digits[0] = 0u;
+    }
+
+    int chunkIndex = 0;
+    if (sawDigit != 0) {
+      const int leadingPadDigits = 9 - (digitCount % 9);
+      chunkIndex = (leadingPadDigits % 9) != 0 ? 1 : 0;
+
+      for (int i = 0; i < trimmedDigitCount; ++i) {
+        const std::uint32_t digit = digits[i];
+        std::uint32_t merged = 0u;
+        if (((i + leadingPadDigits) % 9) != 0) {
+          merged = digit + 10u * mantissaChunks[chunkIndex];
+        } else {
+          merged = digit;
+          ++chunkIndex;
+        }
+        mantissaChunks[chunkIndex] = merged;
+      }
+
+      if (*cursor == 'e' || *cursor == 'E') {
+        const char* const exponentStart = cursor++;
+        char sign = '+';
+        if (*cursor == '+' || *cursor == '-') {
+          sign = *cursor++;
+        }
+
+        int exponentSeen = 0;
+        int exponentValue = 0;
+        if (isdigit(static_cast<unsigned char>(*cursor))) {
+          exponentSeen = 1;
+          do {
+            if (exponentValue < 100000000) {
+              exponentValue = exponentValue * 10 + static_cast<int>(static_cast<unsigned char>(*cursor) - '0');
+            }
+            ++cursor;
+          } while (isdigit(static_cast<unsigned char>(*cursor)));
+        }
+
+        if (sign == '-') {
+          exponentValue = -exponentValue;
+        }
+        mantissaChunks[0] = static_cast<std::uint32_t>(static_cast<std::int32_t>(mantissaChunks[0]) + exponentValue);
+
+        if (exponentSeen == 0) {
+          cursor = exponentStart;
+        }
+      }
+    }
+
+    if (outScanEnd != nullptr) {
+      if (sawDigit == 0) {
+        cursor = scanBegin;
+      }
+      *outScanEnd = const_cast<char*>(cursor);
+    }
+
+    return chunkIndex;
+  }
+
+  /**
+   * Address: 0x00A99EAA (FUN_00A99EAA)
+   *
+   * What it does:
+   * Classifies one IEEE-754 double represented as low/high 32-bit words into
+   * positive infinity (`1`), negative infinity (`2`), canonical NaN (`3`),
+   * or payload NaN (`4`), and returns `0` for finite values.
+   */
+  [[maybe_unused]] int RuntimeClassifyDoubleWords(const std::uint32_t lowDword, const std::uint32_t highDword)
+  {
+    if (highDword == 0x7FF00000u) {
+      if (lowDword == 0u) {
+        return 1;
+      }
+    } else if (highDword == 0xFFF00000u && lowDword == 0u) {
+      return 2;
+    }
+
+    const std::uint16_t hiWord = static_cast<std::uint16_t>(highDword >> 16);
+    if ((hiWord & 0x7FF8u) == 0x7FF8u) {
+      return 3;
+    }
+
+    if ((hiWord & 0x7FF8u) == 0x7FF0u && (((highDword & 0x7FFFFu) != 0u) || lowDword != 0u)) {
+      return 4;
+    }
+
+    return 0;
+  }
+
+  /**
+   * Address: 0x00AC0EE9 (FUN_00AC0EE9, sub_AC0EE9)
+   *
+   * What it does:
+   * Consumes one optional sign and classifies one floating literal head as
+   * decimal (`1`), infinity (`3`), or NaN (`4`), writing the updated scan
+   * cursor to both pointer lanes.
+   */
+  int RuntimeParseSpecialFloatToken(
+    unsigned char** const cursor,
+    unsigned char** const outScanEnd
+  )
+  {
+    int flags = 0;
+    unsigned char* scan = *cursor;
+
+    while (isspace(static_cast<int>(*scan)) != 0) {
+      ++scan;
+    }
+
+    if (*scan == static_cast<unsigned char>('-')) {
+      flags = 0x8;
+      ++scan;
+    } else if (*scan == static_cast<unsigned char>('+')) {
+      ++scan;
+    }
+
+    const unsigned char first = *scan;
+    if (first == static_cast<unsigned char>('n') || first == static_cast<unsigned char>('N')) {
+      unsigned char* tail = scan + 1;
+      if ((*tail == static_cast<unsigned char>('a') || *tail == static_cast<unsigned char>('A'))
+          && (tail[1] == static_cast<unsigned char>('n') || tail[1] == static_cast<unsigned char>('N'))) {
+        scan = tail + 2;
+        flags = 0x4;
+        if (*scan == static_cast<unsigned char>('(')) {
+          unsigned char* symbol = scan + 1;
+          for (;;) {
+            while (isalnum(static_cast<int>(*symbol)) != 0) {
+              ++symbol;
+            }
+            if (*symbol != static_cast<unsigned char>('_')) {
+              break;
+            }
+            ++symbol;
+          }
+
+          if (*symbol == static_cast<unsigned char>(')')) {
+            scan = symbol + 1;
+          }
+        }
+      } else {
+        scan = *cursor;
+        flags = 0;
+      }
+    } else if (first == static_cast<unsigned char>('i') || first == static_cast<unsigned char>('I')) {
+      unsigned char* tail = scan + 1;
+      if ((tail[0] == static_cast<unsigned char>('n') || tail[0] == static_cast<unsigned char>('N'))
+          && (tail[1] == static_cast<unsigned char>('f') || tail[1] == static_cast<unsigned char>('F'))) {
+        flags |= 0x3;
+        scan = tail + 2;
+        if ((scan[0] == static_cast<unsigned char>('i') || scan[0] == static_cast<unsigned char>('I'))
+            && (scan[1] == static_cast<unsigned char>('n') || scan[1] == static_cast<unsigned char>('N'))
+            && (scan[2] == static_cast<unsigned char>('i') || scan[2] == static_cast<unsigned char>('I'))
+            && (scan[3] == static_cast<unsigned char>('t') || scan[3] == static_cast<unsigned char>('T'))
+            && (scan[4] == static_cast<unsigned char>('y') || scan[4] == static_cast<unsigned char>('Y'))) {
+          scan += 5;
+        }
+      } else {
+        scan = *cursor;
+        flags = 0;
+      }
+    } else {
+      flags |= 0x1;
+    }
+
+    if (outScanEnd != nullptr) {
+      *outScanEnd = scan;
+    }
+    *cursor = scan;
+    return flags;
+  }
+
+  /**
+   * Address: 0x00AC1EB0 (FUN_00AC1EB0, sub_AC1EB0)
+   *
+   * What it does:
+   * Returns the canonical RTTI name lane for `boost::lock_error`.
+   */
+  [[nodiscard]] const char* RuntimeBoostLockErrorTypeName() noexcept
+  {
+    return "boost::lock_error";
+  }
+
+  /**
+   * Address: 0x00AC1F10 (FUN_00AC1F10, sub_AC1F10)
+   *
+   * What it does:
+   * Returns the canonical RTTI name lane for `boost::thread_resource_error`.
+   */
+  [[nodiscard]] const char* RuntimeBoostThreadResourceErrorTypeName() noexcept
+  {
+    return "boost::thread_resource_error";
+  }
+
+  /**
+   * Address: 0x00AC1F70 (FUN_00AC1F70, sub_AC1F70)
+   *
+   * What it does:
+   * Returns the canonical RTTI name lane for
+   * `boost::unsupported_thread_option`.
+   */
+  [[nodiscard]] const char* RuntimeBoostUnsupportedThreadOptionTypeName() noexcept
+  {
+    return "boost::unsupported_thread_option";
+  }
+
+  /**
+   * Address: 0x00AC1FD0 (FUN_00AC1FD0, sub_AC1FD0)
+   *
+   * What it does:
+   * Returns the canonical RTTI name lane for
+   * `boost::invalid_thread_argument`.
+   */
+  [[nodiscard]] const char* RuntimeBoostInvalidThreadArgumentTypeName() noexcept
+  {
+    return "boost::invalid_thread_argument";
+  }
+
+  /**
+   * Address: 0x00AC2030 (FUN_00AC2030, sub_AC2030)
+   *
+   * What it does:
+   * Returns the canonical RTTI name lane for `boost::thread_permission_error`.
+   */
+  [[nodiscard]] const char* RuntimeBoostThreadPermissionErrorTypeName() noexcept
+  {
+    return "boost::thread_permission_error";
   }
 
   [[nodiscard]] CRITICAL_SECTION* RuntimeStdLockSlot(const int slot) noexcept
@@ -3629,6 +5786,71 @@ namespace
     if (updated && threadData != nullptr) {
       threadData->ownlocale &= ~2;
     }
+  }
+
+  /**
+   * Address: 0x00AA1B90 (FUN_00AA1B90)
+   *
+   * What it does:
+   * Forces one locale decimal-point character into a floating-text lane by
+   * rotating the trailing suffix rightward at the exponent split.
+   */
+  char RuntimeForceDecimalPointLocaleAware(
+    char* const text,
+    _locale_t const localeInfo
+  )
+  {
+    RuntimeTidDataLocaleView* threadData = nullptr;
+    bool updated = false;
+    RuntimeThreadLocInfoView* const localeView = RuntimeResolveLocaleLocInfo(localeInfo, &threadData, &updated);
+
+    char* cursor = text;
+    while (tolower(static_cast<unsigned char>(*cursor)) != 'e'
+           && isdigit(static_cast<unsigned char>(*cursor)) != 0) {
+      ++cursor;
+    }
+
+    if (tolower(static_cast<unsigned char>(*cursor)) == 'x') {
+      cursor += 2;
+    }
+
+    const char decimalPoint =
+      (localeView != nullptr && localeView->localeConv != nullptr && localeView->localeConv->decimal_point != nullptr)
+      ? *localeView->localeConv->decimal_point
+      : '.';
+
+    char carried = *cursor;
+    *cursor = decimalPoint;
+
+    char* shiftCursor = cursor + 1;
+    do {
+      const char next = *shiftCursor;
+      *shiftCursor = carried;
+      carried = next;
+    } while (*shiftCursor++ != '\0');
+
+    RuntimeReleaseLocaleUpdate(threadData, updated);
+    return carried;
+  }
+
+  /**
+   * Address: 0x00AA1CEE (FUN_00AA1CEE)
+   *
+   * What it does:
+   * Shifts one C-string payload right by `shiftCount` bytes in-place (including
+   * the null terminator), preserving overlap-safe CRT move semantics.
+   */
+  [[maybe_unused]] const char* RuntimeShiftCStringRightInPlace(
+    const char* text,
+    const int shiftCount
+  )
+  {
+    char* const mutableText = const_cast<char*>(text);
+    if (shiftCount != 0) {
+      const std::size_t length = std::strlen(text);
+      return static_cast<const char*>(std::memmove(&mutableText[shiftCount], mutableText, length + 1u));
+    }
+    return text;
   }
 
   [[nodiscard]] char* RuntimeBuildColonDelimitedLocaleString(
@@ -4780,6 +7002,96 @@ extern "C" std::int64_t __cdecl __ftol2(const double value)
 }
 
 /**
+ * Address: 0x00A9DA09 (FUN_00A9DA09, _controlfp_s)
+ *
+ * What it does:
+ * Validates control/mask bits, optionally writes previous control-word state,
+ * and applies the requested floating-point control changes.
+ */
+extern "C" errno_t __cdecl _controlfp_s(
+  unsigned int* const outCurrentControl,
+  const unsigned int newControl,
+  const unsigned int mask
+)
+{
+  const unsigned int sanitizedMask = mask & 0xFFF7FFFFu;
+  if ((newControl & sanitizedMask & 0xFCF0FCE0u) != 0u) {
+    if (outCurrentControl != nullptr) {
+      *outCurrentControl = _controlfp(0u, 0u);
+    }
+
+    *_errno() = EINVAL;
+    _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+    return EINVAL;
+  }
+
+  const unsigned int currentControl = _controlfp(newControl, sanitizedMask);
+  if (outCurrentControl != nullptr) {
+    *outCurrentControl = currentControl;
+  }
+
+  return 0;
+}
+
+/**
+ * Address: 0x00A89CDC (FUN_00A89CDC, __ftol2_sse_excpt)
+ *
+ * What it does:
+ * Preserves the legacy SSE ftol exception path: when compatibility mode is on
+ * and the x87 control word matches the Pentium4 exception mask lane, uses the
+ * SSE scalar conversion path; otherwise falls back to `__ftol2`.
+ */
+extern "C" std::int64_t __cdecl __ftol2_sse_excpt(const double value)
+{
+  if (global_compat_flag != 0) {
+    const unsigned int controlWord = _controlfp(0u, 0u);
+    if ((controlWord & 0x7Fu) == 0x7Fu) {
+      return static_cast<std::int64_t>(static_cast<std::int32_t>(value));
+    }
+  }
+
+  return __ftol2(value);
+}
+
+/**
+ * Address: 0x00AEA160 (FUN_00AEA160, _UTY_MulDivRound)
+ *
+ * What it does:
+ * Multiplies two signed 32-bit values, rounds by half of the divisor, divides
+ * by the signed divisor, and preserves the legacy divide-by-zero saturation
+ * lane.
+ */
+extern "C" int __cdecl _UTY_MulDivRound(const int value, const int multiplier, const int divisor)
+{
+  if (divisor == 0) {
+    return ((multiplier ^ value) < 0) ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
+  }
+
+  std::int64_t absoluteValue = value;
+  std::int64_t absoluteMultiplier = multiplier;
+  std::int64_t absoluteDivisor = divisor;
+  int sign = 1;
+
+  if (absoluteValue < 0) {
+    absoluteValue = -absoluteValue;
+    sign = -sign;
+  }
+  if (absoluteMultiplier < 0) {
+    absoluteMultiplier = -absoluteMultiplier;
+    sign = -sign;
+  }
+  if (absoluteDivisor < 0) {
+    absoluteDivisor = -absoluteDivisor;
+    sign = -sign;
+  }
+
+  const std::int64_t rounded =
+    ((absoluteMultiplier * absoluteValue) + (absoluteDivisor / 2)) / absoluteDivisor;
+  const std::int64_t signedResult = (sign < 0) ? -rounded : rounded;
+  return static_cast<int>(signedResult);
+}
+
+/**
  * Address: 0x00A89E5A (FUN_00A89E5A, ___initstdio)
  *
  * What it does:
@@ -5536,7 +7848,52 @@ namespace moho::runtime
    */
   extern "C" void __cdecl _initp_heap_handler(RuntimeHeapFailureHandler const handler)
   {
-    gRuntimeHeapFailureHandler = handler;
+    gRuntimeHeapFailureHandlerEncoded = std::bit_cast<void*>(handler);
+  }
+
+  /**
+   * Address: 0x00A96A59 (FUN_00A96A59, _query_new_handler)
+   *
+   * What it does:
+   * Returns the decoded CRT heap-allocation failure handler lane.
+   */
+  extern "C" RuntimeHeapFailureHandler __cdecl _query_new_handler()
+  {
+    return std::bit_cast<RuntimeHeapFailureHandler>(_decode_pointer(gRuntimeHeapFailureHandlerEncoded));
+  }
+
+  /**
+   * Address: 0x00AC06EE (FUN_00AC06EE, _Once)
+   *
+   * What it does:
+   * Publishes one three-state once-control lane (`0 -> 1 -> 2`) and runs the
+   * initializer callback exactly once while waiters spin/sleep until done.
+   */
+  extern "C" void __cdecl Once(volatile LONG* const control, void (__cdecl* const initializer)())
+  {
+    constexpr LONG kOncePending = 0;
+    constexpr LONG kOnceRunning = 1;
+    constexpr LONG kOnceDone = 2;
+
+    if (*control == kOnceDone) {
+      return;
+    }
+
+    const LONG previousState = ::InterlockedExchange(control, kOnceRunning);
+    if (previousState == kOncePending) {
+      initializer();
+      *control = kOnceDone;
+      return;
+    }
+
+    if (previousState == kOnceDone) {
+      *control = kOnceDone;
+      return;
+    }
+
+    while (*control != kOnceDone) {
+      ::Sleep(1u);
+    }
   }
 
   [[nodiscard]] inline void*& RuntimeTypeInfoFrameStateSlot(std::type_info* const typeInfo) noexcept
@@ -5988,6 +8345,27 @@ namespace moho::runtime
     filebuf->stateWord = gRuntimeFilebufInitialStateWord;
     filebuf->codecvtFacet = nullptr;
     return result;
+  }
+
+  /**
+   * Address: 0x004F2C30 (FUN_004F2C30)
+   *
+   * What it does:
+   * Executes the non-deleting `basic_ofstream<char>` teardown lane that
+   * destroys the embedded `basic_filebuf<char>` subobject.
+   */
+  void RuntimeDestroyBasicOfstreamFilebufLane(void* const iosSubobject)
+  {
+    if (iosSubobject == nullptr) {
+      return;
+    }
+
+    constexpr std::ptrdiff_t kOfstreamFilebufOffsetFromIosSubobject = -0x50;
+    auto* const iosBytes = static_cast<std::uint8_t*>(iosSubobject);
+    auto* const filebuf = reinterpret_cast<std::basic_filebuf<char, std::char_traits<char>>*>(
+      iosBytes + kOfstreamFilebufOffsetFromIosSubobject
+    );
+    filebuf->~basic_filebuf();
   }
 
   /**
@@ -6468,6 +8846,56 @@ namespace moho::runtime
     streambuf->lane2Begin = lane2Begin;
     streambuf->lane2End = lane2End;
     return lane2Begin;
+  }
+
+  struct RuntimeBasicWstringbufView : RuntimeBasicWstreambufView
+  {
+    std::uint32_t stateWord3C = 0; // +0x3C
+    std::uint32_t stateFlags = 0;  // +0x40
+  };
+  static_assert(offsetof(RuntimeBasicWstringbufView, stateWord3C) == 0x3C, "RuntimeBasicWstringbufView::stateWord3C offset must be 0x3C");
+  static_assert(offsetof(RuntimeBasicWstringbufView, stateFlags) == 0x40, "RuntimeBasicWstringbufView::stateFlags offset must be 0x40");
+  static_assert(sizeof(RuntimeBasicWstringbufView) == 0x44, "RuntimeBasicWstringbufView size must be 0x44");
+
+  /**
+   * Address: 0x004F8550 (FUN_004F8550, std::basic_stringbuf<wchar_t>::_Tidy)
+   *
+   * What it does:
+   * Releases heap-backed stringbuf storage when the dynamic-buffer flag is set,
+   * then clears all pointer-word lanes and state flags.
+   */
+  [[maybe_unused]] std::uint32_t* RuntimeBasicWstringbufTidy(
+    RuntimeBasicWstringbufView* const stringbuf
+  )
+  {
+    if ((stringbuf->stateFlags & 1u) != 0u && stringbuf->lane0Begin != nullptr) {
+      ::operator delete(reinterpret_cast<void*>(static_cast<std::uintptr_t>(*stringbuf->lane0Begin)));
+    }
+
+    if (stringbuf->lane0Begin != nullptr) {
+      *stringbuf->lane0Begin = 0;
+    }
+    if (stringbuf->lane1Begin != nullptr) {
+      *stringbuf->lane1Begin = 0;
+    }
+    if (stringbuf->lane2Begin != nullptr) {
+      *stringbuf->lane2Begin = 0;
+    }
+    if (stringbuf->lane0End != nullptr) {
+      *stringbuf->lane0End = 0;
+    }
+
+    std::uint32_t* const result = stringbuf->lane1End;
+    if (result != nullptr) {
+      *result = 0;
+    }
+    if (stringbuf->lane2End != nullptr) {
+      *stringbuf->lane2End = 0;
+    }
+
+    stringbuf->stateFlags &= ~1u;
+    stringbuf->stateWord3C = 0;
+    return result;
   }
 
   /**
@@ -6972,6 +9400,195 @@ namespace moho::runtime
   }
 
   /**
+   * Address: 0x00AAE83A (FUN_00AAE83A, _wcsnicoll_l)
+   *
+   * What it does:
+   * Performs one bounded locale-aware wide case-insensitive collation
+   * compare, with ASCII fold fallback when the locale collate-handle lane is
+   * disabled.
+   */
+  int RuntimeWcsnicollLocale(
+    const wchar_t* const lhsText,
+    const wchar_t* const rhsText,
+    const std::size_t maxCount,
+    _locale_t const localeInfo
+  )
+  {
+    if (maxCount == 0u) {
+      return 0;
+    }
+
+    if (lhsText == nullptr || rhsText == nullptr || maxCount > 0x7FFFFFFFu) {
+      *_errno() = EINVAL;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+      return 0x7FFFFFFF;
+    }
+
+    RuntimeTidDataLocaleView* threadData = nullptr;
+    bool updated = false;
+    RuntimeThreadLocInfoView* const localeView = RuntimeResolveLocaleLocInfo(localeInfo, &threadData, &updated);
+
+    int result = 0x7FFFFFFF;
+    const LCID collateHandle = (localeView != nullptr) ? localeView->lcHandle[1] : 0;
+    if (collateHandle != 0) {
+      const int compareResult = ::CompareStringW(
+        collateHandle,
+        NORM_IGNORECASE,
+        lhsText,
+        static_cast<int>(maxCount),
+        rhsText,
+        static_cast<int>(maxCount)
+      );
+      if (compareResult == 0) {
+        *_errno() = EINVAL;
+      } else {
+        result = compareResult - 2;
+      }
+    } else {
+      const wchar_t* lhsCursor = lhsText;
+      const wchar_t* rhsCursor = rhsText;
+      std::size_t remaining = maxCount;
+      wchar_t lhsValue = 0;
+      wchar_t rhsValue = 0;
+
+      do {
+        lhsValue = *lhsCursor++;
+        if (lhsValue >= L'A' && lhsValue <= L'Z') {
+          lhsValue = static_cast<wchar_t>(lhsValue + (L'a' - L'A'));
+        }
+
+        rhsValue = *rhsCursor++;
+        if (rhsValue >= L'A' && rhsValue <= L'Z') {
+          rhsValue = static_cast<wchar_t>(rhsValue + (L'a' - L'A'));
+        }
+
+        --remaining;
+      } while (remaining != 0u && lhsValue != 0 && lhsValue == rhsValue);
+
+      result = static_cast<int>(lhsValue) - static_cast<int>(rhsValue);
+    }
+
+    RuntimeReleaseLocaleUpdate(threadData, updated);
+    return result;
+  }
+
+  /**
+   * Address: 0x00AAE97B (FUN_00AAE97B, _wcsnicoll)
+   *
+   * What it does:
+   * Compares up to `maxCount` UTF-16 code units case-insensitively, using the
+   * locale-aware `_wcsnicoll_l` lane when locale state changed and the legacy
+   * ASCII-fold fallback lane otherwise.
+   */
+  extern "C" int __cdecl _wcsnicoll(
+    const wchar_t* const lhsText,
+    const wchar_t* const rhsText,
+    const unsigned int maxCount
+  )
+  {
+    if (__locale_changed != 0) {
+      return RuntimeWcsnicollLocale(lhsText, rhsText, maxCount, nullptr);
+    }
+
+    if (lhsText == nullptr || rhsText == nullptr || maxCount > 0x7FFFFFFFu) {
+      *_errno() = EINVAL;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+      return 0x7FFFFFFF;
+    }
+
+    const wchar_t* lhsCursor = lhsText;
+    const wchar_t* rhsCursor = rhsText;
+    unsigned int remaining = maxCount;
+    wchar_t lhsValue = L'\0';
+    wchar_t rhsValue = L'\0';
+
+    do {
+      lhsValue = *lhsCursor++;
+      if (lhsValue >= L'A' && lhsValue <= L'Z') {
+        lhsValue = static_cast<wchar_t>(lhsValue + (L'a' - L'A'));
+      }
+
+      rhsValue = *rhsCursor++;
+      if (rhsValue >= L'A' && rhsValue <= L'Z') {
+        rhsValue = static_cast<wchar_t>(rhsValue + (L'a' - L'A'));
+      }
+
+      --remaining;
+    } while (remaining != 0u && lhsValue != L'\0' && lhsValue == rhsValue);
+
+    return static_cast<int>(lhsValue) - static_cast<int>(rhsValue);
+  }
+
+  /**
+   * Address: 0x00AB0916 (FUN_00AB0916, _mbspbrk_l)
+   *
+   * What it does:
+   * Searches one multibyte source string for the first byte/lead-trail pair
+   * present in the accept set under the provided locale.
+   */
+  unsigned char* RuntimeMbspbrkLocale(
+    unsigned char* const text,
+    const char* const accept,
+    _locale_t const localeInfo
+  )
+  {
+    RuntimeTidDataLocaleView* threadData = nullptr;
+    bool updated = false;
+    (void)RuntimeResolveLocaleLocInfo(localeInfo, &threadData, &updated);
+
+    unsigned char* result = nullptr;
+    if (text == nullptr || accept == nullptr) {
+      *_errno() = EINVAL;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+    } else {
+      result = ::_mbspbrk_l(text, reinterpret_cast<const unsigned char*>(accept), localeInfo);
+    }
+
+    RuntimeReleaseLocaleUpdate(threadData, updated);
+    return result;
+  }
+
+  /**
+   * Address: 0x00ABEB2C (FUN_00ABEB2C, _mbsnbicmp_l)
+   *
+   * What it does:
+   * Compares up to `byteCount` bytes from two multibyte buffers
+   * case-insensitively under one locale, returning CRT ordering and
+   * invalid-parameter sentinel behavior.
+   */
+  int RuntimeMbsnbicmpLocale(
+    const void* const lhsBuffer,
+    const unsigned char* const rhsBuffer,
+    const std::size_t byteCount,
+    _locale_t const localeInfo
+  )
+  {
+    if (byteCount == 0u) {
+      return 0;
+    }
+
+    RuntimeTidDataLocaleView* threadData = nullptr;
+    bool updated = false;
+    (void)RuntimeResolveLocaleLocInfo(localeInfo, &threadData, &updated);
+
+    int result = 0x7FFFFFFF;
+    if (lhsBuffer == nullptr || rhsBuffer == nullptr || byteCount > 0x7FFFFFFFu) {
+      *_errno() = EINVAL;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+    } else {
+      result = ::_mbsnbicmp_l(
+        reinterpret_cast<const unsigned char*>(lhsBuffer),
+        rhsBuffer,
+        byteCount,
+        localeInfo
+      );
+    }
+
+    RuntimeReleaseLocaleUpdate(threadData, updated);
+    return result;
+  }
+
+  /**
    * Address: 0x00A8B1C5 (FUN_00A8B1C5, _Getdays_l)
    *
    * What it does:
@@ -7015,6 +9632,57 @@ namespace moho::runtime
 
     RuntimeReleaseLocaleUpdate(threadData, updated);
     return result;
+  }
+
+  /**
+   * Address: 0x00A8B198 (FUN_00A8B198, _MarkAllocaS)
+   *
+   * What it does:
+   * Stores one alloca marker word and returns the caller scratch cursor two
+   * dwords ahead when marker storage exists.
+   */
+  extern "C" std::uint32_t* __cdecl _MarkAllocaS(std::uint32_t* const markerWord, const std::uint32_t markerValue)
+  {
+    if (markerWord != nullptr) {
+      *markerWord = markerValue;
+      return markerWord + 2;
+    }
+    return markerWord;
+  }
+
+  /**
+   * Address: 0x00A8B751 (FUN_00A8B751, __store_number)
+   *
+   * What it does:
+   * Emits decimal digits for `value` into the target cursor (bounded by
+   * `remainingSlots`), then reverses that span in-place and returns its first
+   * byte.
+   */
+  extern "C" char* __cdecl __store_number(
+    std::int32_t value,
+    char** const inOutWriteCursor,
+    std::uint32_t* const remainingSlots
+  )
+  {
+    char* cursor = *inOutWriteCursor;
+    if (*remainingSlots > 1u) {
+      do {
+        const std::int32_t digit = value % 10;
+        value /= 10;
+        *cursor++ = static_cast<char>(digit + '0');
+        --(*remainingSlots);
+      } while (value > 0 && *remainingSlots > 1u);
+    }
+
+    char* first = *inOutWriteCursor;
+    *inOutWriteCursor = cursor;
+    char* last = cursor - 1;
+    while (first < last) {
+      const char tmp = *last;
+      *last-- = *first;
+      *first++ = tmp;
+    }
+    return first;
   }
 
   /**
@@ -7422,6 +10090,206 @@ namespace moho::runtime
     }
   }
 
+  struct RuntimeScanStringStreamView
+  {
+    const void* current = nullptr;      // +0x00
+    std::int32_t remainingBytes = 0;    // +0x04
+    const void* sourceStart = nullptr;  // +0x08
+    std::int32_t flags = 0;             // +0x0C
+  };
+  static_assert(sizeof(RuntimeScanStringStreamView) == 0x10, "RuntimeScanStringStreamView size must be 0x10");
+
+  using RuntimeStringScanWorker = int(__cdecl*)(RuntimeScanStringStreamView*, int, int, int);
+
+  /**
+   * Address: 0x00A88186 (FUN_00A88186)
+   *
+   * What it does:
+   * Wraps one narrow source string as a CRT scanner stream view and dispatches
+   * the supplied scanner worker.
+   */
+  int RuntimeDispatchFormattedScanFromAnsiString(
+    const char* const sourceText,
+    RuntimeStringScanWorker const worker,
+    const int formatLane,
+    const int arg3,
+    const int arg4
+  )
+  {
+    if (sourceText != nullptr && formatLane != 0 && worker != nullptr) {
+      RuntimeScanStringStreamView streamView{};
+      streamView.flags = 73;
+      streamView.current = sourceText;
+      streamView.sourceStart = sourceText;
+
+      const std::size_t sourceLength = std::strlen(sourceText);
+      streamView.remainingBytes = sourceLength <= static_cast<std::size_t>(0x7FFFFFFF)
+        ? static_cast<std::int32_t>(sourceLength)
+        : 0x7FFFFFFF;
+      return worker(&streamView, formatLane, arg3, arg4);
+    }
+
+    *_errno() = EINVAL;
+    _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+    return -1;
+  }
+
+  /**
+   * Address: 0x00A86084 (FUN_00A86084, _fgetpos 64-bit lane)
+   *
+   * What it does:
+   * Stores one current stream position into `outPosition` and returns `0`
+   * when the queried position is valid (non-`-1`), otherwise returns `-1`.
+   */
+  int RuntimeFgetpos64(std::FILE* const stream, std::int64_t* const outPosition)
+  {
+    if (stream == nullptr || outPosition == nullptr) {
+      *_errno() = EINVAL;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+      return -1;
+    }
+
+    const std::int64_t position = ::_ftelli64(stream);
+    *outPosition = position;
+
+    const std::uint32_t low = static_cast<std::uint32_t>(position);
+    const std::uint32_t high = static_cast<std::uint32_t>(static_cast<std::uint64_t>(position) >> 32u);
+    return ((low & high) != 0xFFFFFFFFu) ? 0 : -1;
+  }
+
+  struct RuntimeFilePositionWordsView
+  {
+    std::uint32_t low = 0;  // +0x00
+    std::uint32_t high = 0; // +0x04
+  };
+  static_assert(sizeof(RuntimeFilePositionWordsView) == 0x8, "RuntimeFilePositionWordsView size must be 0x8");
+
+  /**
+   * Address: 0x00A86377 (FUN_00A86377)
+   *
+   * What it does:
+   * Applies one absolute 64-bit stream position from low/high dword lanes and
+   * preserves CRT invalid-parameter signaling on null input lanes.
+   */
+  int RuntimeFsetpos64FromWords(
+    std::FILE* const stream,
+    const RuntimeFilePositionWordsView* const positionWords
+  )
+  {
+    if (stream != nullptr && positionWords != nullptr) {
+      const std::uint64_t packedOffset =
+        static_cast<std::uint64_t>(positionWords->low)
+        | (static_cast<std::uint64_t>(positionWords->high) << 32u);
+      return ::_fseeki64(stream, static_cast<__int64>(packedOffset), SEEK_SET);
+    }
+
+    *_errno() = EINVAL;
+    _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+    return -1;
+  }
+
+  /**
+   * Address: 0x00A9008E (FUN_00A9008E)
+   *
+   * What it does:
+   * Wraps one UTF-16 source string as a CRT scanner stream view (byte-sized
+   * remaining-length lane) and dispatches the supplied scanner worker.
+   */
+  int RuntimeDispatchFormattedScanFromWideString(
+    const wchar_t* const sourceText,
+    RuntimeStringScanWorker const worker,
+    const int formatLane,
+    const int arg3,
+    const int arg4
+  )
+  {
+    if (sourceText != nullptr && formatLane != 0 && worker != nullptr) {
+      RuntimeScanStringStreamView streamView{};
+      streamView.flags = 73;
+      streamView.current = sourceText;
+      streamView.sourceStart = sourceText;
+
+      const std::size_t sourceLength = std::wcslen(sourceText);
+      streamView.remainingBytes = sourceLength <= static_cast<std::size_t>(0x3FFFFFFF)
+        ? static_cast<std::int32_t>(sourceLength * sizeof(wchar_t))
+        : 0x7FFFFFFF;
+      return worker(&streamView, formatLane, arg3, arg4);
+    }
+
+    *_errno() = EINVAL;
+    _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+    return -1;
+  }
+
+  [[nodiscard]] int RuntimeGrowScanBufferIfFull(
+    void** const buffer,
+    std::size_t* const capacityBytes,
+    const int usedBytes,
+    void* const inlineStorage,
+    std::uint32_t* const outDetachedInline
+  )
+  {
+    const std::size_t currentCapacity = *capacityBytes;
+    if (usedBytes == static_cast<int>(currentCapacity)) {
+      if (*buffer == inlineStorage) {
+        void* const allocated = _calloc_crt(currentCapacity, 2u);
+        *buffer = allocated;
+        if (allocated == nullptr) {
+          return 0;
+        }
+
+        *outDetachedInline = 1u;
+        std::memcpy(*buffer, inlineStorage, *capacityBytes);
+      } else {
+        void* const resized = __recalloc_crt(*buffer, currentCapacity, 2u);
+        if (resized == nullptr) {
+          return 0;
+        }
+        *buffer = resized;
+      }
+
+      *capacityBytes *= 2u;
+    }
+
+    return 1;
+  }
+
+  /**
+   * Address: 0x00A9DA9C (FUN_00A9DA9C)
+   *
+   * What it does:
+   * Grows one scanner scratch buffer to double capacity when it reaches
+   * fullness, including inline-storage detach semantics.
+   */
+  int RuntimeEnsureScanBufferCapacityA(
+    void** const buffer,
+    std::size_t* const capacityBytes,
+    const int usedBytes,
+    void* const inlineStorage,
+    std::uint32_t* const outDetachedInline
+  )
+  {
+    return RuntimeGrowScanBufferIfFull(buffer, capacityBytes, usedBytes, inlineStorage, outDetachedInline);
+  }
+
+  /**
+   * Address: 0x00A9E7AA (FUN_00A9E7AA)
+   *
+   * What it does:
+   * Mirrors `RuntimeEnsureScanBufferCapacityA` for the secondary scanner lane
+   * with identical inline-detach and doubling semantics.
+   */
+  int RuntimeEnsureScanBufferCapacityB(
+    void** const buffer,
+    std::size_t* const capacityBytes,
+    const int usedBytes,
+    void* const inlineStorage,
+    std::uint32_t* const outDetachedInline
+  )
+  {
+    return RuntimeGrowScanBufferIfFull(buffer, capacityBytes, usedBytes, inlineStorage, outDetachedInline);
+  }
+
   /**
    * Address: 0x00A8A880 (FUN_00A8A880, vfscanf worker lane)
    *
@@ -7563,6 +10431,29 @@ namespace moho::runtime
   }
 
   /**
+   * Address: 0x00A90762 (FUN_00A90762)
+   *
+   * What it does:
+   * Resolves one locale-update lane and forwards wide time formatting into the
+   * locale-aware CRT formatter.
+   */
+  std::size_t RuntimeWcsftimeLocaleLane(
+    wchar_t* const destination,
+    const std::size_t maxSize,
+    const wchar_t* const format,
+    const std::tm* const timeData,
+    _locale_t const localeInfo
+  )
+  {
+    RuntimeTidDataLocaleView* threadData = nullptr;
+    bool updated = false;
+    (void)RuntimeResolveLocaleLocInfo(localeInfo, &threadData, &updated);
+    const std::size_t result = ::_wcsftime_l(destination, maxSize, format, timeData, localeInfo);
+    RuntimeReleaseLocaleUpdate(threadData, updated);
+    return result;
+  }
+
+  /**
    * Address: 0x00A9079A (FUN_00A9079A, wcsftime)
    *
    * What it does:
@@ -7576,7 +10467,7 @@ namespace moho::runtime
     const std::tm* const timeData
   )
   {
-    return _wcsftime_l(lpWideCharStr, maxSize, format, timeData, nullptr);
+    return RuntimeWcsftimeLocaleLane(lpWideCharStr, maxSize, format, timeData, nullptr);
   }
 
   /**
@@ -7733,6 +10624,23 @@ namespace moho::runtime
   }
 
   /**
+   * Address: 0x00A8460D (FUN_00A8460D, _findclose helper lane)
+   *
+   * What it does:
+   * Closes one Win32 find-handle lane and maps failure to CRT `EINVAL`
+   * semantics (`-1` return with `_errno` update).
+   */
+  int RuntimeFindCloseHandle(const HANDLE findHandle)
+  {
+    if (::FindClose(findHandle) != FALSE) {
+      return 0;
+    }
+
+    *_errno() = EINVAL;
+    return -1;
+  }
+
+  /**
    * Address: 0x00A994FB (FUN_00A994FB, terminate)
    *
    * What it does:
@@ -7746,6 +10654,33 @@ namespace moho::runtime
     }
 
     std::abort();
+  }
+
+  struct RuntimeTidDataUnexpectedView
+  {
+    std::uint8_t reserved00_7B[0x7C];
+    void(__cdecl* unexpectedHandler)() = nullptr; // +0x7C
+  };
+  static_assert(
+    offsetof(RuntimeTidDataUnexpectedView, unexpectedHandler) == 0x7C,
+    "RuntimeTidDataUnexpectedView::unexpectedHandler offset must be 0x7C"
+  );
+
+  /**
+   * Address: 0x00A99534 (FUN_00A99534)
+   *
+   * What it does:
+   * Invokes the current thread unexpected-handler lane when present, then
+   * terminates the process through the CRT terminate path.
+   */
+  [[noreturn]] void RuntimeInvokeUnexpectedAndTerminate()
+  {
+    const auto* const threadData = reinterpret_cast<RuntimeTidDataUnexpectedView*>(__getptd());
+    if (threadData->unexpectedHandler != nullptr) {
+      threadData->unexpectedHandler();
+    }
+
+    RuntimeTerminate();
   }
 
   /**
@@ -7939,6 +10874,30 @@ namespace moho::runtime
   }
 
   /**
+   * Address: 0x00A8F5FB (FUN_00A8F5FB)
+   *
+   * What it does:
+   * Scans one NUL-terminated wide string and returns the first position whose
+   * character exists in `acceptSet` (wcspbrk-style behavior).
+   */
+  wchar_t* RuntimeFindFirstWideCharFromSet(wchar_t* text, const wchar_t* acceptSet)
+  {
+    if (text == nullptr || acceptSet == nullptr) {
+      return nullptr;
+    }
+
+    for (wchar_t* cursor = text; *cursor != L'\0'; ++cursor) {
+      for (const wchar_t* probe = acceptSet; *probe != L'\0'; ++probe) {
+        if (*probe == *cursor) {
+          return cursor;
+        }
+      }
+    }
+
+    return nullptr;
+  }
+
+  /**
    * Address: 0x00A8826E (FUN_00A8826E, __imp_wcsstr)
    *
    * What it does:
@@ -7969,6 +10928,17 @@ namespace moho::runtime
     }
 
     return nullptr;
+  }
+
+  /**
+   * Address: 0x0073AE80 (FUN_0073AE80, wcsstr)
+   *
+   * What it does:
+   * Import thunk that forwards to the runtime wide-substring search lane.
+   */
+  wchar_t* RuntimeFindWideSubstringThunk(wchar_t* haystack, const wchar_t* needle)
+  {
+    return RuntimeFindWideSubstring(haystack, needle);
   }
 
   /**
@@ -8437,6 +11407,137 @@ namespace moho::runtime
     return threadData;
   }
 
+  struct RuntimeTidDataGmtimeView
+  {
+    std::uint8_t mReserved00_43[0x44];
+    void* mGmtimeBuffer;
+  };
+  static_assert(
+    offsetof(RuntimeTidDataGmtimeView, mGmtimeBuffer) == 0x44,
+    "RuntimeTidDataGmtimeView::mGmtimeBuffer offset must be 0x44"
+  );
+
+  /**
+   * Address: 0x00A9D752 (FUN_00A9D752)
+   *
+   * What it does:
+   * Returns the current thread's cached `gmtime` scratch buffer, allocating
+   * one 0x24-byte lane on first use and setting `errno=ENOMEM` on failure.
+   */
+  void* RuntimeGetOrCreateThreadGmtimeBuffer(
+    void* const allocationFailureFallback
+  )
+  {
+    auto* const threadData = reinterpret_cast<RuntimeTidDataGmtimeView*>(RuntimeGetPtdNoExit());
+    if (threadData == nullptr) {
+      *_errno() = ENOMEM;
+      return nullptr;
+    }
+
+    if (threadData->mGmtimeBuffer != nullptr) {
+      return threadData->mGmtimeBuffer;
+    }
+
+    void* const allocated = std::malloc(0x24u);
+    threadData->mGmtimeBuffer = allocated;
+    if (allocated == nullptr) {
+      *_errno() = ENOMEM;
+      return allocationFailureFallback;
+    }
+
+    return threadData->mGmtimeBuffer;
+  }
+
+  constexpr int kRuntimeSecondsPerDay = 86'400;
+  constexpr int kRuntimeSecondsPerYear = 31'536'000;
+  constexpr int kRuntimeSecondsPerLeapYear = 31'622'400;
+  constexpr int kRuntimeSecondsPerFourYearCycle = 126'230'400;
+
+  constexpr int kRuntimeMonthOffsets[13] = {
+    -1, 30, 58, 89, 119, 150, 180, 211, 242, 272, 303, 333, 364
+  };
+
+  constexpr int kRuntimeLeapMonthOffsets[13] = {
+    -1, 30, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365
+  };
+
+  /**
+   * Address: 0x00A9D625 (FUN_00A9D625)
+   *
+   * What it does:
+   * Converts one non-negative 32-bit epoch-seconds lane into CRT `tm` fields
+   * (`sec/min/hour/mday/mon/year/wday/yday/isdst`) and reports `EINVAL` for
+   * null or negative inputs.
+   */
+  int RuntimeConvertEpochSecondsToTm32(
+    int* const outTimeFields,
+    const int* const epochSeconds
+  )
+  {
+    if (outTimeFields == nullptr) {
+      *_errno() = EINVAL;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+      return EINVAL;
+    }
+
+    std::memset(outTimeFields, 0xFF, 0x24u);
+    if (epochSeconds == nullptr) {
+      *_errno() = EINVAL;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+      return EINVAL;
+    }
+
+    const int totalSeconds = *epochSeconds;
+    if (totalSeconds < 0) {
+      *_errno() = EINVAL;
+      return EINVAL;
+    }
+
+    int isLeapYearLane = 0;
+    const int fourYearCycles = totalSeconds / kRuntimeSecondsPerFourYearCycle;
+    int secondsWithinCycle = totalSeconds % kRuntimeSecondsPerFourYearCycle;
+    int yearSince1900 = fourYearCycles * 4 + 70;
+
+    if (secondsWithinCycle >= kRuntimeSecondsPerYear) {
+      secondsWithinCycle -= kRuntimeSecondsPerYear;
+      ++yearSince1900;
+      if (secondsWithinCycle >= kRuntimeSecondsPerYear) {
+        secondsWithinCycle -= kRuntimeSecondsPerYear;
+        ++yearSince1900;
+        if (secondsWithinCycle < kRuntimeSecondsPerLeapYear) {
+          isLeapYearLane = 1;
+        } else {
+          ++yearSince1900;
+          secondsWithinCycle -= kRuntimeSecondsPerLeapYear;
+        }
+      }
+    }
+
+    outTimeFields[5] = yearSince1900;
+    outTimeFields[7] = secondsWithinCycle / kRuntimeSecondsPerDay;
+    const int secondsWithinDay = secondsWithinCycle % kRuntimeSecondsPerDay;
+
+    const int* monthOffsets = isLeapYearLane != 0 ? kRuntimeLeapMonthOffsets : kRuntimeMonthOffsets;
+    const int dayOfYear = outTimeFields[7];
+
+    int monthScanIndex = 1;
+    while (monthOffsets[monthScanIndex] < dayOfYear) {
+      ++monthScanIndex;
+    }
+
+    const int monthIndex = monthScanIndex - 1;
+    outTimeFields[4] = monthIndex;
+    outTimeFields[3] = dayOfYear - monthOffsets[monthIndex];
+    outTimeFields[8] = 0;
+    outTimeFields[6] = (totalSeconds / kRuntimeSecondsPerDay + 4) % 7;
+    outTimeFields[2] = secondsWithinDay / 3600;
+
+    const int secondsWithinHour = secondsWithinDay % 3600;
+    outTimeFields[1] = secondsWithinHour / 60;
+    outTimeFields[0] = secondsWithinHour % 60;
+    return 0;
+  }
+
   /**
    * Address: 0x00A8E337 (FUN_00A8E337, rand)
    *
@@ -8694,6 +11795,212 @@ namespace moho::runtime
     return nullptr;
   }
 
+  [[nodiscard]] wchar_t* RuntimeResolveFullPathWideCore(
+    wchar_t* destination,
+    const wchar_t* const fileName,
+    DWORD bufferLength
+  )
+  {
+    const wchar_t* const sourcePath = (fileName != nullptr && fileName[0] != L'\0') ? fileName : L".";
+    const bool callerProvidedBuffer = destination != nullptr;
+    if (callerProvidedBuffer && bufferLength == 0u) {
+      *_errno() = EINVAL;
+      _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+      return nullptr;
+    }
+
+    if (!callerProvidedBuffer) {
+      const DWORD requiredLength = ::GetFullPathNameW(sourcePath, 0u, nullptr, nullptr);
+      if (requiredLength == 0u) {
+        _dosmaperr(::GetLastError());
+        return nullptr;
+      }
+
+      if (bufferLength <= requiredLength) {
+        bufferLength = requiredLength;
+      }
+
+      if (bufferLength > 0x7FFFFFFFu) {
+        *_errno() = EINVAL;
+        return nullptr;
+      }
+
+      destination = static_cast<wchar_t*>(std::calloc(static_cast<std::size_t>(bufferLength), sizeof(wchar_t)));
+      if (destination == nullptr) {
+        *_errno() = ENOMEM;
+        return nullptr;
+      }
+    }
+
+    LPWSTR filePart = nullptr;
+    const DWORD copiedLength = ::GetFullPathNameW(sourcePath, bufferLength, destination, &filePart);
+    if (copiedLength == 0u) {
+      if (!callerProvidedBuffer) {
+        _free_crt(destination);
+      }
+      _dosmaperr(::GetLastError());
+      return nullptr;
+    }
+
+    if (copiedLength >= bufferLength) {
+      if (!callerProvidedBuffer) {
+        _free_crt(destination);
+      } else {
+        destination[0] = L'\0';
+      }
+      *_errno() = ERANGE;
+      return nullptr;
+    }
+
+    return destination;
+  }
+
+  /**
+   * Address: 0x00A913B0 (FUN_00A913B0)
+   *
+   * What it does:
+   * Resolves one full wide path into caller storage and, on `ERANGE`, retries
+   * with internal allocation and returns that pointer through
+   * `outAllocatedPath`.
+   */
+  wchar_t* RuntimeResolveFullPathWideWithOptionalAllocA(
+    wchar_t* const destination,
+    const wchar_t* const fileName,
+    const DWORD bufferLength,
+    wchar_t** const outAllocatedPath
+  )
+  {
+    const int priorErrno = *_errno();
+    *_errno() = 0;
+
+    wchar_t* result = RuntimeResolveFullPathWideCore(destination, fileName, bufferLength);
+    int* const errnoLane = _errno();
+    if (result != nullptr) {
+      *errnoLane = priorErrno;
+      return result;
+    }
+
+    if (*errnoLane == ERANGE) {
+      *errnoLane = priorErrno;
+      result = RuntimeResolveFullPathWideCore(nullptr, fileName, 0u);
+      if (outAllocatedPath != nullptr) {
+        *outAllocatedPath = result;
+      }
+      return result;
+    }
+
+    return nullptr;
+  }
+
+  /**
+   * Address: 0x00AAEF63 (FUN_00AAEF63)
+   *
+   * What it does:
+   * Alternate wide full-path lane with the same retry-on-`ERANGE` allocation
+   * behavior as `RuntimeResolveFullPathWideWithOptionalAllocA`.
+   */
+  wchar_t* RuntimeResolveFullPathWideWithOptionalAllocB(
+    wchar_t* const destination,
+    const wchar_t* const fileName,
+    const DWORD bufferLength,
+    wchar_t** const outAllocatedPath
+  )
+  {
+    const int priorErrno = *_errno();
+    *_errno() = 0;
+
+    wchar_t* result = RuntimeResolveFullPathWideCore(destination, fileName, bufferLength);
+    int* const errnoLane = _errno();
+    if (result != nullptr) {
+      *errnoLane = priorErrno;
+      return result;
+    }
+
+    if (*errnoLane == ERANGE) {
+      *errnoLane = priorErrno;
+      result = RuntimeResolveFullPathWideCore(nullptr, fileName, 0u);
+      if (outAllocatedPath != nullptr) {
+        *outAllocatedPath = result;
+      }
+      return result;
+    }
+
+    return nullptr;
+  }
+
+  /**
+   * Address: 0x00A94FB2 (FUN_00A94FB2)
+   *
+   * What it does:
+   * Resolves one full narrow path into caller storage and, on `ERANGE`,
+   * retries with internal allocation and stores that pointer through
+   * `outAllocatedPath`.
+   */
+  char* RuntimeResolveFullPathNarrowWithOptionalAllocA(
+    char* const destination,
+    const char* const fileName,
+    const DWORD bufferLength,
+    char** const outAllocatedPath
+  )
+  {
+    const int priorErrno = *_errno();
+    *_errno() = 0;
+
+    char* result = ::_fullpath(destination, fileName, bufferLength);
+    int* const errnoLane = _errno();
+    if (result != nullptr) {
+      *errnoLane = priorErrno;
+      return result;
+    }
+
+    if (*errnoLane == ERANGE) {
+      *errnoLane = priorErrno;
+      result = ::_fullpath(nullptr, fileName, 0u);
+      if (outAllocatedPath != nullptr) {
+        *outAllocatedPath = result;
+      }
+      return result;
+    }
+
+    return nullptr;
+  }
+
+  /**
+   * Address: 0x00AB04FD (FUN_00AB04FD)
+   *
+   * What it does:
+   * Alternate narrow full-path lane with the same retry-on-`ERANGE`
+   * allocation behavior as `RuntimeResolveFullPathNarrowWithOptionalAllocA`.
+   */
+  char* RuntimeResolveFullPathNarrowWithOptionalAllocB(
+    char* const destination,
+    const char* const fileName,
+    const DWORD bufferLength,
+    char** const outAllocatedPath
+  )
+  {
+    const int priorErrno = *_errno();
+    *_errno() = 0;
+
+    char* result = ::_fullpath(destination, fileName, bufferLength);
+    int* const errnoLane = _errno();
+    if (result != nullptr) {
+      *errnoLane = priorErrno;
+      return result;
+    }
+
+    if (*errnoLane == ERANGE) {
+      *errnoLane = priorErrno;
+      result = ::_fullpath(nullptr, fileName, 0u);
+      if (outAllocatedPath != nullptr) {
+        *outAllocatedPath = result;
+      }
+      return result;
+    }
+
+    return nullptr;
+  }
+
   /**
    * Address: 0x009A18D0 (FUN_009A18D0, _setdrive)
    *
@@ -8752,6 +12059,86 @@ namespace moho::runtime
     offsetof(RuntimeCxxFuncInfoView, tryBlockCount) == 0x10,
     "RuntimeCxxFuncInfoView::tryBlockCount offset must be 0x10"
   );
+
+  struct RuntimeLongjmpUnwindContextView
+  {
+    void* savedFramePointer;           // +0x00
+    std::uint8_t reserved04_17[0x14];  // +0x04
+    void* registrationNode;            // +0x18
+    std::int32_t targetState;          // +0x1C
+    std::uint8_t reserved20_27[0x08];  // +0x20
+    const void* functionInfo;          // +0x28
+  };
+  static_assert(
+    offsetof(RuntimeLongjmpUnwindContextView, registrationNode) == 0x18,
+    "RuntimeLongjmpUnwindContextView::registrationNode offset must be 0x18"
+  );
+  static_assert(
+    offsetof(RuntimeLongjmpUnwindContextView, targetState) == 0x1C,
+    "RuntimeLongjmpUnwindContextView::targetState offset must be 0x1C"
+  );
+  static_assert(
+    offsetof(RuntimeLongjmpUnwindContextView, functionInfo) == 0x28,
+    "RuntimeLongjmpUnwindContextView::functionInfo offset must be 0x28"
+  );
+  static_assert(sizeof(RuntimeLongjmpUnwindContextView) == 0x2C, "RuntimeLongjmpUnwindContextView size must be 0x2C");
+
+  /**
+   * Address: 0x00A8962E (FUN_00A8962E, __CxxLongjmpUnwind)
+   *
+   * What it does:
+   * Unwinds C++ EH state for one longjmp context by forwarding registration,
+   * function-info, and target-state lanes to `__FrameUnwindToState`.
+   */
+  extern "C" void __stdcall __CxxLongjmpUnwind(const RuntimeLongjmpUnwindContextView* const unwindContext)
+  {
+    __FrameUnwindToState(
+      unwindContext->registrationNode,
+      nullptr,
+      unwindContext->functionInfo,
+      unwindContext->targetState
+    );
+  }
+
+  /**
+   * Address: 0x00A89B3A (FUN_00A89B3A, _seh_longjmp_unwind)
+   *
+   * What it does:
+   * Restores saved EBP from one longjmp context and dispatches SEH local
+   * unwinding toward the target try-level lane.
+   */
+  extern "C" __declspec(naked) int __stdcall _seh_longjmp_unwind(RuntimeLongjmpUnwindContextView* /*unwindContext*/)
+  {
+    __asm
+    {
+      mov ecx, [esp + 4]
+      mov ebp, [ecx]
+      push dword ptr [ecx + 1Ch]
+      push dword ptr [ecx + 18h]
+      call __local_unwind2
+      add esp, 8
+      ret 4
+    }
+  }
+
+  /**
+   * Address: 0x00AAC6FC (FUN_00AAC6FC)
+   *
+   * What it does:
+   * Probes one longjmp metadata pointer lane for readability and returns `1`
+   * on normal/AV probe paths, or `0` for non-access-violation exceptions.
+   */
+  int __stdcall RuntimeProbeReadableLongjmpMetadata(
+    const void* const metadataProbe
+  )
+  {
+    __try {
+      (void)*static_cast<const volatile std::uint32_t*>(metadataProbe);
+      return 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+      return GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? 1 : 0;
+    }
+  }
 
   [[noreturn]] void RuntimeRaiseEhFrameConsistencyFailure()
   {
@@ -9011,6 +12398,29 @@ extern "C" void __cdecl _UnwindNestedFrames(PVOID targetFrame, PEXCEPTION_RECORD
       lea ecx, [esp + 8]
       sub ecx, eax
       and ecx, 0Fh
+      add eax, ecx
+      sbb ecx, ecx
+      or eax, ecx
+      pop ecx
+      jmp __alloca_probe
+    }
+  }
+
+  /**
+   * Address: 0x00A89CA6 (FUN_00A89CA6, __alloca_probe_8)
+   *
+   * What it does:
+   * Aligns requested dynamic-stack allocation to 8 bytes in `eax` and
+   * tail-jumps into the CRT stack-probe helper.
+   */
+  extern "C" __declspec(naked) void __cdecl __alloca_probe_8()
+  {
+    __asm
+    {
+      push ecx
+      lea ecx, [esp + 8]
+      sub ecx, eax
+      and ecx, 7
       add eax, ecx
       sbb ecx, ecx
       or eax, ecx
@@ -9839,6 +13249,5658 @@ extern "C" void __cdecl _UnwindNestedFrames(PVOID targetFrame, PEXCEPTION_RECORD
   [[noreturn]] void RuntimeThrowStringTooLong()
   {
     throw std::length_error("string too long");
+  }
+
+  [[noreturn]] void RuntimeThrowContainerTooLong(const char* const message)
+  {
+    throw std::length_error(message);
+  }
+
+  struct RuntimeMapSetLengthErrorKeyRecord
+  {
+    std::string keyText;
+    std::uint32_t keyMetadata = 0;
+  };
+
+  struct RuntimeMapSetLengthErrorNode
+  {
+    RuntimeMapSetLengthErrorNode* left = nullptr;
+    RuntimeMapSetLengthErrorNode* parent = nullptr;
+    RuntimeMapSetLengthErrorNode* right = nullptr;
+    std::string keyText;
+    std::uint32_t keyMetadata = 0;
+    std::uint8_t color = 0;
+    std::uint8_t isNil = 0;
+  };
+
+  using RuntimeMapSetLengthErrorNodeAllocator = RuntimeMapSetLengthErrorNode* (*)();
+
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeAllocateMapSetLengthErrorNodeLaneA()
+  {
+    return new RuntimeMapSetLengthErrorNode();
+  }
+
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeAllocateMapSetLengthErrorNodeLaneB()
+  {
+    return new RuntimeMapSetLengthErrorNode();
+  }
+
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeAllocateMapSetLengthErrorNodeLaneC()
+  {
+    return new RuntimeMapSetLengthErrorNode();
+  }
+
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeAllocateMapSetLengthErrorNodeLaneD()
+  {
+    return new RuntimeMapSetLengthErrorNode();
+  }
+
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeAllocateMapSetLengthErrorNodeLaneE()
+  {
+    return new RuntimeMapSetLengthErrorNode();
+  }
+
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeAllocateMapSetLengthErrorNodeLaneF()
+  {
+    return new RuntimeMapSetLengthErrorNode();
+  }
+
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocCommon(const unsigned int count, const unsigned int elementSize)
+  {
+    if (count != 0u && (std::numeric_limits<unsigned int>::max() / count) < elementSize) {
+      throw std::bad_alloc();
+    }
+
+    return ::operator new(static_cast<std::size_t>(elementSize) * count);
+  }
+
+  /**
+   * Address: 0x004E50A0 (FUN_004E50A0)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane001(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x004E5160 (FUN_004E5160)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane002(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x004E51F0 (FUN_004E51F0)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane003(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x004E8170 (FUN_004E8170)
+   *
+   * What it does:
+   * Allocates one `32`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane004(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 32u);
+  }
+
+  /**
+   * Address: 0x004E9B70 (FUN_004E9B70)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane005(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x004FA720 (FUN_004FA720)
+   *
+   * What it does:
+   * Allocates one `8`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane006(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 8u);
+  }
+
+  /**
+   * Address: 0x004FA7E0 (FUN_004FA7E0)
+   *
+   * What it does:
+   * Allocates one `8`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane007(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 8u);
+  }
+
+  /**
+   * Address: 0x00506330 (FUN_00506330)
+   *
+   * What it does:
+   * Allocates one `56`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane008(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 56u);
+  }
+
+  /**
+   * Address: 0x00533620 (FUN_00533620)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane009(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x00540C40 (FUN_00540C40)
+   *
+   * What it does:
+   * Allocates one `8`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane010(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 8u);
+  }
+
+  /**
+   * Address: 0x00544680 (FUN_00544680)
+   *
+   * What it does:
+   * Allocates one `36`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane011(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 36u);
+  }
+
+  /**
+   * Address: 0x0054E0C0 (FUN_0054E0C0)
+   *
+   * What it does:
+   * Allocates one `88`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane012(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 88u);
+  }
+
+  /**
+   * Address: 0x0054E1B0 (FUN_0054E1B0)
+   *
+   * What it does:
+   * Allocates one `8`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane013(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 8u);
+  }
+
+  /**
+   * Address: 0x005579D0 (FUN_005579D0)
+   *
+   * What it does:
+   * Allocates one `96`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane014(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 96u);
+  }
+
+  /**
+   * Address: 0x00571780 (FUN_00571780)
+   *
+   * What it does:
+   * Allocates one `68`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane015(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 68u);
+  }
+
+  /**
+   * Address: 0x00571800 (FUN_00571800)
+   *
+   * What it does:
+   * Allocates one `28`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane016(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 28u);
+  }
+
+  /**
+   * Address: 0x00578F20 (FUN_00578F20)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane017(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x005823C0 (FUN_005823C0)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane018(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x00582460 (FUN_00582460)
+   *
+   * What it does:
+   * Allocates one `40`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane019(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 40u);
+  }
+
+  /**
+   * Address: 0x00594230 (FUN_00594230)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane020(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x005ABB00 (FUN_005ABB00)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane021(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x005CA1E0 (FUN_005CA1E0)
+   *
+   * What it does:
+   * Allocates one `28`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane022(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 28u);
+  }
+
+  /**
+   * Address: 0x005CA280 (FUN_005CA280)
+   *
+   * What it does:
+   * Allocates one `32`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane023(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 32u);
+  }
+
+  /**
+   * Address: 0x0064F860 (FUN_0064F860)
+   *
+   * What it does:
+   * Allocates one `72`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane024(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 72u);
+  }
+
+  /**
+   * Address: 0x0064F8C0 (FUN_0064F8C0)
+   *
+   * What it does:
+   * Allocates one `52`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane025(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 52u);
+  }
+
+  /**
+   * Address: 0x00688D70 (FUN_00688D70)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane026(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x00688E80 (FUN_00688E80)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane027(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x00688F00 (FUN_00688F00)
+   *
+   * What it does:
+   * Allocates one `3280`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane028(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 3280u);
+  }
+
+  /**
+   * Address: 0x006E2D90 (FUN_006E2D90)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane029(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x006EBC60 (FUN_006EBC60)
+   *
+   * What it does:
+   * Allocates one `60`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane030(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 60u);
+  }
+
+  /**
+   * Address: 0x00712A70 (FUN_00712A70)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane031(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x0071D740 (FUN_0071D740)
+   *
+   * What it does:
+   * Allocates one `64`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane032(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 64u);
+  }
+
+  /**
+   * Address: 0x00733AF0 (FUN_00733AF0)
+   *
+   * What it does:
+   * Allocates one `8`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane033(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 8u);
+  }
+
+  /**
+   * Address: 0x00751950 (FUN_00751950)
+   *
+   * What it does:
+   * Allocates one `128`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane034(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 128u);
+  }
+
+  /**
+   * Address: 0x00751A50 (FUN_00751A50)
+   *
+   * What it does:
+   * Allocates one `144`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane035(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 144u);
+  }
+
+  /**
+   * Address: 0x00751B60 (FUN_00751B60)
+   *
+   * What it does:
+   * Allocates one `40`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane036(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 40u);
+  }
+
+  /**
+   * Address: 0x00751C40 (FUN_00751C40)
+   *
+   * What it does:
+   * Allocates one `32`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane037(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 32u);
+  }
+
+  /**
+   * Address: 0x0075FD60 (FUN_0075FD60)
+   *
+   * What it does:
+   * Allocates one `8`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane038(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 8u);
+  }
+
+  /**
+   * Address: 0x00768DB0 (FUN_00768DB0)
+   *
+   * What it does:
+   * Allocates one `36`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane039(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 36u);
+  }
+
+  /**
+   * Address: 0x0077DB80 (FUN_0077DB80)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane040(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x0077DC40 (FUN_0077DC40)
+   *
+   * What it does:
+   * Allocates one `32`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane041(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 32u);
+  }
+
+  /**
+   * Address: 0x0077DD10 (FUN_0077DD10)
+   *
+   * What it does:
+   * Allocates one `152`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane041A(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 152u);
+  }
+
+  /**
+   * Address: 0x00798B60 (FUN_00798B60)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane042(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x007A5EF0 (FUN_007A5EF0)
+   *
+   * What it does:
+   * Allocates one `8`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane043(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 8u);
+  }
+
+  /**
+   * Address: 0x007B1420 (FUN_007B1420)
+   *
+   * What it does:
+   * Allocates one `28`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane044(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 28u);
+  }
+
+  /**
+   * Address: 0x007B4E50 (FUN_007B4E50)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane045(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x007B4EF0 (FUN_007B4EF0)
+   *
+   * What it does:
+   * Allocates one `32`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane046(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 32u);
+  }
+
+  /**
+   * Address: 0x007B4FA0 (FUN_007B4FA0)
+   *
+   * What it does:
+   * Allocates one `28`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane047(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 28u);
+  }
+
+  /**
+   * Address: 0x007BCD70 (FUN_007BCD70)
+   *
+   * What it does:
+   * Allocates one `36`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane048(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 36u);
+  }
+
+  /**
+   * Address: 0x007BF120 (FUN_007BF120)
+   *
+   * What it does:
+   * Allocates one `40`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane049(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 40u);
+  }
+
+  struct RuntimeTypeInfoCloneRecord40
+  {
+    std::uint32_t headerWord0; // +0x00
+    std::uint32_t headerWord1; // +0x04
+    std::uint32_t headerWord2; // +0x08
+    std::string typeName;      // +0x0C
+  };
+  static_assert(sizeof(RuntimeTypeInfoCloneRecord40) == 0x28, "RuntimeTypeInfoCloneRecord40 size must be 0x28");
+
+  /**
+   * Address: 0x007BF180 (FUN_007BF180, runtime type-info clone lane)
+   *
+   * What it does:
+   * Copy-constructs one 40-byte runtime type-info payload (`3 dwords + std::string`)
+   * into caller-provided destination storage.
+   */
+  [[nodiscard]] RuntimeTypeInfoCloneRecord40* RuntimeCopyTypeInfoCloneRecord40(
+    RuntimeTypeInfoCloneRecord40* const destination,
+    const RuntimeTypeInfoCloneRecord40* const source
+  )
+  {
+    if (destination == nullptr) {
+      return destination;
+    }
+
+    if (source == nullptr) {
+      destination->headerWord0 = 0u;
+      destination->headerWord1 = 0u;
+      destination->headerWord2 = 0u;
+      ::new (static_cast<void*>(&destination->typeName)) std::string();
+      return destination;
+    }
+
+    destination->headerWord0 = source->headerWord0;
+    destination->headerWord1 = source->headerWord1;
+    destination->headerWord2 = source->headerWord2;
+    ::new (static_cast<void*>(&destination->typeName)) std::string();
+    destination->typeName.assign(source->typeName, 0u, std::string::npos);
+    return destination;
+  }
+
+  /**
+   * Address: 0x007CC140 (FUN_007CC140)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane050(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x007CC1C0 (FUN_007CC1C0)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane051(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x007D97A0 (FUN_007D97A0)
+   *
+   * What it does:
+   * Allocates one `28`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane052(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 28u);
+  }
+
+  /**
+   * Address: 0x007E56B0 (FUN_007E56B0)
+   *
+   * What it does:
+   * Allocates one `40`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane053(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 40u);
+  }
+
+  /**
+   * Address: 0x007EBFD0 (FUN_007EBFD0)
+   *
+   * What it does:
+   * Allocates one `784`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane054(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 784u);
+  }
+
+  /**
+   * Address: 0x007F3490 (FUN_007F3490)
+   *
+   * What it does:
+   * Allocates one `136`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane055(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 136u);
+  }
+
+  /**
+   * Address: 0x007F3670 (FUN_007F3670)
+   *
+   * What it does:
+   * Allocates one `192`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane056(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 192u);
+  }
+
+  /**
+   * Address: 0x007FB9B0 (FUN_007FB9B0)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane057(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x00813EB0 (FUN_00813EB0)
+   *
+   * What it does:
+   * Allocates one `8`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane058(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 8u);
+  }
+
+  /**
+   * Address: 0x008317B0 (FUN_008317B0)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane059(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x00831AB0 (FUN_00831AB0)
+   *
+   * What it does:
+   * Allocates one `136`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane060(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 136u);
+  }
+
+  /**
+   * Address: 0x00831BA0 (FUN_00831BA0)
+   *
+   * What it does:
+   * Allocates one `44`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane061(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 44u);
+  }
+
+  /**
+   * Address: 0x00831D10 (FUN_00831D10)
+   *
+   * What it does:
+   * Allocates one `40`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane062(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 40u);
+  }
+
+  /**
+   * Address: 0x0083C6E0 (FUN_0083C6E0)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane063(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x0084A5F0 (FUN_0084A5F0)
+   *
+   * What it does:
+   * Allocates one `60`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane064(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 60u);
+  }
+
+  /**
+   * Address: 0x00857260 (FUN_00857260)
+   *
+   * What it does:
+   * Allocates one `8`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane065(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 8u);
+  }
+
+  /**
+   * Address: 0x008573A0 (FUN_008573A0)
+   *
+   * What it does:
+   * Allocates one `28`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane066(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 28u);
+  }
+
+  /**
+   * Address: 0x00858730 (FUN_00858730)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane067(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x008620F0 (FUN_008620F0)
+   *
+   * What it does:
+   * Allocates one `3152`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane068(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 3152u);
+  }
+
+  /**
+   * Address: 0x0087D510 (FUN_0087D510)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane069(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x0087D570 (FUN_0087D570)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane070(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x0087D5F0 (FUN_0087D5F0)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane071(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x0088AE90 (FUN_0088AE90)
+   *
+   * What it does:
+   * Allocates one `136`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane072(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 136u);
+  }
+
+  /**
+   * Address: 0x0088FFC0 (FUN_0088FFC0)
+   *
+   * What it does:
+   * Allocates one `32`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane073(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 32u);
+  }
+
+  struct RuntimeTypeInfoCloneRecord32
+  {
+    std::uint32_t headerWord0; // +0x00
+    std::string typeName;      // +0x04
+  };
+  static_assert(sizeof(RuntimeTypeInfoCloneRecord32) == 0x20, "RuntimeTypeInfoCloneRecord32 size must be 0x20");
+
+  /**
+   * Address: 0x00890010 (FUN_00890010, runtime type-info clone lane)
+   *
+   * What it does:
+   * Copy-constructs one 32-byte runtime type-info payload (`1 dword + std::string`)
+   * into caller-provided destination storage.
+   */
+  [[nodiscard]] RuntimeTypeInfoCloneRecord32* RuntimeCopyTypeInfoCloneRecord32(
+    RuntimeTypeInfoCloneRecord32* const destination,
+    const RuntimeTypeInfoCloneRecord32* const source
+  )
+  {
+    if (destination == nullptr) {
+      return destination;
+    }
+
+    if (source == nullptr) {
+      destination->headerWord0 = 0u;
+      ::new (static_cast<void*>(&destination->typeName)) std::string();
+      return destination;
+    }
+
+    destination->headerWord0 = source->headerWord0;
+    ::new (static_cast<void*>(&destination->typeName)) std::string();
+    destination->typeName.assign(source->typeName, 0u, std::string::npos);
+    return destination;
+  }
+
+  /**
+   * Address: 0x00892B00 (FUN_00892B00)
+   *
+   * What it does:
+   * Allocates one `56`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane074(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 56u);
+  }
+
+  /**
+   * Address: 0x0089B1A0 (FUN_0089B1A0)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane075(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x008A9C60 (FUN_008A9C60)
+   *
+   * What it does:
+   * Allocates one `80`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane076(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 80u);
+  }
+
+  /**
+   * Address: 0x008A9BF0 (FUN_008A9BF0)
+   *
+   * What it does:
+   * Allocates one `56`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane076A(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 56u);
+  }
+
+  /**
+   * Address: 0x008AFE90 (FUN_008AFE90)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane077(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x008B55D0 (FUN_008B55D0)
+   *
+   * What it does:
+   * Allocates one `80`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane077A(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 80u);
+  }
+
+  /**
+   * Address: 0x008B6AC0 (FUN_008B6AC0)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane078(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  struct RuntimeLinkedSlotNode16
+  {
+    std::uint32_t lane0 = 0;       // +0x00
+    std::uint32_t lane1 = 0;       // +0x04
+    std::uintptr_t slotOwner = 0;  // +0x08
+    std::uintptr_t nextLink = 0;   // +0x0C
+  };
+  static_assert(sizeof(RuntimeLinkedSlotNode16) == 0x10, "RuntimeLinkedSlotNode16 size must be 0x10");
+  static_assert(offsetof(RuntimeLinkedSlotNode16, slotOwner) == 0x08, "RuntimeLinkedSlotNode16::slotOwner offset must be 0x08");
+  static_assert(offsetof(RuntimeLinkedSlotNode16, nextLink) == 0x0C, "RuntimeLinkedSlotNode16::nextLink offset must be 0x0C");
+
+  struct RuntimeRbHeadNode16Color13
+  {
+    RuntimeRbHeadNode16Color13* left = nullptr;   // +0x00
+    RuntimeRbHeadNode16Color13* parent = nullptr; // +0x04
+    RuntimeRbHeadNode16Color13* right = nullptr;  // +0x08
+    std::uint8_t marker12 = 0;                    // +0x0C
+    std::uint8_t color = 0;                       // +0x0D
+    std::uint8_t isNil = 0;                       // +0x0E
+    std::uint8_t marker15 = 0;                    // +0x0F
+  };
+  static_assert(sizeof(RuntimeRbHeadNode16Color13) == 0x10, "RuntimeRbHeadNode16Color13 size must be 0x10");
+  static_assert(offsetof(RuntimeRbHeadNode16Color13, color) == 0x0D, "RuntimeRbHeadNode16Color13::color offset must be 0x0D");
+  static_assert(offsetof(RuntimeRbHeadNode16Color13, isNil) == 0x0E, "RuntimeRbHeadNode16Color13::isNil offset must be 0x0E");
+
+  struct RuntimeRbHeadNode20Color16
+  {
+    RuntimeRbHeadNode20Color16* left = nullptr;   // +0x00
+    RuntimeRbHeadNode20Color16* parent = nullptr; // +0x04
+    RuntimeRbHeadNode20Color16* right = nullptr;  // +0x08
+    std::uint32_t payload = 0;                    // +0x0C
+    std::uint8_t color = 0;                       // +0x10
+    std::uint8_t isNil = 0;                       // +0x11
+    std::uint8_t marker18 = 0;                    // +0x12
+    std::uint8_t marker19 = 0;                    // +0x13
+  };
+  static_assert(sizeof(RuntimeRbHeadNode20Color16) == 0x14, "RuntimeRbHeadNode20Color16 size must be 0x14");
+  static_assert(offsetof(RuntimeRbHeadNode20Color16, color) == 0x10, "RuntimeRbHeadNode20Color16::color offset must be 0x10");
+  static_assert(offsetof(RuntimeRbHeadNode20Color16, isNil) == 0x11, "RuntimeRbHeadNode20Color16::isNil offset must be 0x11");
+
+  struct RuntimeRbHeadNode24Color16
+  {
+    RuntimeRbHeadNode24Color16* left = nullptr;   // +0x00
+    RuntimeRbHeadNode24Color16* parent = nullptr; // +0x04
+    RuntimeRbHeadNode24Color16* right = nullptr;  // +0x08
+    std::uint32_t payload = 0;                    // +0x0C
+    std::uint8_t color = 0;                       // +0x10
+    std::uint8_t isNil = 0;                       // +0x11
+    std::uint8_t marker18 = 0;                    // +0x12
+    std::uint8_t marker19 = 0;                    // +0x13
+    std::uint8_t marker1A = 0;                    // +0x14
+    std::uint8_t marker1B = 0;                    // +0x15
+    std::uint8_t marker1C = 0;                    // +0x16
+    std::uint8_t marker1D = 0;                    // +0x17
+  };
+  static_assert(sizeof(RuntimeRbHeadNode24Color16) == 0x18, "RuntimeRbHeadNode24Color16 size must be 0x18");
+  static_assert(offsetof(RuntimeRbHeadNode24Color16, color) == 0x10, "RuntimeRbHeadNode24Color16::color offset must be 0x10");
+  static_assert(offsetof(RuntimeRbHeadNode24Color16, isNil) == 0x11, "RuntimeRbHeadNode24Color16::isNil offset must be 0x11");
+
+  struct RuntimeRbHeadNode24Color20
+  {
+    RuntimeRbHeadNode24Color20* left = nullptr;   // +0x00
+    RuntimeRbHeadNode24Color20* parent = nullptr; // +0x04
+    RuntimeRbHeadNode24Color20* right = nullptr;  // +0x08
+    std::uint8_t payload[8]{};                    // +0x0C
+    std::uint8_t color = 0;                       // +0x14
+    std::uint8_t isNil = 0;                       // +0x15
+    std::uint8_t marker16 = 0;                    // +0x16
+    std::uint8_t marker17 = 0;                    // +0x17
+  };
+  static_assert(sizeof(RuntimeRbHeadNode24Color20) == 0x18, "RuntimeRbHeadNode24Color20 size must be 0x18");
+  static_assert(offsetof(RuntimeRbHeadNode24Color20, color) == 0x14, "RuntimeRbHeadNode24Color20::color offset must be 0x14");
+  static_assert(offsetof(RuntimeRbHeadNode24Color20, isNil) == 0x15, "RuntimeRbHeadNode24Color20::isNil offset must be 0x15");
+
+  struct RuntimeRbHeadNode32Color28
+  {
+    RuntimeRbHeadNode32Color28* left = nullptr;   // +0x00
+    RuntimeRbHeadNode32Color28* parent = nullptr; // +0x04
+    RuntimeRbHeadNode32Color28* right = nullptr;  // +0x08
+    std::uint8_t payload[16]{};                   // +0x0C
+    std::uint8_t color = 0;                       // +0x1C
+    std::uint8_t isNil = 0;                       // +0x1D
+    std::uint8_t marker1E = 0;                    // +0x1E
+    std::uint8_t marker1F = 0;                    // +0x1F
+  };
+  static_assert(sizeof(RuntimeRbHeadNode32Color28) == 0x20, "RuntimeRbHeadNode32Color28 size must be 0x20");
+  static_assert(offsetof(RuntimeRbHeadNode32Color28, color) == 0x1C, "RuntimeRbHeadNode32Color28::color offset must be 0x1C");
+  static_assert(offsetof(RuntimeRbHeadNode32Color28, isNil) == 0x1D, "RuntimeRbHeadNode32Color28::isNil offset must be 0x1D");
+
+  struct RuntimeRbHeadNode48Color44
+  {
+    RuntimeRbHeadNode48Color44* left = nullptr;   // +0x00
+    RuntimeRbHeadNode48Color44* parent = nullptr; // +0x04
+    RuntimeRbHeadNode48Color44* right = nullptr;  // +0x08
+    std::uint8_t payload[32]{};                   // +0x0C
+    std::uint8_t color = 0;                       // +0x2C
+    std::uint8_t isNil = 0;                       // +0x2D
+    std::uint8_t marker2E = 0;                    // +0x2E
+    std::uint8_t marker2F = 0;                    // +0x2F
+  };
+  static_assert(sizeof(RuntimeRbHeadNode48Color44) == 0x30, "RuntimeRbHeadNode48Color44 size must be 0x30");
+  static_assert(offsetof(RuntimeRbHeadNode48Color44, color) == 0x2C, "RuntimeRbHeadNode48Color44::color offset must be 0x2C");
+  static_assert(offsetof(RuntimeRbHeadNode48Color44, isNil) == 0x2D, "RuntimeRbHeadNode48Color44::isNil offset must be 0x2D");
+
+  struct RuntimeRbHeadNode60Color56
+  {
+    RuntimeRbHeadNode60Color56* left = nullptr;   // +0x00
+    RuntimeRbHeadNode60Color56* parent = nullptr; // +0x04
+    RuntimeRbHeadNode60Color56* right = nullptr;  // +0x08
+    std::uint8_t payload[44]{};                   // +0x0C
+    std::uint8_t color = 0;                       // +0x38
+    std::uint8_t isNil = 0;                       // +0x39
+    std::uint8_t marker3A = 0;                    // +0x3A
+    std::uint8_t marker3B = 0;                    // +0x3B
+  };
+  static_assert(sizeof(RuntimeRbHeadNode60Color56) == 0x3C, "RuntimeRbHeadNode60Color56 size must be 0x3C");
+  static_assert(offsetof(RuntimeRbHeadNode60Color56, color) == 0x38, "RuntimeRbHeadNode60Color56::color offset must be 0x38");
+  static_assert(offsetof(RuntimeRbHeadNode60Color56, isNil) == 0x39, "RuntimeRbHeadNode60Color56::isNil offset must be 0x39");
+
+  struct RuntimeRbHeadNode80Color76
+  {
+    RuntimeRbHeadNode80Color76* left = nullptr;   // +0x00
+    RuntimeRbHeadNode80Color76* parent = nullptr; // +0x04
+    RuntimeRbHeadNode80Color76* right = nullptr;  // +0x08
+    std::uint8_t payload[64]{};                   // +0x0C
+    std::uint8_t color = 0;                       // +0x4C
+    std::uint8_t isNil = 0;                       // +0x4D
+    std::uint8_t marker4E = 0;                    // +0x4E
+    std::uint8_t marker4F = 0;                    // +0x4F
+  };
+  static_assert(sizeof(RuntimeRbHeadNode80Color76) == 0x50, "RuntimeRbHeadNode80Color76 size must be 0x50");
+  static_assert(offsetof(RuntimeRbHeadNode80Color76, color) == 0x4C, "RuntimeRbHeadNode80Color76::color offset must be 0x4C");
+  static_assert(offsetof(RuntimeRbHeadNode80Color76, isNil) == 0x4D, "RuntimeRbHeadNode80Color76::isNil offset must be 0x4D");
+
+  struct RuntimeRbHeadNode192Color184
+  {
+    RuntimeRbHeadNode192Color184* left = nullptr;   // +0x00
+    RuntimeRbHeadNode192Color184* parent = nullptr; // +0x04
+    RuntimeRbHeadNode192Color184* right = nullptr;  // +0x08
+    std::uint8_t payload[172]{};                    // +0x0C
+    std::uint8_t color = 0;                         // +0xB8
+    std::uint8_t isNil = 0;                         // +0xB9
+    std::uint8_t markerBA = 0;                      // +0xBA
+    std::uint8_t markerBB = 0;                      // +0xBB
+    std::uint8_t markerBC = 0;                      // +0xBC
+    std::uint8_t markerBD = 0;                      // +0xBD
+    std::uint8_t markerBE = 0;                      // +0xBE
+    std::uint8_t markerBF = 0;                      // +0xBF
+  };
+  static_assert(sizeof(RuntimeRbHeadNode192Color184) == 0xC0, "RuntimeRbHeadNode192Color184 size must be 0xC0");
+  static_assert(offsetof(RuntimeRbHeadNode192Color184, color) == 0xB8, "RuntimeRbHeadNode192Color184::color offset must be 0xB8");
+  static_assert(offsetof(RuntimeRbHeadNode192Color184, isNil) == 0xB9, "RuntimeRbHeadNode192Color184::isNil offset must be 0xB9");
+
+  struct RuntimeRbHeadNode3152Color3144
+  {
+    RuntimeRbHeadNode3152Color3144* left = nullptr;   // +0x000
+    RuntimeRbHeadNode3152Color3144* parent = nullptr; // +0x004
+    RuntimeRbHeadNode3152Color3144* right = nullptr;  // +0x008
+    std::uint8_t payload[3132]{};                     // +0x00C
+    std::uint8_t color = 0;                           // +0xC48
+    std::uint8_t isNil = 0;                           // +0xC49
+    std::uint8_t markerC4A = 0;                       // +0xC4A
+    std::uint8_t markerC4B = 0;                       // +0xC4B
+    std::uint8_t markerC4C = 0;                       // +0xC4C
+    std::uint8_t markerC4D = 0;                       // +0xC4D
+    std::uint8_t markerC4E = 0;                       // +0xC4E
+    std::uint8_t markerC4F = 0;                       // +0xC4F
+  };
+  static_assert(sizeof(RuntimeRbHeadNode3152Color3144) == 0xC50, "RuntimeRbHeadNode3152Color3144 size must be 0xC50");
+  static_assert(
+    offsetof(RuntimeRbHeadNode3152Color3144, color) == 0xC48,
+    "RuntimeRbHeadNode3152Color3144::color offset must be 0xC48"
+  );
+  static_assert(
+    offsetof(RuntimeRbHeadNode3152Color3144, isNil) == 0xC49,
+    "RuntimeRbHeadNode3152Color3144::isNil offset must be 0xC49"
+  );
+
+  struct RuntimeSelfLinkedSentinelNode48
+  {
+    RuntimeSelfLinkedSentinelNode48* next = nullptr; // +0x00
+    RuntimeSelfLinkedSentinelNode48* prev = nullptr; // +0x04
+    std::uint8_t payload[40]{};                      // +0x08
+  };
+  static_assert(sizeof(RuntimeSelfLinkedSentinelNode48) == 0x30, "RuntimeSelfLinkedSentinelNode48 size must be 0x30");
+
+  struct RuntimeRecord16WithPair
+  {
+    std::uint32_t lane0 = 0;       // +0x00
+    std::uint32_t lane1 = 0;       // +0x04
+    RuntimeDwordPairRecord pair{}; // +0x08
+  };
+  static_assert(sizeof(RuntimeRecord16WithPair) == 0x10, "RuntimeRecord16WithPair size must be 0x10");
+
+  struct RuntimeRecord44WithPayload
+  {
+    std::uint32_t lane0 = 0;      // +0x00
+    std::uint32_t lane1 = 0;      // +0x04
+    std::uint8_t payload[36]{};   // +0x08
+  };
+  static_assert(sizeof(RuntimeRecord44WithPayload) == 0x2C, "RuntimeRecord44WithPayload size must be 0x2C");
+
+  struct RuntimeSharedControlBlockView;
+  using RuntimeSharedControlReleaseFn = void(__thiscall*)(RuntimeSharedControlBlockView*);
+
+  struct RuntimeSharedControlBlockView
+  {
+    RuntimeSharedControlReleaseFn* vtable = nullptr; // +0x00
+    volatile long sharedRefs = 0;                    // +0x04
+    volatile long weakRefs = 0;                      // +0x08
+  };
+  static_assert(sizeof(RuntimeSharedControlBlockView) == 0x0C, "RuntimeSharedControlBlockView size must be 0x0C");
+
+  struct RuntimeControlTreeNode28
+  {
+    RuntimeControlTreeNode28* left = nullptr;               // +0x00
+    RuntimeControlTreeNode28* parent = nullptr;             // +0x04
+    RuntimeControlTreeNode28* right = nullptr;              // +0x08
+    std::uint8_t payload[8]{};                              // +0x0C
+    RuntimeSharedControlBlockView* sharedControl = nullptr; // +0x14
+    std::uint8_t color = 0;                                 // +0x18
+    std::uint8_t isNil = 0;                                 // +0x19
+    std::uint8_t marker1A = 0;                              // +0x1A
+    std::uint8_t marker1B = 0;                              // +0x1B
+  };
+  static_assert(sizeof(RuntimeControlTreeNode28) == 0x1C, "RuntimeControlTreeNode28 size must be 0x1C");
+  static_assert(offsetof(RuntimeControlTreeNode28, sharedControl) == 0x14, "RuntimeControlTreeNode28::sharedControl offset must be 0x14");
+  static_assert(offsetof(RuntimeControlTreeNode28, isNil) == 0x19, "RuntimeControlTreeNode28::isNil offset must be 0x19");
+
+  struct RuntimeLegacyStringStorage
+  {
+    union
+    {
+      char* heapBuffer;
+      char inlineBuffer[16];
+    } storage{};
+    std::uint32_t size = 0;     // +0x10
+    std::uint32_t capacity = 0; // +0x14
+  };
+  static_assert(sizeof(RuntimeLegacyStringStorage) == 0x18, "RuntimeLegacyStringStorage size must be 0x18");
+
+  struct RuntimePrefixDwordAndString
+  {
+    std::uint32_t prefix = 0;              // +0x00
+    RuntimeLegacyStringStorage text{};     // +0x04
+  };
+  static_assert(sizeof(RuntimePrefixDwordAndString) == 0x1C, "RuntimePrefixDwordAndString size must be 0x1C");
+  static_assert(
+    offsetof(RuntimePrefixDwordAndString, text) == 0x04,
+    "RuntimePrefixDwordAndString::text offset must be 0x04"
+  );
+
+  struct RuntimeTreeNodeWithString48
+  {
+    RuntimeTreeNodeWithString48* left = nullptr;   // +0x00
+    RuntimeTreeNodeWithString48* parent = nullptr; // +0x04
+    RuntimeTreeNodeWithString48* right = nullptr;  // +0x08
+    std::uint32_t payload0 = 0;                    // +0x0C
+    std::uint32_t payload1 = 0;                    // +0x10
+    RuntimeLegacyStringStorage key{};              // +0x14
+    std::uint8_t color = 0;                        // +0x2C
+    std::uint8_t isNil = 0;                        // +0x2D
+    std::uint8_t marker2E = 0;                     // +0x2E
+    std::uint8_t marker2F = 0;                     // +0x2F
+  };
+  static_assert(sizeof(RuntimeTreeNodeWithString48) == 0x30, "RuntimeTreeNodeWithString48 size must be 0x30");
+  static_assert(offsetof(RuntimeTreeNodeWithString48, key) == 0x14, "RuntimeTreeNodeWithString48::key offset must be 0x14");
+  static_assert(offsetof(RuntimeTreeNodeWithString48, isNil) == 0x2D, "RuntimeTreeNodeWithString48::isNil offset must be 0x2D");
+
+  struct RuntimeDualLegacyStringRecord56
+  {
+    std::uint32_t prefix = 0;                  // +0x00
+    RuntimeLegacyStringStorage first{};        // +0x04
+    std::uint32_t middle = 0;                  // +0x1C
+    RuntimeLegacyStringStorage second{};       // +0x20
+  };
+  static_assert(sizeof(RuntimeDualLegacyStringRecord56) == 0x38, "RuntimeDualLegacyStringRecord56 size must be 0x38");
+  static_assert(
+    offsetof(RuntimeDualLegacyStringRecord56, first) == 0x04,
+    "RuntimeDualLegacyStringRecord56::first offset must be 0x04"
+  );
+  static_assert(
+    offsetof(RuntimeDualLegacyStringRecord56, second) == 0x20,
+    "RuntimeDualLegacyStringRecord56::second offset must be 0x20"
+  );
+
+  template<typename NodeType, typename AllocateLaneFn>
+  [[nodiscard]] NodeType* RuntimeAllocateRbHeadNodeCommon(const AllocateLaneFn& allocateLane)
+  {
+    auto* const node = static_cast<NodeType*>(allocateLane(1u));
+    if (node == nullptr) {
+      return nullptr;
+    }
+
+    node->left = nullptr;
+    node->parent = nullptr;
+    node->right = nullptr;
+    node->color = 1u;
+    node->isNil = 0u;
+    return node;
+  }
+
+  template<typename NodeType>
+  void RuntimeDestroyRbTreePostorderCommon(NodeType* node)
+  {
+    if (node == nullptr || node->isNil != 0u) {
+      return;
+    }
+
+    do {
+      RuntimeDestroyRbTreePostorderCommon(node->right);
+      NodeType* const current = node;
+      node = node->left;
+      ::operator delete(current);
+    } while (node->isNil == 0u);
+  }
+
+  void RuntimeReleaseSharedControlBlock(RuntimeSharedControlBlockView* const sharedControl)
+  {
+    if (sharedControl == nullptr) {
+      return;
+    }
+
+    if (::InterlockedDecrement(&sharedControl->sharedRefs) == 0) {
+      sharedControl->vtable[1](sharedControl);
+      if (::InterlockedDecrement(&sharedControl->weakRefs) == 0) {
+        sharedControl->vtable[2](sharedControl);
+      }
+    }
+  }
+
+  void RuntimeResetLegacyStringStorage(RuntimeLegacyStringStorage* const stringStorage)
+  {
+    if (stringStorage->capacity >= 16u) {
+      ::operator delete(stringStorage->storage.heapBuffer);
+    }
+    stringStorage->capacity = 15u;
+    stringStorage->size = 0u;
+    stringStorage->storage.inlineBuffer[0] = '\0';
+  }
+
+  /**
+   * Address: 0x007AFA40 (FUN_007AFA40)
+   *
+   * What it does:
+   * Allocates one 16-byte linked-node lane, writes two dword payload values,
+   * and splices the node-link ownership lane through the caller-provided slot.
+   */
+  [[nodiscard]] RuntimeLinkedSlotNode16* RuntimeBuildLinkedSlotNodeLaneA(
+    const std::uint32_t lane0,
+    const std::uint32_t lane1,
+    std::uintptr_t** const slotOwnerStorage
+  )
+  {
+    auto* const node = static_cast<RuntimeLinkedSlotNode16*>(gpg::core::legacy::AllocateChecked16ByteLane(1u));
+    if (node == nullptr) {
+      return nullptr;
+    }
+
+    node->lane0 = lane0;
+    node->lane1 = lane1;
+
+    std::uintptr_t* const slotOwner = *slotOwnerStorage;
+    node->slotOwner = reinterpret_cast<std::uintptr_t>(slotOwner);
+    if (slotOwner == nullptr) {
+      node->nextLink = 0u;
+      return node;
+    }
+
+    node->nextLink = *slotOwner;
+    *slotOwner = reinterpret_cast<std::uintptr_t>(&node->slotOwner);
+    return node;
+  }
+
+  /**
+   * Address: 0x007B4410 (FUN_007B4410)
+   *
+   * What it does:
+   * Allocates one 32-byte red-black tree head lane and zeros the tree links
+   * before setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode32Color28* RuntimeAllocateRbHeadNode32LaneA()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode32Color28>(RuntimeAllocateArrayWithBadAllocLane046);
+  }
+
+  /**
+   * Address: 0x007B4D10 (FUN_007B4D10)
+   *
+   * What it does:
+   * Recursively clears one RB-tree lane by walking right-subtrees first, then
+   * deleting each current node while advancing along the left-link chain.
+   */
+  void RuntimeDestroyRbTreeLaneA(RuntimeRbHeadNode20Color16* const root)
+  {
+    RuntimeDestroyRbTreePostorderCommon(root);
+  }
+
+  /**
+   * Address: 0x007CAB70 (FUN_007CAB70)
+   *
+   * What it does:
+   * Allocates one 20-byte red-black tree head lane and zeros the tree links
+   * before setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode20Color16* RuntimeAllocateRbHeadNode20LaneA()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode20Color16>(RuntimeAllocateArrayWithBadAllocLane051);
+  }
+
+  /**
+   * Address: 0x007CB080 (FUN_007CB080)
+   *
+   * What it does:
+   * Recursively clears one compact RB-tree lane that uses marker byte
+   * `{isNil}` at offset `+0x0E`.
+   */
+  void RuntimeDestroyCompactRbTreeLaneA(RuntimeRbHeadNode16Color13* const root)
+  {
+    RuntimeDestroyRbTreePostorderCommon(root);
+  }
+
+  /**
+   * Address: 0x007CC520 (FUN_007CC520)
+   *
+   * What it does:
+   * Allocates one 16-byte compact red-black tree head lane and zeros tree
+   * links before setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode16Color13* RuntimeAllocateCompactRbHeadNode16LaneA()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode16Color13>(gpg::core::legacy::AllocateChecked16ByteLane);
+  }
+
+  /**
+   * Address: 0x007D4300 (FUN_007D4300)
+   *
+   * What it does:
+   * Allocates one 48-byte sentinel lane and self-links the first two pointer
+   * lanes for intrusive-list head initialization.
+   */
+  [[nodiscard]] RuntimeSelfLinkedSentinelNode48* RuntimeAllocateSelfLinkedSentinelNode48LaneA()
+  {
+    auto* const node = static_cast<RuntimeSelfLinkedSentinelNode48*>(gpg::core::legacy::AllocateChecked48ByteLane(1u));
+    if (node != nullptr) {
+      node->next = node;
+      node->prev = node;
+    }
+    return node;
+  }
+
+  /**
+   * Address: 0x007E4B80 (FUN_007E4B80)
+   *
+   * What it does:
+   * Allocates one 48-byte red-black tree head lane and initializes link and
+   * marker bytes for empty mesh-bucket tree state.
+   */
+  [[nodiscard]] RuntimeRbHeadNode48Color44* RuntimeAllocateRbHeadNode48LaneA()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode48Color44>(
+      [](const unsigned int count) { return RuntimeAllocateArrayWithBadAllocCommon(count, 48u); }
+    );
+  }
+
+  /**
+   * Address: 0x007F26D0 (FUN_007F26D0)
+   *
+   * What it does:
+   * Allocates one 192-byte red-black tree head lane and initializes link and
+   * marker bytes for an empty high-payload tree node.
+   */
+  [[nodiscard]] RuntimeRbHeadNode192Color184* RuntimeAllocateRbHeadNode192LaneA()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode192Color184>(RuntimeAllocateArrayWithBadAllocLane056);
+  }
+
+  /**
+   * Address: 0x007F2BB0 (FUN_007F2BB0)
+   *
+   * What it does:
+   * Allocates one 48-byte red-black tree head lane and initializes link and
+   * marker bytes for empty extractor-map tree state.
+   */
+  [[nodiscard]] RuntimeRbHeadNode48Color44* RuntimeAllocateRbHeadNode48LaneB()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode48Color44>(gpg::core::legacy::AllocateChecked48ByteLane);
+  }
+
+  /**
+   * Address: 0x0082FB10 (FUN_0082FB10)
+   *
+   * What it does:
+   * Allocates one 16-byte record lane, stores two caller dwords, and copies a
+   * two-dword payload pair from source lane memory.
+   */
+  [[nodiscard]] RuntimeRecord16WithPair* RuntimeBuildRecord16WithPairLaneA(
+    const RuntimeDwordPairRecord* const sourcePair,
+    const std::uint32_t lane0,
+    const std::uint32_t lane1
+  )
+  {
+    auto* const record = static_cast<RuntimeRecord16WithPair*>(gpg::core::legacy::AllocateChecked16ByteLane(1u));
+    if (record == nullptr) {
+      return nullptr;
+    }
+
+    record->lane0 = lane0;
+    record->lane1 = lane1;
+    record->pair = *sourcePair;
+    return record;
+  }
+
+  /**
+   * Address: 0x00830700 (FUN_00830700)
+   *
+   * What it does:
+   * Allocates one 44-byte record lane, stores two caller dwords, and copies
+   * one fixed 36-byte payload block from caller memory.
+   */
+  [[nodiscard]] RuntimeRecord44WithPayload* RuntimeBuildRecord44WithPayloadLaneA(
+    const std::uint32_t lane0,
+    const std::uint32_t lane1,
+    const void* const payloadSource
+  )
+  {
+    auto* const record = static_cast<RuntimeRecord44WithPayload*>(RuntimeAllocateArrayWithBadAllocLane061(1u));
+    if (record == nullptr) {
+      return nullptr;
+    }
+
+    record->lane0 = lane0;
+    record->lane1 = lane1;
+    std::memcpy(record->payload, payloadSource, sizeof(record->payload));
+    return record;
+  }
+
+  /**
+   * Address: 0x0083C110 (FUN_0083C110)
+   *
+   * What it does:
+   * Allocates one 48-byte red-black tree head lane and zeros tree links before
+   * setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode48Color44* RuntimeAllocateRbHeadNode48LaneC()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode48Color44>(gpg::core::legacy::AllocateChecked48ByteLane);
+  }
+
+  /**
+   * Address: 0x0083C220 (FUN_0083C220)
+   *
+   * What it does:
+   * Allocates one 24-byte red-black tree head lane and zeros tree links before
+   * setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode24Color20* RuntimeAllocateRbHeadNode24LaneA()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode24Color20>(RuntimeAllocateArrayWithBadAllocLane063);
+  }
+
+  /**
+   * Address: 0x00849C30 (FUN_00849C30)
+   *
+   * What it does:
+   * Allocates one 60-byte red-black tree head lane and zeros tree links before
+   * setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode60Color56* RuntimeAllocateRbHeadNode60LaneA()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode60Color56>(RuntimeAllocateArrayWithBadAllocLane064);
+  }
+
+  /**
+   * Address: 0x00856F30 (FUN_00856F30)
+   *
+   * What it does:
+   * Recursively clears one tree lane of refcounted nodes, releasing the shared
+   * control-block stored at `+0x14` before deleting each node.
+   */
+  void RuntimeDestroyRefcountedTreeLaneA(RuntimeControlTreeNode28* root)
+  {
+    if (root == nullptr || root->isNil != 0u) {
+      return;
+    }
+
+    do {
+      RuntimeDestroyRefcountedTreeLaneA(root->right);
+      RuntimeControlTreeNode28* const current = root;
+      root = root->left;
+      RuntimeReleaseSharedControlBlock(current->sharedControl);
+      ::operator delete(current);
+    } while (root->isNil == 0u);
+  }
+
+  /**
+   * Address: 0x00861DC0 (FUN_00861DC0)
+   *
+   * What it does:
+   * Allocates one 3152-byte red-black tree head lane and zeros tree links
+   * before setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode3152Color3144* RuntimeAllocateRbHeadNode3152LaneA()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode3152Color3144>(RuntimeAllocateArrayWithBadAllocLane068);
+  }
+
+  /**
+   * Address: 0x0087C3B0 (FUN_0087C3B0)
+   *
+   * What it does:
+   * Allocates one 24-byte red-black tree head lane and zeros tree links before
+   * setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode24Color20* RuntimeAllocateRbHeadNode24LaneB()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode24Color20>(RuntimeAllocateArrayWithBadAllocLane070);
+  }
+
+  /**
+   * Address: 0x0087C5F0 (FUN_0087C5F0)
+   *
+   * What it does:
+   * Allocates one 24-byte red-black tree head lane and zeros tree links before
+   * setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode24Color20* RuntimeAllocateRbHeadNode24LaneC()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode24Color20>(RuntimeAllocateArrayWithBadAllocLane071);
+  }
+
+  /**
+   * Address: 0x0087C990 (FUN_0087C990)
+   *
+   * What it does:
+   * Allocates one 20-byte red-black tree head lane and zeros tree links before
+   * setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode20Color16* RuntimeAllocateRbHeadNode20LaneB()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode20Color16>(RuntimeAllocateArrayWithBadAllocLane069);
+  }
+
+  /**
+   * Address: 0x008846B0 (FUN_008846B0)
+   *
+   * What it does:
+   * Clears one legacy VC8 string lane at owner offset `+0x04`, releasing heap
+   * storage when capacity is dynamic and restoring inline-empty state.
+   */
+  int RuntimeResetPrefixedLegacyStringLaneA(RuntimePrefixDwordAndString* const owner)
+  {
+    RuntimeResetLegacyStringStorage(&owner->text);
+    return 0;
+  }
+
+  /**
+   * Address: 0x0089A820 (FUN_0089A820)
+   *
+   * What it does:
+   * Recursively clears one tree lane whose payload embeds a legacy string at
+   * offset `+0x14`, then deletes each node.
+   */
+  void RuntimeDestroyStringTreeLaneA(RuntimeTreeNodeWithString48* root)
+  {
+    if (root == nullptr || root->isNil != 0u) {
+      return;
+    }
+
+    do {
+      RuntimeDestroyStringTreeLaneA(root->right);
+      RuntimeTreeNodeWithString48* const current = root;
+      root = root->left;
+      RuntimeResetLegacyStringStorage(&current->key);
+      ::operator delete(current);
+    } while (root->isNil == 0u);
+  }
+
+  /**
+   * Address: 0x0089AA60 (FUN_0089AA60)
+   *
+   * What it does:
+   * Allocates one 24-byte red-black tree head lane and zeros tree links before
+   * setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode24Color20* RuntimeAllocateRbHeadNode24LaneD()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode24Color20>(RuntimeAllocateArrayWithBadAllocLane075);
+  }
+
+  /**
+   * Address: 0x008A9490 (FUN_008A9490)
+   *
+   * What it does:
+   * Allocates one 80-byte red-black tree head lane and zeros tree links before
+   * setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode80Color76* RuntimeAllocateRbHeadNode80LaneA()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode80Color76>(RuntimeAllocateArrayWithBadAllocLane076);
+  }
+
+  /**
+   * Address: 0x008A9F10 (FUN_008A9F10)
+   *
+   * What it does:
+   * Clears both legacy string lanes in each 56-byte record over `[begin,end)`
+   * and restores inline-empty state for each string.
+   */
+  void RuntimeResetDualLegacyStringRange56LaneA(
+    RuntimeDualLegacyStringRecord56* begin,
+    RuntimeDualLegacyStringRecord56* const end
+  )
+  {
+    while (begin != end) {
+      RuntimeResetLegacyStringStorage(&begin->second);
+      RuntimeResetLegacyStringStorage(&begin->first);
+      ++begin;
+    }
+  }
+
+  /**
+   * Address: 0x008B68E0 (FUN_008B68E0)
+   *
+   * What it does:
+   * Allocates one 24-byte command-issue tree head lane and zeros tree links
+   * before setting marker bytes `{color=1, isNil=0}`.
+   */
+  [[nodiscard]] RuntimeRbHeadNode24Color16* RuntimeAllocateCommandIssueTreeHeadLaneA()
+  {
+    return RuntimeAllocateRbHeadNodeCommon<RuntimeRbHeadNode24Color16>(RuntimeAllocateArrayWithBadAllocLane078);
+  }
+
+  /**
+   * Address: 0x008D6FC0 (FUN_008D6FC0)
+   *
+   * What it does:
+   * Allocates one `32`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane079(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 32u);
+  }
+
+  /**
+   * Address: 0x008D90D0 (FUN_008D90D0)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane079A(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x008D9190 (FUN_008D9190)
+   *
+   * What it does:
+   * Allocates one `24`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane079B(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 24u);
+  }
+
+  /**
+   * Address: 0x008E4100 (FUN_008E4100)
+   *
+   * What it does:
+   * Allocates one `48`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane079C(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 48u);
+  }
+
+  /**
+   * Address: 0x008E8790 (FUN_008E8790)
+   *
+   * What it does:
+   * Allocates one `112`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane080(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 112u);
+  }
+
+  /**
+   * Address: 0x008F5FD0 (FUN_008F5FD0)
+   *
+   * What it does:
+   * Allocates one `28`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane081(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 28u);
+  }
+
+  /**
+   * Address: 0x0092C000 (FUN_0092C000)
+   *
+   * What it does:
+   * Allocates one `2`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane081A(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 2u);
+  }
+
+  /**
+   * Address: 0x0092C080 (FUN_0092C080)
+   *
+   * What it does:
+   * Allocates one `12`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane082(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 12u);
+  }
+
+  /**
+   * Address: 0x0092C0E0 (FUN_0092C0E0)
+   *
+   * What it does:
+   * Allocates one `12`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane083(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 12u);
+  }
+
+  /**
+   * Address: 0x0092C150 (FUN_0092C150)
+   *
+   * What it does:
+   * Allocates one `40`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane083A(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 40u);
+  }
+
+  /**
+   * Address: 0x00935B20 (FUN_00935B20)
+   *
+   * What it does:
+   * Allocates one `4`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane084(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 4u);
+  }
+
+  /**
+   * Address: 0x0094F1B0 (FUN_0094F1B0)
+   *
+   * What it does:
+   * Allocates one `8`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane085(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 8u);
+  }
+
+  /**
+   * Address: 0x0094F210 (FUN_0094F210)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane086(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x00A72080 (FUN_00A72080)
+   *
+   * What it does:
+   * Allocates one `8`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane087(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 8u);
+  }
+
+  /**
+   * Address: 0x00A720E0 (FUN_00A720E0)
+   *
+   * What it does:
+   * Allocates one `16`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane088(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 16u);
+  }
+
+  /**
+   * Address: 0x00AC38F0 (FUN_00AC38F0)
+   *
+   * What it does:
+   * Allocates one `4`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane089(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 4u);
+  }
+
+  /**
+   * Address: 0x00A53AD0 (FUN_00A53AD0)
+   *
+   * What it does:
+   * Allocates one `4`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane090(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 4u);
+  }
+
+  /**
+   * Address: 0x00A53BD0 (FUN_00A53BD0)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane091(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x00A53C40 (FUN_00A53C40)
+   *
+   * What it does:
+   * Allocates one `20`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane092(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 20u);
+  }
+
+  /**
+   * Address: 0x00A53E10 (FUN_00A53E10)
+   *
+   * What it does:
+   * Allocates one `36`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane093(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 36u);
+  }
+
+  /**
+   * Address: 0x00A53EB0 (FUN_00A53EB0)
+   *
+   * What it does:
+   * Allocates one `36`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane094(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 36u);
+  }
+
+  /**
+   * Address: 0x00AC2A10 (FUN_00AC2A10)
+   *
+   * What it does:
+   * Allocates one `12`-byte element array lane and throws `std::bad_alloc`
+   * when the 32-bit count multiplication overflows.
+   */
+  [[nodiscard]] void* RuntimeAllocateArrayWithBadAllocLane095(const unsigned int count)
+  {
+    return RuntimeAllocateArrayWithBadAllocCommon(count, 12u);
+  }
+
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeBuildMapSetLengthErrorNodeCommon(
+    RuntimeMapSetLengthErrorNode* const left,
+    RuntimeMapSetLengthErrorNode* const parent,
+    RuntimeMapSetLengthErrorNode* const right,
+    const RuntimeMapSetLengthErrorKeyRecord* const keyRecord,
+    const RuntimeMapSetLengthErrorNodeAllocator allocateNode
+  )
+  {
+    RuntimeMapSetLengthErrorNode* const node = allocateNode();
+    if (node == nullptr) {
+      return nullptr;
+    }
+
+    try {
+      node->left = left;
+      node->parent = parent;
+      node->right = right;
+      node->keyText.assign(keyRecord->keyText, 0u, std::string::npos);
+      node->keyMetadata = keyRecord->keyMetadata;
+      node->color = 0;
+      node->isNil = 0;
+    } catch (...) {
+      delete node;
+      throw;
+    }
+
+    return node;
+  }
+
+  /**
+   * Address: 0x005358E0 (FUN_005358E0)
+   *
+   * What it does:
+   * Builds one map/set tree node lane for a `length_error` key payload using
+   * allocator lane A and initializes links, copied key text, metadata, and
+   * red-black marker bytes.
+   */
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeBuildMapSetLengthErrorNodeA(
+    RuntimeMapSetLengthErrorNode* const left,
+    RuntimeMapSetLengthErrorNode* const parent,
+    RuntimeMapSetLengthErrorNode* const right,
+    const RuntimeMapSetLengthErrorKeyRecord* const keyRecord
+  )
+  {
+    return RuntimeBuildMapSetLengthErrorNodeCommon(
+      left,
+      parent,
+      right,
+      keyRecord,
+      &RuntimeAllocateMapSetLengthErrorNodeLaneA
+    );
+  }
+
+  /**
+   * Address: 0x005359A0 (FUN_005359A0)
+   *
+   * What it does:
+   * Builds one map/set tree node lane for a `length_error` key payload using
+   * allocator lane B and initializes links, copied key text, metadata, and
+   * red-black marker bytes.
+   */
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeBuildMapSetLengthErrorNodeB(
+    RuntimeMapSetLengthErrorNode* const left,
+    RuntimeMapSetLengthErrorNode* const parent,
+    RuntimeMapSetLengthErrorNode* const right,
+    const RuntimeMapSetLengthErrorKeyRecord* const keyRecord
+  )
+  {
+    return RuntimeBuildMapSetLengthErrorNodeCommon(
+      left,
+      parent,
+      right,
+      keyRecord,
+      &RuntimeAllocateMapSetLengthErrorNodeLaneB
+    );
+  }
+
+  /**
+   * Address: 0x00535A60 (FUN_00535A60)
+   *
+   * What it does:
+   * Builds one map/set tree node lane for a `length_error` key payload using
+   * allocator lane C and initializes links, copied key text, metadata, and
+   * red-black marker bytes.
+   */
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeBuildMapSetLengthErrorNodeC(
+    RuntimeMapSetLengthErrorNode* const left,
+    RuntimeMapSetLengthErrorNode* const parent,
+    RuntimeMapSetLengthErrorNode* const right,
+    const RuntimeMapSetLengthErrorKeyRecord* const keyRecord
+  )
+  {
+    return RuntimeBuildMapSetLengthErrorNodeCommon(
+      left,
+      parent,
+      right,
+      keyRecord,
+      &RuntimeAllocateMapSetLengthErrorNodeLaneC
+    );
+  }
+
+  /**
+   * Address: 0x00535B20 (FUN_00535B20)
+   *
+   * What it does:
+   * Builds one map/set tree node lane for a `length_error` key payload using
+   * allocator lane D and initializes links, copied key text, metadata, and
+   * red-black marker bytes.
+   */
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeBuildMapSetLengthErrorNodeD(
+    RuntimeMapSetLengthErrorNode* const left,
+    RuntimeMapSetLengthErrorNode* const parent,
+    RuntimeMapSetLengthErrorNode* const right,
+    const RuntimeMapSetLengthErrorKeyRecord* const keyRecord
+  )
+  {
+    return RuntimeBuildMapSetLengthErrorNodeCommon(
+      left,
+      parent,
+      right,
+      keyRecord,
+      &RuntimeAllocateMapSetLengthErrorNodeLaneD
+    );
+  }
+
+  /**
+   * Address: 0x00535BE0 (FUN_00535BE0)
+   *
+   * What it does:
+   * Builds one map/set tree node lane for a `length_error` key payload using
+   * allocator lane E and initializes links, copied key text, metadata, and
+   * red-black marker bytes.
+   */
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeBuildMapSetLengthErrorNodeE(
+    RuntimeMapSetLengthErrorNode* const left,
+    RuntimeMapSetLengthErrorNode* const parent,
+    RuntimeMapSetLengthErrorNode* const right,
+    const RuntimeMapSetLengthErrorKeyRecord* const keyRecord
+  )
+  {
+    return RuntimeBuildMapSetLengthErrorNodeCommon(
+      left,
+      parent,
+      right,
+      keyRecord,
+      &RuntimeAllocateMapSetLengthErrorNodeLaneE
+    );
+  }
+
+  /**
+   * Address: 0x00535CA0 (FUN_00535CA0)
+   *
+   * What it does:
+   * Builds one map/set tree node lane for a `length_error` key payload using
+   * allocator lane F and initializes links, copied key text, metadata, and
+   * red-black marker bytes.
+   */
+  [[nodiscard]] RuntimeMapSetLengthErrorNode* RuntimeBuildMapSetLengthErrorNodeF(
+    RuntimeMapSetLengthErrorNode* const left,
+    RuntimeMapSetLengthErrorNode* const parent,
+    RuntimeMapSetLengthErrorNode* const right,
+    const RuntimeMapSetLengthErrorKeyRecord* const keyRecord
+  )
+  {
+    return RuntimeBuildMapSetLengthErrorNodeCommon(
+      left,
+      parent,
+      right,
+      keyRecord,
+      &RuntimeAllocateMapSetLengthErrorNodeLaneF
+    );
+  }
+
+  /**
+   * Address: 0x00741530 (FUN_00741530)
+   *
+   * What it does:
+   * Throws the legacy VC8 deque growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowDequeTooLongA()
+  {
+    RuntimeThrowContainerTooLong("deque<T> too long");
+  }
+
+  /**
+   * Address: 0x00741630 (FUN_00741630)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongA()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0074EA10 (FUN_0074EA10)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongB()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0074EFA0 (FUN_0074EFA0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongC()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0074F320 (FUN_0074F320)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongD()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0074F680 (FUN_0074F680)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongE()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0075FA60 (FUN_0075FA60)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongF()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0076C730 (FUN_0076C730)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongG()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0076CA70 (FUN_0076CA70)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongH()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007BC150 (FUN_007BC150)
+   *
+   * What it does:
+   * Throws the legacy VC8 deque growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowDequeTooLongB()
+  {
+    RuntimeThrowContainerTooLong("deque<T> too long");
+  }
+
+  /**
+   * Address: 0x008B5410 (FUN_008B5410)
+   *
+   * What it does:
+   * Throws the legacy VC8 deque growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowDequeTooLongC()
+  {
+    RuntimeThrowContainerTooLong("deque<T> too long");
+  }
+
+  /**
+   * Address: 0x008B7E00 (FUN_008B7E00)
+   *
+   * What it does:
+   * Throws the legacy VC8 deque growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowDequeTooLongD()
+  {
+    RuntimeThrowContainerTooLong("deque<T> too long");
+  }
+
+  /**
+   * Address: 0x004D44E0 (FUN_004D44E0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongI()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x004FDBA0 (FUN_004FDBA0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongJ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00505A70 (FUN_00505A70)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongK()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0052DE80 (FUN_0052DE80)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongL()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0052EC30 (FUN_0052EC30)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongM()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0054D330 (FUN_0054D330)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongN()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0054D690 (FUN_0054D690)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongO()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00581020 (FUN_00581020)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongP()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005926F0 (FUN_005926F0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongQ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00592830 (FUN_00592830)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongR()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005C7DA0 (FUN_005C7DA0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongS()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00652590 (FUN_00652590)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongT()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0066AA70 (FUN_0066AA70)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongU()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00692CB0 (FUN_00692CB0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongV()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x006D1D30 (FUN_006D1D30)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongW()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x006EB4B0 (FUN_006EB4B0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongX()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x006F8AE0 (FUN_006F8AE0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongY()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00733910 (FUN_00733910)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongZ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007835E0 (FUN_007835E0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAA()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0078A540 (FUN_0078A540)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAB()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00830270 (FUN_00830270)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAC()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0084F5C0 (FUN_0084F5C0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAD()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0085F310 (FUN_0085F310)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAE()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x008B3090 (FUN_008B3090)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAF()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+
+  /**
+   * Address: 0x004DBE30 (FUN_004DBE30)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongA()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x004DC690 (FUN_004DC690)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAG()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x004DCF90 (FUN_004DCF90)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongB()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x004E22B0 (FUN_004E22B0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongC()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x004E2980 (FUN_004E2980)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongD()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x004E2D70 (FUN_004E2D70)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongE()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x004E3310 (FUN_004E3310)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongA()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x004E3490 (FUN_004E3490)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongB()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x004E9100 (FUN_004E9100)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongF()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x004F8BB0 (FUN_004F8BB0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAH()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x004F8F60 (FUN_004F8F60)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAI()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x004F9310 (FUN_004F9310)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAJ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00505750 (FUN_00505750)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAK()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005109A0 (FUN_005109A0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAL()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00514530 (FUN_00514530)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongC()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x00519BC0 (FUN_00519BC0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAM()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005242C0 (FUN_005242C0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAN()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00524640 (FUN_00524640)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAO()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0052CD30 (FUN_0052CD30)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongG()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x005349E0 (FUN_005349E0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongH()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00534B90 (FUN_00534B90)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongI()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00534D40 (FUN_00534D40)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongJ()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00534EF0 (FUN_00534EF0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongK()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x005350A0 (FUN_005350A0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongL()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00535250 (FUN_00535250)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongM()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00535400 (FUN_00535400)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongN()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00537EF0 (FUN_00537EF0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAP()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00540580 (FUN_00540580)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAQ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00540850 (FUN_00540850)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAR()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00540910 (FUN_00540910)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAS()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00543AB0 (FUN_00543AB0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAT()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00543B90 (FUN_00543B90)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAU()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00548290 (FUN_00548290)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAV()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005565D0 (FUN_005565D0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongO()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x005615B0 (FUN_005615B0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAW()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005616C0 (FUN_005616C0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAX()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005617E0 (FUN_005617E0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAY()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00561900 (FUN_00561900)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongAZ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005619C0 (FUN_005619C0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBA()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0056ECA0 (FUN_0056ECA0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongP()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x0056F520 (FUN_0056F520)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongQ()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00580430 (FUN_00580430)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBB()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00580720 (FUN_00580720)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongR()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00580BB0 (FUN_00580BB0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBC()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00594F80 (FUN_00594F80)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongS()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x005A0DD0 (FUN_005A0DD0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBD()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005A1050 (FUN_005A1050)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongT()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x005AB760 (FUN_005AB760)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongD()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x005C7290 (FUN_005C7290)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBE()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005C79A0 (FUN_005C79A0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBF()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005C85E0 (FUN_005C85E0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBG()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005D0330 (FUN_005D0330)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongE()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x005DD340 (FUN_005DD340)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBH()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005DD790 (FUN_005DD790)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBI()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005EB090 (FUN_005EB090)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBJ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x005EB690 (FUN_005EB690)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBK()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00627B20 (FUN_00627B20)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBL()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0064EE20 (FUN_0064EE20)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBM()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0064EEE0 (FUN_0064EEE0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBN()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00653860 (FUN_00653860)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBO()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0067D8E0 (FUN_0067D8E0)
+   *
+   * What it does:
+   * Throws the legacy VC8 deque growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowDequeTooLongE()
+  {
+    RuntimeThrowContainerTooLong("deque<T> too long");
+  }
+
+  /**
+   * Address: 0x0067DD60 (FUN_0067DD60)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBP()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0067E7D0 (FUN_0067E7D0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBQ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00686190 (FUN_00686190)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongU()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00687280 (FUN_00687280)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongV()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x006885F0 (FUN_006885F0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBR()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0069F360 (FUN_0069F360)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBS()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x006AFA40 (FUN_006AFA40)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongW()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x006DC930 (FUN_006DC930)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBT()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x006DCF40 (FUN_006DCF40)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBU()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x006E1D60 (FUN_006E1D60)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongX()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x006E2740 (FUN_006E2740)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBV()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007029C0 (FUN_007029C0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBW()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00703410 (FUN_00703410)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBX()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00710030 (FUN_00710030)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongY()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00710A40 (FUN_00710A40)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongZ()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00710D10 (FUN_00710D10)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongF()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x0071AB80 (FUN_0071AB80)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAA()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x0071B260 (FUN_0071B260)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBY()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0071B510 (FUN_0071B510)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAB()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+
+  /**
+   * Address: 0x0071BCA0 (FUN_0071BCA0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongBZ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007360A0 (FUN_007360A0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAC()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00739FD0 (FUN_00739FD0)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongG()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x0073A160 (FUN_0073A160)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongH()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x0074EEA0 (FUN_0074EEA0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCA()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0074FB00 (FUN_0074FB00)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCB()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00767F50 (FUN_00767F50)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCC()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007683F0 (FUN_007683F0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCD()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00769ED0 (FUN_00769ED0)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongI()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x0077B600 (FUN_0077B600)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAD()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x0077BE80 (FUN_0077BE80)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAE()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x0077D260 (FUN_0077D260)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongJ()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x007987C0 (FUN_007987C0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCE()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007A5D20 (FUN_007A5D20)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCF()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007AF800 (FUN_007AF800)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAF()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x007AFA90 (FUN_007AFA90)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongK()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x007AFF20 (FUN_007AFF20)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCG()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007B0550 (FUN_007B0550)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCH()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007B2B30 (FUN_007B2B30)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAG()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x007B3910 (FUN_007B3910)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAH()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x007BC060 (FUN_007BC060)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCI()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007C9F10 (FUN_007C9F10)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCJ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007CA5F0 (FUN_007CA5F0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCK()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007CE090 (FUN_007CE090)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAI()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x007D3E10 (FUN_007D3E10)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongL()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x007D4720 (FUN_007D4720)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongM()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x007D8200 (FUN_007D8200)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAJ()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x007D88B0 (FUN_007D88B0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCL()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007DA480 (FUN_007DA480)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCM()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007E3A60 (FUN_007E3A60)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCN()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007E4CE0 (FUN_007E4CE0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCO()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007E5DF0 (FUN_007E5DF0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAK()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x007E94E0 (FUN_007E94E0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCP()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007F11E0 (FUN_007F11E0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAL()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x007F1780 (FUN_007F1780)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCQ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007F1A70 (FUN_007F1A70)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAM()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x007F1F90 (FUN_007F1F90)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCR()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007FB500 (FUN_007FB500)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCS()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x007FB5B0 (FUN_007FB5B0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCT()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00813BE0 (FUN_00813BE0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCU()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0081A5D0 (FUN_0081A5D0)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongN()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x0081BA40 (FUN_0081BA40)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongO()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x0082DD60 (FUN_0082DD60)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongP()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x0082E320 (FUN_0082E320)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAN()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x0082ED20 (FUN_0082ED20)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongQ()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x0082F050 (FUN_0082F050)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongR()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x0082F5D0 (FUN_0082F5D0)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongS()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x0082FC70 (FUN_0082FC70)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCV()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00830620 (FUN_00830620)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCW()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x008307F0 (FUN_008307F0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCX()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00837540 (FUN_00837540)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCY()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0083B9E0 (FUN_0083B9E0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAO()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x0083BDE0 (FUN_0083BDE0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAP()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00849100 (FUN_00849100)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongCZ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x008494E0 (FUN_008494E0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDA()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0084F0C0 (FUN_0084F0C0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDB()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00855A80 (FUN_00855A80)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAQ()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00856100 (FUN_00856100)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDC()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x008563F0 (FUN_008563F0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDD()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0085A5B0 (FUN_0085A5B0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDE()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  struct RuntimeSharedControlPairEntry
+  {
+    void* reserved00 = nullptr;                     // +0x00
+    volatile long* firstControl = nullptr;          // +0x04
+    void* reserved08 = nullptr;                     // +0x08
+    volatile long* secondControl = nullptr;         // +0x0C
+  };
+  static_assert(sizeof(RuntimeSharedControlPairEntry) == 0x10, "RuntimeSharedControlPairEntry size must be 0x10");
+
+  RuntimeSharedControlPairEntry* gRuntimeSharedControlPairBegin = nullptr;
+  RuntimeSharedControlPairEntry* gRuntimeSharedControlPairEnd = nullptr;
+  RuntimeSharedControlPairEntry* gRuntimeSharedControlPairCapacity = nullptr;
+
+  void RuntimeReleaseSharedControlLane(volatile long* const control) noexcept
+  {
+    if (control == nullptr) {
+      return;
+    }
+
+    using ReleaseFn = int(__thiscall*)(volatile long*);
+    auto* const vtable = reinterpret_cast<ReleaseFn*>(*reinterpret_cast<void**>(const_cast<long*>(control)));
+
+    if (::InterlockedExchangeAdd(control + 1, -1) == 0) {
+      (void)vtable[1](control);
+      if (::InterlockedExchangeAdd(control + 2, -1) == 0) {
+        (void)vtable[2](control);
+      }
+    }
+  }
+
+  /**
+   * Address: 0x004FFE40 (FUN_004FFE40)
+   *
+   * What it does:
+   * Invokes one caller-supplied binary callback over `iterationCount` strided
+   * lane pairs and returns the final callback result.
+   */
+  [[nodiscard]] std::intptr_t __stdcall RuntimeInvokeStridedBinaryCallbackReverse(
+    std::intptr_t left,
+    std::intptr_t right,
+    const std::intptr_t strideBytes,
+    const std::int32_t iterationCount,
+    std::intptr_t(__thiscall* const callback)(std::intptr_t, std::intptr_t)
+  ) noexcept
+  {
+    std::intptr_t result = 0;
+    if (callback == nullptr) {
+      return result;
+    }
+
+    for (std::int32_t index = iterationCount - 1; index >= 0; --index) {
+      (void)index;
+      result = callback(left, right);
+      left += strideBytes;
+      right += strideBytes;
+    }
+
+    return result;
+  }
+
+  /**
+   * Address: 0x0053A9A0 (FUN_0053A9A0)
+   *
+   * What it does:
+   * Releases one intrusive shared-control lane referenced from owner offset
+   * `+0x04` and preserves the original release return-value lane.
+   */
+  [[nodiscard]] std::intptr_t RuntimeReleaseSharedControlFromOwner(
+    const std::intptr_t ownerRuntime
+  ) noexcept
+  {
+    auto* const ownerBytes = reinterpret_cast<std::uint8_t*>(ownerRuntime);
+    volatile long* const control = ownerBytes != nullptr ? *reinterpret_cast<volatile long**>(ownerBytes + 4) : nullptr;
+    if (control == nullptr) {
+      return ownerRuntime;
+    }
+
+    std::intptr_t result = ownerRuntime;
+    if (::InterlockedExchangeAdd(control + 1, -1) == 0) {
+      using ReleaseFn = std::intptr_t(__thiscall*)(volatile long*);
+      auto* const vtable = reinterpret_cast<ReleaseFn*>(*reinterpret_cast<void**>(const_cast<long*>(control)));
+      (void)vtable[1](control);
+      result = reinterpret_cast<std::intptr_t>(control + 2);
+      if (::InterlockedExchangeAdd(control + 2, -1) == 0) {
+        return vtable[2](control);
+      }
+    }
+
+    return result;
+  }
+
+  [[nodiscard]] std::intptr_t RuntimeReleaseSharedControlArrayRange(
+    const std::intptr_t begin,
+    const std::intptr_t end,
+    const std::int32_t strideBytes,
+    const std::int32_t sharedControlOffsetBytes
+  ) noexcept
+  {
+    std::intptr_t result = begin;
+    for (std::intptr_t cursor = begin; cursor != end; cursor += strideBytes) {
+      auto* const entryBytes = reinterpret_cast<std::uint8_t*>(cursor);
+      volatile long* const control = *reinterpret_cast<volatile long**>(entryBytes + sharedControlOffsetBytes);
+      if (control == nullptr) {
+        continue;
+      }
+
+      result = reinterpret_cast<std::intptr_t>(control + 1);
+      if (::InterlockedExchangeAdd(control + 1, -1) == 0) {
+        using ReleaseFn = std::intptr_t(__thiscall*)(volatile long*);
+        auto* const vtable = reinterpret_cast<ReleaseFn*>(*reinterpret_cast<void**>(const_cast<long*>(control)));
+        result = vtable[1](control);
+        if (::InterlockedExchangeAdd(control + 2, -1) == 0) {
+          result = vtable[2](control);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Address: 0x007420F0 (FUN_007420F0)
+   *
+   * What it does:
+   * Releases one shared-control lane at offset `+0x08` for each 12-byte entry
+   * in `[begin,end)`.
+   */
+  [[nodiscard]] std::intptr_t RuntimeReleaseSharedControlRangeStride12(
+    const std::intptr_t begin,
+    const std::intptr_t end
+  ) noexcept
+  {
+    return RuntimeReleaseSharedControlArrayRange(begin, end, 12, 8);
+  }
+
+  /**
+   * Address: 0x007FBBA0 (FUN_007FBBA0)
+   *
+   * What it does:
+   * Releases one shared-control lane at offset `+0x10` for each 20-byte entry
+   * in `[begin,end)`.
+   */
+  [[nodiscard]] std::intptr_t RuntimeReleaseSharedControlRangeStride20(
+    const std::intptr_t begin,
+    const std::intptr_t end
+  ) noexcept
+  {
+    return RuntimeReleaseSharedControlArrayRange(begin, end, 20, 16);
+  }
+
+  /**
+   * Address: 0x00A48A40 (FUN_00A48A40)
+   *
+   * What it does:
+   * Reverses byte order of each fixed-width element in every row of the caller
+   * buffer (`elementWidthBytes * rowCount` bytes total).
+   */
+  void RuntimeReverseBytesPerElementRows(
+    const std::int32_t elementWidthBytes,
+    const std::int32_t rowCount,
+    void* rowBuffer
+  ) noexcept
+  {
+    if (rowBuffer == nullptr || rowCount <= 0 || elementWidthBytes <= 1) {
+      return;
+    }
+
+    auto* rowBytes = static_cast<std::uint8_t*>(rowBuffer);
+    const std::int32_t halfWidth = elementWidthBytes / 2;
+    for (std::int32_t row = 0; row < rowCount; ++row) {
+      std::uint8_t* left = rowBytes;
+      std::uint8_t* right = rowBytes + elementWidthBytes - 1;
+      for (std::int32_t lane = 0; lane < halfWidth; ++lane) {
+        std::swap(*left, *right);
+        ++left;
+        --right;
+      }
+      rowBytes += elementWidthBytes;
+    }
+  }
+
+  /**
+   * Address: 0x0085A1F0 (FUN_0085A1F0)
+   *
+   * What it does:
+   * Releases each shared-control pair entry from the static array lane and
+   * frees the backing array storage.
+   */
+  void RuntimeReleaseSharedControlPairArray()
+  {
+    RuntimeSharedControlPairEntry* cursor = gRuntimeSharedControlPairBegin;
+    if (cursor != nullptr) {
+      RuntimeSharedControlPairEntry* const end = gRuntimeSharedControlPairEnd;
+      while (cursor != end) {
+        RuntimeReleaseSharedControlLane(cursor->secondControl);
+        RuntimeReleaseSharedControlLane(cursor->firstControl);
+        ++cursor;
+      }
+
+      ::operator delete(static_cast<void*>(gRuntimeSharedControlPairBegin));
+    }
+
+    gRuntimeSharedControlPairBegin = nullptr;
+    gRuntimeSharedControlPairEnd = nullptr;
+    gRuntimeSharedControlPairCapacity = nullptr;
+  }
+
+
+  /**
+   * Address: 0x00861AA0 (FUN_00861AA0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAR()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00868370 (FUN_00868370)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDF()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00869F40 (FUN_00869F40)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDG()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0087A470 (FUN_0087A470)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAS()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x0087AA40 (FUN_0087AA40)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDH()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0087AF70 (FUN_0087AF70)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAT()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x0087B3D0 (FUN_0087B3D0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDI()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0087B8F0 (FUN_0087B8F0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAU()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x0087BD50 (FUN_0087BD50)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDJ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00882F00 (FUN_00882F00)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDK()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0088A6F0 (FUN_0088A6F0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDL()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0088A9C0 (FUN_0088A9C0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDM()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00892860 (FUN_00892860)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDN()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00899490 (FUN_00899490)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAV()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x008A8E30 (FUN_008A8E30)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAW()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x008A95C0 (FUN_008A95C0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDO()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x008AEF00 (FUN_008AEF00)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAX()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x008AF910 (FUN_008AF910)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongT()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x008B33C0 (FUN_008B33C0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDP()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x008B6310 (FUN_008B6310)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAY()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x008C5F30 (FUN_008C5F30)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongU()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x008CBB80 (FUN_008CBB80)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongAZ()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x008D5720 (FUN_008D5720)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongBA()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x008D6570 (FUN_008D6570)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDQ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x008DB990 (FUN_008DB990)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDR()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x008E4460 (FUN_008E4460)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongV()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x008EA9D0 (FUN_008EA9D0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDS()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x008EAA50 (FUN_008EAA50)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDT()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x008F6890 (FUN_008F6890)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDU()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x008F6900 (FUN_008F6900)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDV()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0092EFF0 (FUN_0092EFF0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDW()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0092F060 (FUN_0092F060)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDX()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0092F0D0 (FUN_0092F0D0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDY()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x0092F1A0 (FUN_0092F1A0)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongW()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x0092F8D0 (FUN_0092F8D0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongDZ()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x009332E0 (FUN_009332E0)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongX()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x009333D0 (FUN_009333D0)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongY()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x00933470 (FUN_00933470)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongEA()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00933530 (FUN_00933530)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongEB()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00936DB0 (FUN_00936DB0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongEC()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00948ED0 (FUN_00948ED0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongBB()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x009490C0 (FUN_009490C0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongBC()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x009492B0 (FUN_009492B0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongBD()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x009512B0 (FUN_009512B0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongBE()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x009514A0 (FUN_009514A0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongED()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00951530 (FUN_00951530)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongEE()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00A3E250 (FUN_00A3E250)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongBF()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00A62FD0 (FUN_00A62FD0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongBG()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00A631D0 (FUN_00A631D0)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongBH()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00A63950 (FUN_00A63950)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongBI()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00A63B50 (FUN_00A63B50)
+   *
+   * What it does:
+   * Throws the legacy VC8 map/set growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowMapSetTooLongBJ()
+  {
+    RuntimeThrowContainerTooLong("map/set<T> too long");
+  }
+
+  /**
+   * Address: 0x00A63D50 (FUN_00A63D50)
+   *
+   * What it does:
+   * Throws the legacy VC8 deque growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowDequeTooLongF()
+  {
+    RuntimeThrowContainerTooLong("deque<T> too long");
+  }
+
+  /**
+   * Address: 0x00A64090 (FUN_00A64090)
+   *
+   * What it does:
+   * Throws the legacy VC8 deque growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowDequeTooLongG()
+  {
+    RuntimeThrowContainerTooLong("deque<T> too long");
+  }
+
+  struct ConvexHullFloatRuntimeView
+  {
+    void* vtable = nullptr;                 // +0x00
+    std::uint8_t reserved04_13[0x10]{};     // +0x04 .. +0x13
+    void* planeStorage = nullptr;           // +0x14
+  };
+  static_assert(offsetof(ConvexHullFloatRuntimeView, planeStorage) == 0x14, "ConvexHullFloatRuntimeView::planeStorage offset");
+  static_assert(sizeof(ConvexHullFloatRuntimeView) == 0x18, "ConvexHullFloatRuntimeView size must be 0x18");
+
+  /**
+   * Address: 0x00A6BC00 (FUN_00A6BC00)
+   *
+   * What it does:
+   * Executes the convex-hull float destruction tail by releasing the heap
+   * plane-storage array lane at `this+0x14`.
+   */
+  void DestroyConvexHullFloatPlaneStorageRuntime(ConvexHullFloatRuntimeView* const hull) noexcept
+  {
+    if (hull == nullptr) {
+      return;
+    }
+
+    void* const planeStorage = hull->planeStorage;
+    hull->planeStorage = nullptr;
+    ::operator delete[](planeStorage);
+  }
+
+  struct ConvexHullDoubleRuntimeView
+  {
+    void* vtable = nullptr;                  // +0x00
+    std::uint8_t reserved04_17[0x14]{};      // +0x04 .. +0x17
+    void* planeStorage = nullptr;            // +0x18
+  };
+  static_assert(
+    offsetof(ConvexHullDoubleRuntimeView, planeStorage) == 0x18,
+    "ConvexHullDoubleRuntimeView::planeStorage offset"
+  );
+  static_assert(sizeof(ConvexHullDoubleRuntimeView) == 0x1C, "ConvexHullDoubleRuntimeView size must be 0x1C");
+
+  /**
+   * Alias of FUN_00A6BCD0 (non-canonical helper lane).
+   *
+   * What it does:
+   * Executes the convex-hull double destruction tail by releasing the heap
+   * plane-storage array lane at `this+0x18`.
+   */
+  void DestroyConvexHullDoublePlaneStorageRuntime(ConvexHullDoubleRuntimeView* const hull) noexcept
+  {
+    if (hull == nullptr) {
+      return;
+    }
+
+    void* const planeStorage = hull->planeStorage;
+    hull->planeStorage = nullptr;
+    ::operator delete[](planeStorage);
+  }
+
+  struct ConvexHull1FloatRuntimeView
+  {
+    ConvexHullFloatRuntimeView base;                     // +0x00
+    std::uint8_t reserved18_1B[0x04]{};                 // +0x18 .. +0x1B
+    std::uint8_t externalStorageOwnedFlag = 0u;         // +0x1C
+    std::uint8_t reserved1D_1F[0x03]{};                 // +0x1D .. +0x1F
+    void* externalPlaneStorage = nullptr;               // +0x20
+  };
+  static_assert(
+    offsetof(ConvexHull1FloatRuntimeView, externalStorageOwnedFlag) == 0x1C,
+    "ConvexHull1FloatRuntimeView::externalStorageOwnedFlag offset"
+  );
+  static_assert(
+    offsetof(ConvexHull1FloatRuntimeView, externalPlaneStorage) == 0x20,
+    "ConvexHull1FloatRuntimeView::externalPlaneStorage offset"
+  );
+
+  struct ConvexHull1DoubleRuntimeView
+  {
+    ConvexHullDoubleRuntimeView base;                   // +0x00
+    std::uint8_t reserved1C_27[0x0C]{};                // +0x1C .. +0x27
+    std::uint8_t externalStorageOwnedFlag = 0u;        // +0x28
+    std::uint8_t reserved29_2F[0x07]{};                // +0x29 .. +0x2F
+    void* externalPlaneStorage = nullptr;              // +0x30
+  };
+  static_assert(
+    offsetof(ConvexHull1DoubleRuntimeView, externalStorageOwnedFlag) == 0x28,
+    "ConvexHull1DoubleRuntimeView::externalStorageOwnedFlag offset"
+  );
+  static_assert(
+    offsetof(ConvexHull1DoubleRuntimeView, externalPlaneStorage) == 0x30,
+    "ConvexHull1DoubleRuntimeView::externalPlaneStorage offset"
+  );
+
+  /**
+   * Address: 0x00A71F20 (FUN_00A71F20)
+   *
+   * What it does:
+   * Executes the deleting-dtor lane for `Wm3::ConvexHull1<float>` by releasing
+   * optional external storage, tearing down base plane storage, and deleting
+   * the object when requested by `deleteFlags`.
+   */
+  void* DestroyConvexHull1FloatRuntime(ConvexHull1FloatRuntimeView* const hull, const std::uint8_t deleteFlags) noexcept
+  {
+    if (hull == nullptr) {
+      return nullptr;
+    }
+
+    if (hull->externalStorageOwnedFlag != 0u) {
+      void* const externalStorage = hull->externalPlaneStorage;
+      hull->externalPlaneStorage = nullptr;
+      ::operator delete[](externalStorage);
+    }
+
+    DestroyConvexHullFloatPlaneStorageRuntime(&hull->base);
+
+    if ((deleteFlags & 0x1u) != 0u) {
+      ::operator delete(hull);
+      return nullptr;
+    }
+
+    return hull;
+  }
+
+  /**
+   * Address: 0x00A71F60 (FUN_00A71F60)
+   *
+   * What it does:
+   * Executes the deleting-dtor lane for `Wm3::ConvexHull1<double>` by
+   * releasing optional external storage, tearing down base plane storage, and
+   * deleting the object when requested by `deleteFlags`.
+   */
+  void* DestroyConvexHull1DoubleRuntime(ConvexHull1DoubleRuntimeView* const hull, const std::uint8_t deleteFlags) noexcept
+  {
+    if (hull == nullptr) {
+      return nullptr;
+    }
+
+    if (hull->externalStorageOwnedFlag != 0u) {
+      void* const externalStorage = hull->externalPlaneStorage;
+      hull->externalPlaneStorage = nullptr;
+      ::operator delete[](externalStorage);
+    }
+
+    DestroyConvexHullDoublePlaneStorageRuntime(&hull->base);
+
+    if ((deleteFlags & 0x1u) != 0u) {
+      ::operator delete(hull);
+      return nullptr;
+    }
+
+    return hull;
+  }
+
+  struct RuntimeDequeMapGrowthView
+  {
+    std::uint8_t reserved00_03[0x04]{};      // +0x00
+    std::uint32_t* blockMap = nullptr;       // +0x04
+    std::uint32_t mapSlotCount = 0u;         // +0x08
+    std::uint32_t startBlockOffset = 0u;     // +0x0C (in dword lanes)
+    std::uint32_t activeElementCount = 0u;   // +0x10
+  };
+  static_assert(offsetof(RuntimeDequeMapGrowthView, blockMap) == 0x04, "RuntimeDequeMapGrowthView::blockMap offset");
+  static_assert(
+    offsetof(RuntimeDequeMapGrowthView, mapSlotCount) == 0x08, "RuntimeDequeMapGrowthView::mapSlotCount offset"
+  );
+  static_assert(
+    offsetof(RuntimeDequeMapGrowthView, startBlockOffset) == 0x0C, "RuntimeDequeMapGrowthView::startBlockOffset offset"
+  );
+  static_assert(
+    offsetof(RuntimeDequeMapGrowthView, activeElementCount) == 0x10,
+    "RuntimeDequeMapGrowthView::activeElementCount offset"
+  );
+  static_assert(sizeof(RuntimeDequeMapGrowthView) == 0x14, "RuntimeDequeMapGrowthView size must be 0x14");
+
+  using DequeMapThrowTooLongFn = void (*)();
+
+  [[nodiscard]] std::uint32_t* AllocateDequeMapSlots(const std::size_t slotCount)
+  {
+    if (slotCount == 0u) {
+      return nullptr;
+    }
+
+    if (slotCount > ((std::numeric_limits<std::size_t>::max)() / sizeof(std::uint32_t))) {
+      throw std::bad_alloc();
+    }
+
+    return static_cast<std::uint32_t*>(::operator new(slotCount * sizeof(std::uint32_t)));
+  }
+
+  [[nodiscard]] std::uint32_t* GrowDequeMapSlotsRuntime(
+    RuntimeDequeMapGrowthView& dequeMap,
+    unsigned int requestedGrow,
+    const DequeMapThrowTooLongFn throwTooLong
+  )
+  {
+    const unsigned int currentMapSlots = dequeMap.mapSlotCount;
+    if ((0x0FFFFFFFu - currentMapSlots) < requestedGrow) {
+      throwTooLong();
+    }
+
+    unsigned int growBy = currentMapSlots >> 1u;
+    if (growBy < 8u) {
+      growBy = 8u;
+    }
+    if (requestedGrow < growBy && currentMapSlots <= (0x0FFFFFFFu - growBy)) {
+      requestedGrow = growBy;
+    }
+
+    const unsigned int startBlockIndex = dequeMap.startBlockOffset >> 2u;
+    auto* const replacementMap = AllocateDequeMapSlots(static_cast<std::size_t>(requestedGrow + currentMapSlots));
+    auto* const priorMap = dequeMap.blockMap;
+
+    const unsigned int tailSlotCount = currentMapSlots - startBlockIndex;
+    auto* const tailDestination = replacementMap + startBlockIndex;
+    if (tailSlotCount != 0u && priorMap != nullptr) {
+      std::memmove(
+        tailDestination,
+        priorMap + startBlockIndex,
+        static_cast<std::size_t>(tailSlotCount) * sizeof(std::uint32_t)
+      );
+    }
+
+    auto* writeCursor = tailDestination + tailSlotCount;
+    unsigned int committedGrow = requestedGrow;
+
+    if (startBlockIndex > requestedGrow) {
+      const unsigned int trailingHeadSlotCount = startBlockIndex - requestedGrow;
+      if (requestedGrow != 0u && priorMap != nullptr) {
+        std::memmove(
+          writeCursor,
+          priorMap,
+          static_cast<std::size_t>(requestedGrow) * sizeof(std::uint32_t)
+        );
+      }
+      if (trailingHeadSlotCount != 0u && priorMap != nullptr) {
+        std::memmove(
+          replacementMap,
+          priorMap + requestedGrow,
+          static_cast<std::size_t>(trailingHeadSlotCount) * sizeof(std::uint32_t)
+        );
+      }
+      if (requestedGrow != 0u) {
+        std::memset(
+          replacementMap + trailingHeadSlotCount,
+          0,
+          static_cast<std::size_t>(requestedGrow) * sizeof(std::uint32_t)
+        );
+      }
+    } else {
+      if (startBlockIndex != 0u && priorMap != nullptr) {
+        std::memmove(
+          writeCursor,
+          priorMap,
+          static_cast<std::size_t>(startBlockIndex) * sizeof(std::uint32_t)
+        );
+      }
+
+      if (requestedGrow != startBlockIndex) {
+        std::memset(
+          writeCursor + startBlockIndex,
+          0,
+          static_cast<std::size_t>(requestedGrow - startBlockIndex) * sizeof(std::uint32_t)
+        );
+      }
+
+      if (startBlockIndex != 0u) {
+        std::memset(
+          replacementMap,
+          0,
+          static_cast<std::size_t>(startBlockIndex) * sizeof(std::uint32_t)
+        );
+      }
+    }
+
+    if (priorMap != nullptr) {
+      ::operator delete(priorMap);
+    }
+
+    dequeMap.mapSlotCount += committedGrow;
+    dequeMap.blockMap = replacementMap;
+    return priorMap;
+  }
+
+  /**
+   * Address: 0x00A65540 (FUN_00A65540)
+   *
+   * What it does:
+   * Grows one deque map-of-blocks lane, preserves wrapped head/tail slot
+   * ordering, zeroes newly inserted block-pointer lanes, and installs the
+   * replacement map storage.
+   */
+  std::uint32_t* RuntimeGrowDequeMapSlotsF(
+    RuntimeDequeMapGrowthView& dequeMap,
+    const unsigned int requestedGrow
+  )
+  {
+    return GrowDequeMapSlotsRuntime(dequeMap, requestedGrow, &RuntimeThrowDequeTooLongF);
+  }
+
+  /**
+   * Address: 0x00A65830 (FUN_00A65830)
+   *
+   * What it does:
+   * Alternate deque map growth lane with the same block-map rotation and
+   * zero-fill semantics as `RuntimeGrowDequeMapSlotsF`.
+   */
+  std::uint32_t* RuntimeGrowDequeMapSlotsG(
+    RuntimeDequeMapGrowthView& dequeMap,
+    const unsigned int requestedGrow
+  )
+  {
+    return GrowDequeMapSlotsRuntime(dequeMap, requestedGrow, &RuntimeThrowDequeTooLongG);
+  }
+
+  [[nodiscard]] std::uint32_t* RuntimeDequePushBackDwordCommon(
+    RuntimeDequeMapGrowthView& dequeMap,
+    const std::uint32_t* const value,
+    std::uint32_t* (*const growMap)(
+      RuntimeDequeMapGrowthView&,
+      const unsigned int
+    )
+  )
+  {
+    const std::uint32_t alignedIndex = dequeMap.activeElementCount + dequeMap.startBlockOffset;
+    if (((alignedIndex & 0x3u) == 0u) && dequeMap.mapSlotCount <= ((dequeMap.activeElementCount + 4u) >> 2u)) {
+      (void)growMap(dequeMap, 1u);
+    }
+
+    const std::uint32_t logicalIndex = dequeMap.activeElementCount + dequeMap.startBlockOffset;
+    std::uint32_t blockIndex = logicalIndex >> 2u;
+    if (dequeMap.mapSlotCount <= blockIndex) {
+      blockIndex -= dequeMap.mapSlotCount;
+    }
+
+    if (dequeMap.blockMap == nullptr) {
+      return nullptr;
+    }
+
+    auto* const blockPointers = reinterpret_cast<std::uintptr_t*>(dequeMap.blockMap);
+    if (blockPointers[blockIndex] == 0u) {
+      blockPointers[blockIndex] = reinterpret_cast<std::uintptr_t>(::operator new(0x10u));
+    }
+
+    auto* const writeLane = reinterpret_cast<std::uint32_t*>(blockPointers[blockIndex]) + (logicalIndex & 0x3u);
+    if (writeLane != nullptr && value != nullptr) {
+      *writeLane = *value;
+    }
+
+    ++dequeMap.activeElementCount;
+    return writeLane;
+  }
+
+  /**
+   * Address: 0x00A65C80 (FUN_00A65C80)
+   *
+   * What it does:
+   * Appends one 4-byte element into the deque block-map lane, allocating block
+   * storage on demand and growing the map through `RuntimeGrowDequeMapSlotsF`.
+   */
+  std::uint32_t* RuntimeDequePushBackDwordWithGrowF(
+    RuntimeDequeMapGrowthView& dequeMap,
+    const std::uint32_t* const value
+  )
+  {
+    return RuntimeDequePushBackDwordCommon(dequeMap, value, &RuntimeGrowDequeMapSlotsF);
+  }
+
+  /**
+   * Address: 0x00A65F00 (FUN_00A65F00)
+   *
+   * What it does:
+   * Appends one 4-byte element into the deque block-map lane, allocating block
+   * storage on demand and growing the map through `RuntimeGrowDequeMapSlotsG`.
+   */
+  std::uint32_t* RuntimeDequePushBackDwordWithGrowG(
+    RuntimeDequeMapGrowthView& dequeMap,
+    const std::uint32_t* const value
+  )
+  {
+    return RuntimeDequePushBackDwordCommon(dequeMap, value, &RuntimeGrowDequeMapSlotsG);
+  }
+
+  struct RuntimeLinearBufferView
+  {
+    std::int32_t elementCount = 0; // +0x00
+    void* elementStorage = nullptr; // +0x04
+  };
+  static_assert(sizeof(RuntimeLinearBufferView) == 0x08, "RuntimeLinearBufferView size must be 0x08");
+  static_assert(
+    offsetof(RuntimeLinearBufferView, elementStorage) == 0x04,
+    "RuntimeLinearBufferView::elementStorage offset must be 0x04"
+  );
+
+  /**
+   * Address: 0x00A6D050 (FUN_00A6D050)
+   *
+   * What it does:
+   * Initializes one linear buffer lane for `elementCount` 4-byte elements;
+   * non-positive counts clear storage, positive counts allocate and zero-fill.
+   */
+  RuntimeLinearBufferView* RuntimeAllocateZeroedLinearBuffer4Byte(
+    RuntimeLinearBufferView* const bufferView,
+    const int elementCount
+  )
+  {
+    if (bufferView == nullptr) {
+      return nullptr;
+    }
+
+    if (elementCount <= 0) {
+      bufferView->elementCount = 0;
+      bufferView->elementStorage = nullptr;
+      return bufferView;
+    }
+
+    bufferView->elementCount = elementCount;
+    const std::size_t byteCount = static_cast<std::size_t>(elementCount) * sizeof(std::uint32_t);
+    bufferView->elementStorage = ::operator new(byteCount);
+    std::memset(bufferView->elementStorage, 0, byteCount);
+    return bufferView;
+  }
+
+  /**
+   * Address: 0x00A6D120 (FUN_00A6D120)
+   *
+   * What it does:
+   * Initializes one linear buffer lane for `elementCount` 8-byte elements;
+   * non-positive counts clear storage, positive counts allocate and zero-fill.
+   */
+  RuntimeLinearBufferView* RuntimeAllocateZeroedLinearBuffer8Byte(
+    RuntimeLinearBufferView* const bufferView,
+    const int elementCount
+  )
+  {
+    if (bufferView == nullptr) {
+      return nullptr;
+    }
+
+    if (elementCount <= 0) {
+      bufferView->elementCount = 0;
+      bufferView->elementStorage = nullptr;
+      return bufferView;
+    }
+
+    bufferView->elementCount = elementCount;
+    const std::size_t byteCount = static_cast<std::size_t>(elementCount) * sizeof(std::uint64_t);
+    bufferView->elementStorage = ::operator new(byteCount);
+    std::memset(bufferView->elementStorage, 0, byteCount);
+    return bufferView;
+  }
+
+  struct RuntimePointerGridView
+  {
+    std::int32_t rowCount = 0;       // +0x00
+    std::int32_t columnCount = 0;    // +0x04
+    std::int32_t elementCount = 0;   // +0x08
+    void* elementStorage = nullptr;  // +0x0C
+    void** rowPointers = nullptr;    // +0x10
+  };
+  static_assert(sizeof(RuntimePointerGridView) == 0x14, "RuntimePointerGridView size must be 0x14");
+  static_assert(offsetof(RuntimePointerGridView, rowCount) == 0x00, "RuntimePointerGridView::rowCount offset must be 0x00");
+  static_assert(
+    offsetof(RuntimePointerGridView, elementStorage) == 0x0C,
+    "RuntimePointerGridView::elementStorage offset must be 0x0C"
+  );
+  static_assert(
+    offsetof(RuntimePointerGridView, rowPointers) == 0x10,
+    "RuntimePointerGridView::rowPointers offset must be 0x10"
+  );
+
+  [[nodiscard]] int RuntimeAllocatePointerGrid(
+    RuntimePointerGridView& grid,
+    const bool zeroInitialize,
+    const std::size_t elementStride
+  )
+  {
+    const std::size_t elementBytes = static_cast<std::size_t>(grid.elementCount) * elementStride;
+    grid.elementStorage = ::operator new(elementBytes);
+    if (zeroInitialize) {
+      std::memset(grid.elementStorage, 0, elementBytes);
+    }
+
+    grid.rowPointers = static_cast<void**>(::operator new(static_cast<std::size_t>(grid.rowCount) * sizeof(void*)));
+    int rowIndex = 0;
+    auto* const rowStartBytes = static_cast<std::byte*>(grid.elementStorage);
+    for (; rowIndex < grid.rowCount; ++rowIndex) {
+      grid.rowPointers[rowIndex] = rowStartBytes
+        + static_cast<std::size_t>(rowIndex * grid.columnCount) * elementStride;
+    }
+
+    return rowIndex;
+  }
+
+  /**
+   * Address: 0x00A6D190 (FUN_00A6D190)
+   *
+   * What it does:
+   * Allocates one pointer-grid lane with 4-byte elements and fills row pointer
+   * lanes to each row-start offset.
+   */
+  [[nodiscard]] int RuntimeAllocatePointerGrid4Byte(
+    RuntimePointerGridView& grid,
+    const std::uint8_t zeroInitialize
+  )
+  {
+    return RuntimeAllocatePointerGrid(grid, zeroInitialize != 0u, 4u);
+  }
+
+  /**
+   * Address: 0x00A6D230 (FUN_00A6D230)
+   *
+   * What it does:
+   * Allocates one pointer-grid lane with 8-byte elements and fills row pointer
+   * lanes to each row-start offset.
+   */
+  [[nodiscard]] int RuntimeAllocatePointerGrid8Byte(
+    RuntimePointerGridView& grid,
+    const std::uint8_t zeroInitialize
+  )
+  {
+    return RuntimeAllocatePointerGrid(grid, zeroInitialize != 0u, 8u);
+  }
+
+  /**
+   * Address: 0x00A70760 (FUN_00A70760)
+   *
+   * What it does:
+   * Releases prior pointer-grid storage, updates dimensions/count, and
+   * re-allocates a zero-initialized 4-byte element grid when dimensions are
+   * positive.
+   */
+  int RuntimeResetAndResizePointerGrid4Byte(
+    RuntimePointerGridView& grid,
+    const int rowCount,
+    const int columnCount
+  )
+  {
+    ::operator delete[](grid.elementStorage);
+    ::operator delete[](grid.rowPointers);
+
+    const int result = rowCount;
+    if (rowCount <= 0 || columnCount <= 0) {
+      grid.rowCount = 0;
+      grid.columnCount = 0;
+      grid.elementCount = 0;
+      grid.elementStorage = nullptr;
+      grid.rowPointers = nullptr;
+      return result;
+    }
+
+    grid.rowCount = rowCount;
+    grid.columnCount = columnCount;
+    grid.elementCount = rowCount * columnCount;
+    return RuntimeAllocatePointerGrid4Byte(grid, 1u);
+  }
+
+  /**
+   * Address: 0x00A707C0 (FUN_00A707C0)
+   *
+   * What it does:
+   * Releases prior pointer-grid storage, updates dimensions/count, and
+   * re-allocates a zero-initialized 8-byte element grid when dimensions are
+   * positive.
+   */
+  int RuntimeResetAndResizePointerGrid8Byte(
+    RuntimePointerGridView& grid,
+    const int rowCount,
+    const int columnCount
+  )
+  {
+    ::operator delete[](grid.elementStorage);
+    ::operator delete[](grid.rowPointers);
+
+    const int result = rowCount;
+    if (rowCount <= 0 || columnCount <= 0) {
+      grid.rowCount = 0;
+      grid.columnCount = 0;
+      grid.elementCount = 0;
+      grid.elementStorage = nullptr;
+      grid.rowPointers = nullptr;
+      return result;
+    }
+
+    grid.rowCount = rowCount;
+    grid.columnCount = columnCount;
+    grid.elementCount = rowCount * columnCount;
+    return RuntimeAllocatePointerGrid8Byte(grid, 1u);
+  }
+
+  /**
+   * Address: 0x00A73FD0 (FUN_00A73FD0)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongEF()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00A74050 (FUN_00A74050)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongEG()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00AC3140 (FUN_00AC3140)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongZ()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
+  }
+
+  /**
+   * Address: 0x00AC4040 (FUN_00AC4040)
+   *
+   * What it does:
+   * Throws the legacy VC8 vector growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowVectorTooLongEH()
+  {
+    RuntimeThrowContainerTooLong("vector<T> too long");
+  }
+
+  /**
+   * Address: 0x00AC5D90 (FUN_00AC5D90)
+   *
+   * What it does:
+   * Throws the legacy VC8 list growth overflow length-error diagnostic.
+   */
+  [[noreturn]] void RuntimeThrowListTooLongAA()
+  {
+    RuntimeThrowContainerTooLong("list<T> too long");
   }
 
   /**
@@ -11759,11 +20821,66 @@ extern "C" void __cdecl _UnwindNestedFrames(PVOID targetFrame, PEXCEPTION_RECORD
   }
 
   /**
+   * Address: 0x00A8679D (FUN_00A8679D)
+   *
+   * What it does:
+   * Performs `ungetc` pushback core validation and buffer mutation: enforces
+   * textmode lane constraints, reserves one byte in the stream buffer, and
+   * updates `_cnt/_flag` on successful pushback.
+   */
+  int RuntimeUngetcCore(const int character, std::FILE* const stream)
+  {
+    LegacyFileView& fileView = legacy_file(stream);
+    if ((fileView._flag & 0x40) == 0) {
+      const RuntimeIoInfo* const ioInfo = ResolveIoInfoFromStream(stream);
+      if (((ioInfo->textmodeUnicode & 0x7F) != 0) || (ioInfo->textmodeUnicode < 0)) {
+        *_errno() = EINVAL;
+        _invalid_parameter(nullptr, nullptr, nullptr, 0u, 0u);
+        return EOF;
+      }
+    }
+
+    if (character == EOF) {
+      return EOF;
+    }
+
+    if ((fileView._flag & 0x1) == 0 && (((fileView._flag & 0x80) == 0) || (fileView._flag & 0x2) != 0)) {
+      return EOF;
+    }
+
+    if (fileView._base == nullptr) {
+      _getbuf(stream);
+    }
+
+    if (fileView._ptr == fileView._base) {
+      if (fileView._cnt != 0) {
+        return EOF;
+      }
+      ++fileView._ptr;
+    }
+
+    char* const pushedSlot = --fileView._ptr;
+    const unsigned char pushedByte = static_cast<unsigned char>(character);
+    if ((fileView._flag & 0x40) != 0) {
+      if (static_cast<unsigned char>(*pushedSlot) != pushedByte) {
+        ++fileView._ptr;
+        return EOF;
+      }
+    } else {
+      *pushedSlot = static_cast<char>(pushedByte);
+    }
+
+    ++fileView._cnt;
+    fileView._flag = (fileView._flag & ~0x10) | 0x1;
+    return static_cast<int>(pushedByte);
+  }
+
+  /**
    * Address: 0x00A868BB (FUN_00A868BB, ungetc)
    *
    * What it does:
-   * Validates stream pointer lane and forwards pushback to CRT `ungetc`
-   * behavior, returning `EOF` for invalid-parameter input.
+   * Validates stream pointer lane, then dispatches to the recovered ungetc
+   * pushback core helper.
    */
   int RuntimeUngetc(const int character, std::FILE* const stream)
   {
@@ -11773,7 +20890,7 @@ extern "C" void __cdecl _UnwindNestedFrames(PVOID targetFrame, PEXCEPTION_RECORD
       return EOF;
     }
 
-    return std::ungetc(character, stream);
+    return RuntimeUngetcCore(character, stream);
   }
 
   /**
@@ -12110,27 +21227,63 @@ extern "C" void __cdecl _UnwindNestedFrames(PVOID targetFrame, PEXCEPTION_RECORD
   }
 
   /**
+   * Address: 0x00A8C1F2 (FUN_00A8C1F2, _strftime_l)
+   *
+   * What it does:
+   * Formats one `tm` lane into caller buffer by forwarding to `__Strftime_l`
+   * with explicit locale and null timezone lanes.
+   */
+  extern "C" std::size_t __cdecl _strftime_l(
+    char* const destination,
+    const std::size_t maxCount,
+    const char* const format,
+    const std::tm* const timeData,
+    _locale_t localeInfo
+  )
+  {
+    return __Strftime_l(destination, maxCount, format, timeData, nullptr, localeInfo);
+  }
+
+  /**
    * Address: 0x00A8C210 (FUN_00A8C210, strftime)
    *
    * What it does:
    * Formats one `tm` lane into caller buffer by forwarding to `__Strftime_l`
    * with default timezone/locale lanes.
    */
-  extern "C" std::size_t __cdecl strftime(
-    char* const destination,
-    const std::size_t maxCount,
-    const char* const format,
-    const std::tm* const timeData
-  )
-  {
-    return __Strftime_l(destination, maxCount, format, timeData, nullptr, nullptr);
-  }
+extern "C" std::size_t __cdecl strftime(
+  char* const destination,
+  const std::size_t maxCount,
+  const char* const format,
+  const std::tm* const timeData
+)
+{
+  return __Strftime_l(destination, maxCount, format, timeData, nullptr, nullptr);
+}
 
-  /**
-   * Address: 0x00AA6F65 (FUN_00AA6F65, _tfdopen)
-   *
-   * What it does:
-   * Validates fd + mode text, allocates one CRT stream lane, applies parsed
+/**
+ * Address: 0x00A8C22D (FUN_00A8C22D, __Strftime)
+ *
+ * What it does:
+ * Forwards time formatting to `__Strftime_l` with caller-provided locale-time
+ * lane and a null explicit locale lane.
+ */
+extern "C" std::size_t __cdecl __Strftime(
+  char* const destination,
+  const std::size_t maxCount,
+  const char* const format,
+  const std::tm* const timeData,
+  void* const localeTimeArg
+)
+{
+  return __Strftime_l(destination, maxCount, format, timeData, localeTimeArg, nullptr);
+}
+
+/**
+ * Address: 0x00AA6F65 (FUN_00AA6F65, _tfdopen)
+ *
+ * What it does:
+ * Validates fd + mode text, allocates one CRT stream lane, applies parsed
    * open flags, and returns unlocked `FILE*` storage.
    */
   std::FILE* RuntimeTfdopen(const int fileDescriptor, char* modeText)
@@ -12526,6 +21679,18 @@ extern "C" void __cdecl _UnwindNestedFrames(PVOID targetFrame, PEXCEPTION_RECORD
   }
 
   /**
+   * Address: 0x00AB7EF7 (FUN_00AB7EF7, _fptrap)
+   *
+   * What it does:
+   * Raises CRT floating-point trap startup failure message lane via
+   * `__amsg_exit(2)`.
+   */
+  extern "C" void __cdecl _fptrap()
+  {
+    __amsg_exit(2);
+  }
+
+  /**
    * Address: 0x00AB8080 (FUN_00AB8080, _copy_environ)
    *
    * What it does:
@@ -12554,6 +21719,106 @@ extern "C" void __cdecl _UnwindNestedFrames(PVOID targetFrame, PEXCEPTION_RECORD
     }
     copiedEnvironment[entryCount] = nullptr;
     return copiedEnvironment;
+  }
+
+  /**
+   * Address: 0x00ABDD12 (FUN_00ABDD12)
+   *
+   * What it does:
+   * Duplicates one null-terminated `wchar_t**` environment pointer vector into
+   * CRT heap storage and deep-copies each entry with `_wcsdup` semantics.
+   */
+  wchar_t** RuntimeCopyWideEnvironment(const wchar_t* const* const sourceEnvironment)
+  {
+    if (sourceEnvironment == nullptr) {
+      return nullptr;
+    }
+
+    std::size_t entryCount = 0u;
+    while (sourceEnvironment[entryCount] != nullptr) {
+      ++entryCount;
+    }
+
+    auto** const copiedEnvironment =
+      static_cast<wchar_t**>(_calloc_crt(entryCount + 1u, sizeof(wchar_t*)));
+    if (copiedEnvironment == nullptr) {
+      __amsg_exit(9);
+      return nullptr;
+    }
+
+    for (std::size_t entryIndex = 0u; entryIndex < entryCount; ++entryIndex) {
+      copiedEnvironment[entryIndex] = _wcsdup(sourceEnvironment[entryIndex]);
+    }
+    copiedEnvironment[entryCount] = nullptr;
+    return copiedEnvironment;
+  }
+
+  /**
+   * Address: 0x009BE9A0 (FUN_009BE9A0)
+   *
+   * What it does:
+   * Replaces one owned wide-string pointer lane with a heap clone of
+   * `sourceText` and clears the lane when input is null.
+   */
+  void** RuntimeAssignWideStringHeapClone(
+    void** const destinationSlot,
+    const wchar_t* const sourceText
+  )
+  {
+    _free_crt(*destinationSlot);
+    if (sourceText != nullptr) {
+      const std::size_t byteCount = (std::wcslen(sourceText) + 1u) * sizeof(wchar_t);
+      void* const copied = std::malloc(byteCount);
+      std::memcpy(copied, sourceText, byteCount);
+      *destinationSlot = copied;
+      return destinationSlot;
+    }
+
+    *destinationSlot = nullptr;
+    return destinationSlot;
+  }
+
+  struct RuntimeSlidingBufferView
+  {
+    std::uint8_t reserved00_0B[0x0C]{}; // +0x00
+    char* buffer = nullptr;             // +0x0C
+    std::uint32_t writeOffset = 0;      // +0x10
+    std::uint32_t readOffset = 0;       // +0x14
+  };
+  static_assert(offsetof(RuntimeSlidingBufferView, buffer) == 0x0C, "RuntimeSlidingBufferView::buffer offset must be 0x0C");
+  static_assert(offsetof(RuntimeSlidingBufferView, writeOffset) == 0x10, "RuntimeSlidingBufferView::writeOffset offset must be 0x10");
+  static_assert(offsetof(RuntimeSlidingBufferView, readOffset) == 0x14, "RuntimeSlidingBufferView::readOffset offset must be 0x14");
+
+  /**
+   * Address: 0x009DCFA0 (FUN_009DCFA0)
+   *
+   * What it does:
+   * Reallocates one sliding-buffer lane with `prefixBytes` of leading space,
+   * shifts unread payload forward, and resets read offset to zero.
+   */
+  char* RuntimeSlidingBufferPrependGap(
+    RuntimeSlidingBufferView* const slidingBuffer,
+    const int prefixBytes
+  )
+  {
+    const std::uint32_t payloadBytes = slidingBuffer->writeOffset - slidingBuffer->readOffset;
+    char* const replacement = static_cast<char*>(std::malloc(static_cast<std::size_t>(payloadBytes + prefixBytes)));
+    if (replacement != nullptr) {
+      if (slidingBuffer->buffer != nullptr) {
+        std::memmove(
+          replacement + prefixBytes,
+          slidingBuffer->buffer + slidingBuffer->readOffset,
+          payloadBytes
+        );
+        _free_crt(slidingBuffer->buffer);
+      }
+
+      slidingBuffer->buffer = replacement;
+      slidingBuffer->writeOffset = payloadBytes + static_cast<std::uint32_t>(prefixBytes);
+      slidingBuffer->readOffset = 0u;
+    }
+
+    return replacement;
   }
 
   /**
@@ -12924,6 +22189,21 @@ extern "C" void __cdecl _UnwindNestedFrames(PVOID targetFrame, PEXCEPTION_RECORD
   );
   static_assert(sizeof(RuntimeOwnedHandleCell) == 0xC, "RuntimeOwnedHandleCell size must be 0xC");
 
+  /**
+   * Address: 0x00AC27B0 (FUN_00AC27B0)
+   *
+   * What it does:
+   * Waits for the owned kernel handle to signal, closes it, and clears the
+   * close-on-destroy flag lane.
+   */
+  [[maybe_unused]] BOOL RuntimeWaitAndCloseOwnedHandle(RuntimeOwnedHandleCell* const handleCell)
+  {
+    ::WaitForSingleObject(handleCell->handle, INFINITE);
+    const BOOL closeResult = ::CloseHandle(handleCell->handle);
+    handleCell->shouldCloseHandle = 0;
+    return closeResult;
+  }
+
   struct RuntimeWxStringView
   {
     wchar_t* m_pchData = nullptr; // +0x00
@@ -13139,4 +22419,5 @@ extern "C" void __cdecl _UnwindNestedFrames(PVOID targetFrame, PEXCEPTION_RECORD
     stringStorage->~basic_string();
   }
 } // namespace moho::runtime
+
 

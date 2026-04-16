@@ -1,6 +1,7 @@
 #include "CDecoder.h"
 
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 
 #include "gpg/core/algorithms/MD5.h"
@@ -31,6 +32,29 @@ namespace
   [[noreturn]] void ThrowDecoderError(const msvc8::string& message)
   {
     throw XDecoderMessageError(message.c_str());
+  }
+
+  /**
+   * Address: 0x006E5830 (FUN_006E5830)
+   *
+   * What it does:
+   * Seeds one `SCoordsVec2` with NaN fallback values, then reads the
+   * 8-byte coordinate payload from binary-stream storage.
+   */
+  [[nodiscard]] moho::SCoordsVec2* ReadCoordsVec2OrThrow(
+    gpg::BinaryReader& reader,
+    moho::SCoordsVec2* const outCoords
+  )
+  {
+    if (outCoords == nullptr) {
+      return nullptr;
+    }
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    outCoords->x = nan;
+    outCoords->z = nan;
+    reader.Read(reinterpret_cast<char*>(outCoords), sizeof(moho::SCoordsVec2));
+    return outCoords;
   }
 } // namespace
 
@@ -117,19 +141,19 @@ namespace moho
       DecodeSetCommandSource(reader);
       return;
     case ECmdStreamOp::CMDST_CommandSourceTerminated:
-      mSink->OnCommandSourceTerminated();
+      DecodeCommandSourceTerminated(reader);
       return;
     case ECmdStreamOp::CMDST_VerifyChecksum:
       DecodeVerifyChecksum(reader);
       return;
     case ECmdStreamOp::CMDST_RequestPause:
-      mSink->RequestPause();
+      DecodeRequestPause(reader);
       return;
     case ECmdStreamOp::CMDST_Resume:
-      mSink->Resume();
+      DecodeResume(reader);
       return;
     case ECmdStreamOp::CMDST_SingleStep:
-      mSink->SingleStep();
+      DecodeSingleStep(reader);
       return;
     case ECmdStreamOp::CMDST_CreateUnit:
       DecodeCreateUnit(reader);
@@ -245,6 +269,19 @@ namespace moho
   }
 
   /**
+   * Address: 0x006E4470 (FUN_006E4470)
+   *
+   * What it does:
+   * Forwards `CMDST_CommandSourceTerminated` to the sink without consuming
+   * any payload bytes.
+   */
+  void CDecoder::DecodeCommandSourceTerminated(gpg::BinaryReader& reader)
+  {
+    (void)reader;
+    mSink->OnCommandSourceTerminated();
+  }
+
+  /**
    * Address: 0x006E4480 (FUN_006E4480)
    */
   void CDecoder::DecodeVerifyChecksum(gpg::BinaryReader& reader)
@@ -254,6 +291,44 @@ namespace moho
     reader.ReadExact(digest);
     reader.ReadExact(beat);
     mSink->VerifyChecksum(digest, beat);
+  }
+
+  /**
+   * Address: 0x006E44C0 (FUN_006E44C0)
+   *
+   * What it does:
+   * Forwards `CMDST_RequestPause` to the sink without consuming any payload
+   * bytes.
+   */
+  void CDecoder::DecodeRequestPause(gpg::BinaryReader& reader)
+  {
+    (void)reader;
+    mSink->RequestPause();
+  }
+
+  /**
+   * Address: 0x006E44D0 (FUN_006E44D0)
+   *
+   * What it does:
+   * Forwards `CMDST_Resume` to the sink without consuming any payload bytes.
+   */
+  void CDecoder::DecodeResume(gpg::BinaryReader& reader)
+  {
+    (void)reader;
+    mSink->Resume();
+  }
+
+  /**
+   * Address: 0x006E44E0 (FUN_006E44E0)
+   *
+   * What it does:
+   * Forwards `CMDST_SingleStep` to the sink without consuming any payload
+   * bytes.
+   */
+  void CDecoder::DecodeSingleStep(gpg::BinaryReader& reader)
+  {
+    (void)reader;
+    mSink->SingleStep();
   }
 
   /**
@@ -268,7 +343,7 @@ namespace moho
 
     reader.ReadExact(armyIndex);
     reader.ReadString(&blueprintId);
-    reader.ReadExact(pos);
+    (void)ReadCoordsVec2OrThrow(reader, &pos);
     reader.ReadExact(heading);
 
     RResId resId{};

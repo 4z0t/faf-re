@@ -26,7 +26,7 @@ namespace moho
     CAiTarget() = default;
 
     /**
-     * Address: 0x005D5670 (FUN_005D5670)
+       * Address: 0x005D5670 (FUN_005D5670)
      *
      * What it does:
      * Copy-constructs target payload/link state from another target object.
@@ -34,7 +34,7 @@ namespace moho
     CAiTarget(const CAiTarget& source);
 
     /**
-     * Address: 0x005D5670 (FUN_005D5670)
+      * Alias of FUN_005D5670 (non-canonical helper lane).
      *
      * What it does:
      * Assigns payload/link state from another target object.
@@ -42,7 +42,7 @@ namespace moho
     CAiTarget& operator=(const CAiTarget& source);
 
     /**
-     * Address: 0x005D57E0 (FUN_005D57E0)
+       * Address: 0x005D57E0 (FUN_005D57E0)
      *
      * What it does:
      * Unlinks this target node from its current entity weak-link chain.
@@ -169,7 +169,7 @@ namespace moho
 
   private:
     /**
-     * Address: 0x005D5670 (FUN_005D5670)
+      * Alias of FUN_005D5670 (non-canonical helper lane).
      *
      * What it does:
      * Core link/payload copier used by copy-ctor and assignment.
@@ -177,7 +177,7 @@ namespace moho
     void CopyFromLinkedTarget(const CAiTarget& source);
 
     /**
-     * Address: 0x005D57E0 (FUN_005D57E0)
+      * Alias of FUN_005D57E0 (non-canonical helper lane).
      *
      * What it does:
      * Unlinks this target from owner weak-link slot chain.

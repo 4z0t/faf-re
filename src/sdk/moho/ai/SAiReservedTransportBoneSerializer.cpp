@@ -94,6 +94,63 @@ namespace
 } // namespace
 
 /**
+ * Address: 0x005EA550 (FUN_005EA550, std::vector_SAiReservedTransportBone::reset_storage)
+ *
+ * What it does:
+ * Destroys one `vector<SAiReservedTransportBone>` payload, releases the
+ * backing heap block, and clears the vector storage lanes to empty.
+ */
+void moho::ResetReservedTransportBoneVectorStorage(msvc8::vector<SAiReservedTransportBone>& storage)
+{
+  auto& view = msvc8::AsVectorRuntimeView(storage);
+  if (view.begin != nullptr) {
+    (void)DestroyReservedTransportBoneRange(view.begin, view.end);
+    ::operator delete(view.begin);
+  }
+
+  view.begin = nullptr;
+  view.end = nullptr;
+  view.capacityEnd = nullptr;
+}
+
+/**
+ * Address: 0x005EE360 (FUN_005EE360, destroy_SAiReservedTransportBone_range)
+ *
+ * What it does:
+ * Walks one half-open bone range, frees each reserved-bones heap lane, zeros
+ * vector pointers, and unlinks each reserved-unit weak node from owner chain.
+ */
+void* moho::DestroyReservedTransportBoneRange(SAiReservedTransportBone* begin, SAiReservedTransportBone* end)
+{
+  void* result = begin;
+  for (SAiReservedTransportBone* bone = begin; bone != end; ++bone) {
+    auto& reservedBonesView = msvc8::AsVectorRuntimeView(bone->reservedBones);
+    if (reservedBonesView.begin != nullptr) {
+      ::operator delete(reservedBonesView.begin);
+    }
+
+    reservedBonesView.begin = nullptr;
+    reservedBonesView.end = nullptr;
+    reservedBonesView.capacityEnd = nullptr;
+
+    result = bone->reservedUnit.ownerLinkSlot;
+    if (result != nullptr) {
+      auto** linkSlot = reinterpret_cast<WeakPtr<Unit>**>(result);
+      WeakPtr<Unit>* const thisNode = &bone->reservedUnit;
+      if (*linkSlot != thisNode) {
+        do {
+          linkSlot = &(*linkSlot)->nextInOwner;
+        } while (*linkSlot != thisNode);
+      }
+      *linkSlot = thisNode->nextInOwner;
+      result = linkSlot;
+    }
+  }
+
+  return result;
+}
+
+/**
  * Address: 0x005EB860 (FUN_005EB860, Moho::SAiReservedTransportBone::MemberDeserialize)
  *
  * What it does:

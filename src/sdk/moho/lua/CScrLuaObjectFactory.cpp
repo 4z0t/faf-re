@@ -1216,7 +1216,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x10015880 (FUN_10015880, ??0CScrLuaObjectFactory@Moho@@QAE@XZ)
+    * Alias of FUN_10015880 (non-canonical helper lane).
    */
   CScrLuaObjectFactory::CScrLuaObjectFactory()
     : mFactoryObjectIndex(++sNumIds)

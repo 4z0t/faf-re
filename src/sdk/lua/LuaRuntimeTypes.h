@@ -171,6 +171,15 @@ struct Proto
 	 * debug name/source pointer lanes under the owning thread archive context.
 	 */
 	static void MemberSerialize(gpg::WriteArchive* archive, Proto* object, int version, gpg::RRef* ownerRef);
+
+	/**
+	 * Address: 0x00922B20 (FUN_00922B20, Proto::MemberDeserialize)
+	 *
+	 * What it does:
+	 * Deserializes proto scalar metadata, constants/code/nested-proto lanes,
+	 * and debug name/source pointer lanes, then validates bytecode consistency.
+	 */
+	static void MemberDeserialize(gpg::ReadArchive* archive, Proto* object, int version, gpg::RRef* ownerRef);
 };
 
 struct UpVal

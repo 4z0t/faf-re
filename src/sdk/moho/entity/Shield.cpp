@@ -1,5 +1,7 @@
 #include "Shield.h"
 
+#include <Windows.h>
+
 #include <cstring>
 #include <string>
 #include <typeinfo>
@@ -8,6 +10,7 @@
 #include "moho/entity/EntityDb.h"
 #include "moho/lua/CScrLuaBinder.h"
 #include "moho/misc/InstanceCounter.h"
+#include "moho/misc/StatItem.h"
 #include "moho/misc/Stats.h"
 #include "moho/script/CScriptEvent.h"
 #include "moho/sim/CArmyImpl.h"
@@ -39,6 +42,14 @@ namespace
       sEntityType = gpg::LookupRType(typeid(moho::Entity));
     }
     return sEntityType;
+  }
+
+  void AdjustShieldInstanceStat(const long delta)
+  {
+    moho::StatItem* const statItem = moho::InstanceCounter<moho::Shield>::GetStatItem();
+    if (statItem != nullptr) {
+      InterlockedExchangeAdd(reinterpret_cast<volatile long*>(&statItem->mPrimaryValueBits), delta);
+    }
   }
 
   [[nodiscard]] moho::CScrLuaInitFormSet& SimLuaInitSet()
@@ -98,6 +109,19 @@ namespace moho
   gpg::RType* Shield::sPointerType = nullptr;
 
   /**
+   * Address: 0x00776340 (FUN_00776340, preregister_ShieldTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `moho::Shield`.
+   */
+  [[nodiscard]] gpg::RType* preregister_ShieldTypeInfo()
+  {
+    static ShieldTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(Shield), &typeInfo);
+    return &typeInfo;
+  }
+
+  /**
    * Address: 0x00776E90 (FUN_00776E90, Moho::InstanceCounter<Moho::Shield>::GetStatItem)
    *
    * What it does:
@@ -128,7 +152,7 @@ namespace moho
   Shield::Shield(Sim* const sim)
     : Entity(sim, kShieldCollisionBucketFlags)
   {
-    ++InstanceCounter<Shield>::s_count;
+    AdjustShieldInstanceStat(1L);
   }
 
   /**
@@ -148,7 +172,7 @@ namespace moho
                              : BuildShieldFamilySourceBits(kInvalidArmySourceIndex) | 1u)
       )
   {
-    ++InstanceCounter<Shield>::s_count;
+    AdjustShieldInstanceStat(1L);
 
     if (SimulationRef != nullptr) {
       SimulationRef->mShields.push_back(this);
@@ -200,16 +224,17 @@ namespace moho
   }
 
   /**
-   * Address: 0x00776570 (FUN_00776570)
+   * Address: 0x00776570 (FUN_00776570, deleting dtor thunk)
+   * Address: 0x00776600 (FUN_00776600, non-deleting dtor core)
    *
    * What it does:
-   * Unlinks this shield from Sim shield-list and decrements shield instance
-   * counter before base entity teardown.
+   * Unlinks this shield from Sim shield-list and decrements the shield
+   * instance-stat lane before base entity teardown.
    */
   Shield::~Shield()
   {
     UnlinkShieldFromSimList(this);
-    --InstanceCounter<Shield>::s_count;
+    AdjustShieldInstanceStat(-1L);
   }
 
   /**

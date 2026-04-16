@@ -63,6 +63,24 @@ namespace moho
   }
 
   /**
+   * Address: 0x007C8FE0 (FUN_007C8FE0)
+   *
+   * What it does:
+   * Loads one `SWldSessionInfo*` from the caller-provided slot and, when the
+   * pointer is non-null, invokes its destructor then calls `operator delete`.
+   */
+  void DestroyAndDeleteSessionInfo(SWldSessionInfo** const sessionInfoSlot)
+  {
+    SWldSessionInfo* const sessionInfo = *sessionInfoSlot;
+    if (sessionInfo == nullptr) {
+      return;
+    }
+
+    sessionInfo->~SWldSessionInfo();
+    ::operator delete(sessionInfo);
+  }
+
+  /**
    * Address: 0x00412DC0 (FUN_00412DC0)
    *
    * What it does:

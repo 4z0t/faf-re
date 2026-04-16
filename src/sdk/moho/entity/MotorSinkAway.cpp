@@ -137,7 +137,7 @@ namespace
   }
 
   /**
-   * Address: 0x006967E0 (FUN_006967E0, construct callback thunk)
+    * Alias of FUN_006967E0 (non-canonical helper lane).
    */
   void Construct_MotorSinkAway_Callback(
     gpg::ReadArchive*, const int, const int, gpg::SerConstructResult* const result
@@ -414,13 +414,15 @@ namespace moho
   }
 
   /**
-   * Address: 0x006967E0 (FUN_006967E0, construct registration lane)
+   * Address: 0x00696C60 (FUN_00696C60, Moho::MotorSinkAwayConstruct::RegisterConstructFunction)
+   *
+   * What it does:
+   * Binds construct/delete callbacks into reflected RTTI for `MotorSinkAway`.
    */
   void MotorSinkAwayConstruct::RegisterConstructFunction()
   {
     gpg::RType* const type = CachedMotorSinkAwayType();
-    GPG_ASSERT(type->serConstructFunc_ == nullptr || type->serConstructFunc_ == mConstructCallback);
-    GPG_ASSERT(type->deleteFunc_ == nullptr || type->deleteFunc_ == mDeleteCallback);
+    GPG_ASSERT(type->serConstructFunc_ == nullptr);
     type->serConstructFunc_ = mConstructCallback;
     type->deleteFunc_ = mDeleteCallback;
   }

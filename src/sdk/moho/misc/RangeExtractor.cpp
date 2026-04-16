@@ -32,6 +32,21 @@ namespace
 
   bool gBlueprintExtractorsInitialized = false;
 
+  /**
+   * Address: 0x007F1C50 (FUN_007F1C50, blueprint extractor map lower-bound lane)
+   *
+   * What it does:
+   * Returns one lower-bound iterator for `extractorName` in the global
+   * extractor registry map.
+   */
+  [[nodiscard]] BlueprintExtractorRegistry::iterator FindBlueprintExtractorLowerBound(
+    BlueprintExtractorRegistry& registry,
+    const std::string& extractorName
+  )
+  {
+    return registry.lower_bound(extractorName);
+  }
+
   void RegisterExtractor(
     BlueprintExtractorRegistry& registry,
     const char* const blueprintRangeName,
@@ -240,11 +255,11 @@ namespace moho
 
     BlueprintExtractorRegistry& registry = GetBlueprintExtractorRegistry();
     const std::string rangeKey(extractorName.data(), extractorName.size());
-    const auto it = registry.find(rangeKey);
-    if (it == registry.end()) {
+    const auto lowerBound = FindBlueprintExtractorLowerBound(registry, rangeKey);
+    if (lowerBound == registry.end() || lowerBound->first != rangeKey) {
       return nullptr;
     }
 
-    return it->second.get();
+    return lowerBound->second.get();
   }
 } // namespace moho

@@ -21,20 +21,49 @@ namespace
     manager.mRequests.PushBack(request);
   }
 
-  void CopyRequests(
+  /**
+   * Address: 0x007618B0 (FUN_007618B0, sub_7618B0)
+   *
+   * What it does:
+   * Assigns one `fastvector_n<SAudioRequest, 64>` into another while reusing
+   * destination storage when capacity is sufficient.
+   */
+  [[nodiscard]] gpg::fastvector_n<moho::SAudioRequest, 64>* CopyRequests(
     gpg::fastvector_n<moho::SAudioRequest, 64>& destination, const gpg::fastvector_n<moho::SAudioRequest, 64>& source
   )
   {
-    // Mirrors FUN_007618B0 behavior: reuse destination storage when possible.
-    const std::size_t requestCount = source.Size();
-    if (destination.Capacity() < requestCount) {
-      destination.Grow(requestCount);
+    if (&destination == &source) {
+      return &destination;
     }
 
-    if (requestCount != 0u) {
-      std::copy_n(source.start_, requestCount, destination.start_);
+    const std::size_t destinationCount = destination.Size();
+    const std::size_t sourceCount = source.Size();
+
+    if (destinationCount >= sourceCount) {
+      if (sourceCount != 0u) {
+        std::copy_n(source.start_, sourceCount, destination.start_);
+      }
+      destination.SetSizeUnchecked(sourceCount);
+      return &destination;
     }
-    destination.SetSizeUnchecked(requestCount);
+
+    if (destination.Capacity() < sourceCount) {
+      destination.Grow(sourceCount);
+    }
+
+    if (destinationCount != 0u) {
+      std::copy_n(source.start_, destinationCount, destination.start_);
+    }
+    if (sourceCount > destinationCount) {
+      std::copy(
+        source.start_ + static_cast<std::ptrdiff_t>(destinationCount),
+        source.start_ + static_cast<std::ptrdiff_t>(sourceCount),
+        destination.start_ + static_cast<std::ptrdiff_t>(destinationCount)
+      );
+    }
+
+    destination.SetSizeUnchecked(sourceCount);
+    return &destination;
   }
 
   void ResetRequestQueueInline(moho::CSimSoundManager& manager)

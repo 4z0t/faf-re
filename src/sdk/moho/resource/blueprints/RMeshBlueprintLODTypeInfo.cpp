@@ -161,6 +161,11 @@ namespace
     serSaveFunc_ = &VectorTypeInfo::SerSave;
   }
 
+  void AppendLoadedMeshBlueprintLod(
+    LODVector& storage,
+    const moho::RMeshBlueprintLOD& element
+  );
+
   /**
    * Address: 0x00519620 (FUN_00519620, gpg::RVectorType_RMeshBlueprintLOD::SerLoad)
    *
@@ -194,10 +199,25 @@ namespace
     for (unsigned int i = 0; i < count; ++i) {
       moho::RMeshBlueprintLOD element{};
       archive->Read(elementType, &element, emptyOwner);
-      loaded.push_back(element);
+      AppendLoadedMeshBlueprintLod(loaded, element);
     }
 
     *storage = loaded;
+  }
+
+  /**
+   * Address: 0x00519B10 (FUN_00519B10)
+   *
+   * What it does:
+   * Appends one deserialized `RMeshBlueprintLOD` element into the destination
+   * vector, preserving the legacy append-and-grow lane used by `SerLoad`.
+   */
+  void AppendLoadedMeshBlueprintLod(
+    LODVector& storage,
+    const moho::RMeshBlueprintLOD& element
+  )
+  {
+    storage.push_back(element);
   }
 
   /**
@@ -259,6 +279,35 @@ namespace
     return storage ? storage->size() : 0u;
   }
 
+  /**
+   * Address: 0x00519A10 (FUN_00519A10)
+   *
+   * What it does:
+   * Adjusts one `vector<RMeshBlueprintLOD>` length to `requestedCount` and
+   * uses one caller-provided fill lane for growth.
+   */
+  [[nodiscard]] std::size_t ResizeMeshBlueprintLodVectorWithFill(
+    LODVector& storage,
+    const std::size_t requestedCount,
+    const moho::RMeshBlueprintLOD& fillValue
+  )
+  {
+    const std::size_t currentCount = storage.size();
+    if (currentCount < requestedCount) {
+      storage.resize(requestedCount, fillValue);
+      return requestedCount;
+    }
+
+    if (requestedCount < currentCount) {
+      storage.resize(requestedCount);
+    }
+
+    return requestedCount;
+  }
+
+  /**
+   * Address: 0x005193D0 (FUN_005193D0, gpg::RVectorType_RMeshBlueprintLOD::SetCount)
+   */
   void VectorTypeInfo::SetCount(void* const obj, const int count) const
   {
     if (obj == nullptr || count < 0) {
@@ -266,7 +315,8 @@ namespace
     }
 
     auto* const storage = static_cast<LODVector*>(obj);
-    storage->resize(static_cast<std::size_t>(count));
+    const moho::RMeshBlueprintLOD fillValue{};
+    (void)ResizeMeshBlueprintLodVectorWithFill(*storage, static_cast<std::size_t>(count), fillValue);
   }
 
   [[nodiscard]] TypeInfo& AcquireRMeshBlueprintLODTypeInfo()

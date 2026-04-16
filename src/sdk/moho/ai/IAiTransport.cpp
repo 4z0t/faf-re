@@ -288,6 +288,28 @@ namespace
   using ReservedTransportBoneVector = msvc8::vector<moho::SAiReservedTransportBone>;
   using AttachPointVector = msvc8::vector<moho::SAttachPoint>;
 
+  /**
+   * Address: 0x005EB260 (FUN_005EB260)
+   *
+   * What it does:
+   * Resizes one `vector<SAttachPoint>` payload to `targetCount`, preserving
+   * prefix elements and default-constructing growth lanes.
+   */
+  [[nodiscard]] unsigned int ResizeAttachPointVectorToCount(
+    AttachPointVector& storage,
+    const unsigned int targetCount
+  )
+  {
+    const std::size_t targetSize = static_cast<std::size_t>(targetCount);
+    if (storage.size() < targetSize) {
+      storage.resize(targetSize, moho::SAttachPoint{});
+    } else if (targetSize < storage.size()) {
+      storage.resize(targetSize);
+    }
+
+    return static_cast<unsigned int>(storage.size());
+  }
+
   alignas(BroadcasterTransportType) unsigned char gBroadcasterTransportTypeStorage[sizeof(BroadcasterTransportType)];
   bool gBroadcasterTransportTypeConstructed = false;
 
@@ -1159,7 +1181,7 @@ void gpg::RVectorType_SAttachPoint::SetCount(void* const obj, const int count) c
     return;
   }
 
-  storage->resize(static_cast<std::size_t>(count));
+  (void)ResizeAttachPointVectorToCount(*storage, static_cast<unsigned int>(count));
 }
 
 gpg::RType* IAiTransport::sType = nullptr;

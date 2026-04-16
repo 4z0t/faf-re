@@ -12,6 +12,7 @@
 #include "moho/entity/EntityCategoryLookupResolver.h"
 #include "moho/entity/EntityId.h"
 #include "moho/entity/REntityBlueprint.h"
+#include "moho/math/MathReflection.h"
 #include "moho/mesh/Mesh.h"
 #include "moho/render/textures/CD3DBatchTexture.h"
 #include "moho/resource/RScmResource.h"
@@ -664,6 +665,25 @@ namespace moho
   }
 
   /**
+   * Address: 0x008B9740 (FUN_008B9740, ?GetRenderSphere@UserEntity@Moho@@QBE?AV?$Sphere3@M@Wm3@@M@Z)
+   *
+   * What it does:
+   * Returns current render-oriented bounds from mesh interpolation state when
+   * mesh data exists, otherwise synthesizes a transform-aligned half-unit box.
+   */
+  Wm3::Box3f UserEntity::GetRenderSphere(const float interpolationAlpha) const
+  {
+    if (mMeshInstance != nullptr) {
+      mMeshInstance->UpdateInterpolatedFields();
+      return mMeshInstance->box;
+    }
+
+    const VTransform interpolated = GetInterpolatedTransform(interpolationAlpha);
+    const moho::VAxes3 axes(interpolated.orient_);
+    return Wm3::Box3f(interpolated.pos_, axes.vX, axes.vY, axes.vZ, 0.5f, 0.5f, 0.5f);
+  }
+
+  /**
    * Address: 0x008B8530 (FUN_008B8530, ?RequiresUIRefresh@UserEntity@Moho@@UBE_NXZ)
    */
   bool UserEntity::RequiresUIRefresh() const
@@ -742,6 +762,17 @@ namespace moho
     mMeshInstance = nullptr;
     mPosePrimary.reset();
     mPoseSecondary.reset();
+  }
+
+  /**
+   * Address: 0x008B8BB0 (FUN_008B8BB0, ?GetMeshInstance@UserEntity@Moho@@QBEPAVMeshInstance@2@XZ)
+   *
+   * What it does:
+   * Returns the current mesh-instance pointer lane.
+   */
+  MeshInstance* UserEntity::GetMeshInstance() const
+  {
+    return mMeshInstance;
   }
 
   /**

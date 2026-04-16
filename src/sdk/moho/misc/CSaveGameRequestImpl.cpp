@@ -8,6 +8,7 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <new>
 #include <cstdio>
 
 #include "gpg/core/containers/String.h"
@@ -16,6 +17,7 @@
 #include "gpg/core/streams/MemBufferStream.h"
 #include "gpg/core/utils/BoostWrappers.h"
 #include "gpg/core/utils/Logging.h"
+#include "legacy/containers/Vector.h"
 #include "moho/misc/StartupHelpers.h"
 #include "moho/serialization/SaveGameFileHeader.h"
 #include "moho/serialization/SSavedGameHeader.h"
@@ -96,6 +98,32 @@ namespace
     outHeader.mGameIdPart4 = moho::APP_GetGameIdPart(3);
   }
 
+  /**
+   * Address: 0x00882520 (FUN_00882520)
+   *
+   * What it does:
+   * Resizes one legacy string vector to an exact count by appending one fill
+   * string for growth and erasing tail lanes for shrink.
+   */
+  void ResizeLegacyStringVectorExact(
+    msvc8::vector<msvc8::string>& outStrings,
+    const std::size_t targetCount,
+    const msvc8::string& fillValue
+  )
+  {
+    const std::size_t currentCount = outStrings.size();
+    if (currentCount < targetCount) {
+      outStrings.resize(targetCount, fillValue);
+    }
+
+    if (currentCount > targetCount) {
+      outStrings.erase(
+        outStrings.begin() + static_cast<std::ptrdiff_t>(targetCount),
+        outStrings.end()
+      );
+    }
+  }
+
   [[nodiscard]] moho::SSavedGameHeader BuildSavedGameHeader(const moho::CWldSession* const session)
   {
     moho::SSavedGameHeader header{};
@@ -105,14 +133,22 @@ namespace
 
     header.mMapName = session->mMapName;
     header.mFocusArmy = session->FocusArmy;
-    header.mArmyInfo.clear();
-    header.mArmyInfo.reserve(session->userArmies.size());
 
-    for (const moho::UserArmy* const userArmy : session->userArmies) {
-      moho::SSavedGameArmyInfo armyInfo{};
-      if (userArmy) {
-        armyInfo.mPlayerName = userArmy->mPlayerName;
+    msvc8::vector<msvc8::string> armyNames{};
+    const msvc8::string emptyArmyName{};
+    ResizeLegacyStringVectorExact(armyNames, session->userArmies.size(), emptyArmyName);
+    for (std::size_t armyIndex = 0; armyIndex < session->userArmies.size(); ++armyIndex) {
+      const moho::UserArmy* const userArmy = session->userArmies[armyIndex];
+      if (userArmy != nullptr) {
+        armyNames[armyIndex] = userArmy->mPlayerName;
       }
+    }
+
+    header.mArmyInfo.clear();
+    header.mArmyInfo.reserve(armyNames.size());
+    for (const msvc8::string& armyName : armyNames) {
+      moho::SSavedGameArmyInfo armyInfo{};
+      armyInfo.mPlayerName = armyName;
       header.mArmyInfo.push_back(armyInfo);
     }
 
@@ -141,6 +177,21 @@ namespace
 
 namespace moho
 {
+  /**
+   * Address: 0x00883350 (FUN_00883350, boost::shared_ptr_SFileStarCloser::shared_ptr_SFileStarCloser)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<SFileStarCloser>` in-place from one raw closer
+   * pointer and wires the shared-from-this control lane.
+   */
+  boost::shared_ptr<SFileStarCloser>* ConstructSharedFileCloserFromRaw(
+    boost::shared_ptr<SFileStarCloser>* const outCloser,
+    SFileStarCloser* const closer
+  )
+  {
+    return ::new (outCloser) boost::shared_ptr<SFileStarCloser>(closer);
+  }
+
   /**
    * Address: 0x00883430 (FUN_00883430, boost::shared_ptr_SFileStarCloser::operator=)
    *

@@ -85,6 +85,21 @@ namespace
   }
 
   /**
+   * Address: 0x005AAF60 (FUN_005AAF60, sub_5AAF60)
+   *
+   * What it does:
+   * Clears one reflected `list<Rect2i>` storage lane and releases all list
+   * nodes, resetting the list into its empty sentinel state.
+   */
+  [[nodiscard]] std::list<gpg::Rect2i>* ClearRect2iListStorage(std::list<gpg::Rect2i>* const list)
+  {
+    if (list != nullptr) {
+      list->clear();
+    }
+    return list;
+  }
+
+  /**
    * Address: 0x005AAFA0 (FUN_005AAFA0, gpg::RListType_Rect2i::GetName)
    *
    * What it does:
@@ -155,7 +170,7 @@ namespace
 
     unsigned int count = 0;
     archive->ReadUInt(&count);
-    list->clear();
+    (void)ClearRect2iListStorage(list);
 
     gpg::RType* const elementType = CachedRect2iType();
     if (elementType == nullptr) {

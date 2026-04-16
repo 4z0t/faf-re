@@ -8,6 +8,12 @@
 #include "moho/task/CCommandTask.h"
 #include "moho/unit/ECommandEvent.h"
 
+namespace gpg
+{
+  class ReadArchive;
+  class WriteArchive;
+}
+
 namespace moho
 {
   class CUnitCommand;
@@ -26,6 +32,24 @@ namespace moho
   class CUnitSacrificeTask : public CCommandTask, public CUnitSacrificeTaskListenerPad, public Listener<ECommandEvent>
   {
   public:
+    /**
+     * Address: 0x005FF2C0 (FUN_005FF2C0, Moho::CUnitSacrificeTask::MemberDeserialize)
+     *
+     * What it does:
+     * Deserializes sacrifice-task runtime state (base command-task lane, current
+     * command pointer lane, and weak target unit lane).
+     */
+    void MemberDeserialize(gpg::ReadArchive* archive);
+
+    /**
+     * Address: 0x005FF360 (FUN_005FF360)
+     *
+     * What it does:
+     * Serializes sacrifice-task runtime state (base command-task lane, current
+     * command pointer lane, and weak target unit lane).
+     */
+    void MemberSerialize(gpg::WriteArchive* archive) const;
+
     /**
      * Address: 0x005FAD90 (FUN_005FAD90, Moho::CUnitSacrificeTask::CUnitSacrificeTask)
      *

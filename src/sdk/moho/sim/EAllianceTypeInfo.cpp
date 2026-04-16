@@ -114,14 +114,6 @@ namespace
 namespace moho
 {
   /**
-   * Address: 0x00509D60 (FUN_00509D60, preregister_EAllianceTypeInfo)
-   */
-  gpg::REnumType* preregister_EAllianceTypeInfo()
-  {
-    return ConstructEAllianceTypeInfoInternal();
-  }
-
-  /**
    * Address: 0x00509DF0 (FUN_00509DF0, Moho::EAllianceTypeInfo::dtr)
    */
   EAllianceTypeInfo::~EAllianceTypeInfo() = default;
@@ -210,7 +202,7 @@ namespace moho
    */
   int register_EAllianceTypeInfo()
   {
-    (void)preregister_EAllianceTypeInfo();
+    (void)ConstructEAllianceTypeInfoInternal();
     return std::atexit(&cleanup_EAllianceTypeInfo);
   }
 

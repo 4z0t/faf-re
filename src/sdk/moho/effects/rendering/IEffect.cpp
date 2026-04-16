@@ -4,11 +4,33 @@
 #include <typeinfo>
 
 #include "gpg/core/utils/Global.h"
+#include "moho/misc/StatItem.h"
 #include "moho/misc/Stats.h"
 
 namespace moho
 {
   gpg::RType* IEffect::sType = nullptr;
+
+  /**
+   * Address: 0x00658F00 (FUN_00658F00, Moho::IEffect::IEffect)
+   */
+  IEffect::IEffect()
+    : CScriptObject()
+  {
+    mManagerListNode.mNext = &mManagerListNode;
+    mManagerListNode.mPrev = &mManagerListNode;
+
+    if (StatItem* const statItem = InstanceCounter<IEffect>::GetStatItem(); statItem != nullptr) {
+#if defined(_WIN32)
+      (void)::InterlockedExchangeAdd(reinterpret_cast<volatile long*>(&statItem->mPrimaryValueBits), 1L);
+#else
+      statItem->mPrimaryValueBits += 1;
+#endif
+    }
+
+    mUnknown3C = 0;
+    mUnknown40 = 0xFFFFFFFFu;
+  }
 
   /**
    * Address: 0x00654220 (FUN_00654220, Moho::IEffect::GetClass)
@@ -22,7 +44,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00654220 (FUN_00654220, Moho::IEffect::GetClass)
+    * Alias of FUN_00654220 (non-canonical helper lane).
    */
   gpg::RType* IEffect::GetClass() const
   {
@@ -146,7 +168,7 @@ namespace moho
   {}
 
   /**
-   * Address: 0x006543C0 (FUN_006543C0, Moho::IEffect::OnTick)
+    * Alias of FUN_006543C0 (non-canonical helper lane).
    */
   void IEffect::OnTick()
   {}

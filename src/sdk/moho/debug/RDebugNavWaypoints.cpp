@@ -15,16 +15,19 @@ namespace
   constexpr std::uint32_t kWaypointCircleDepth = 0xFFFF0000u;
   constexpr std::uint32_t kWaypointCirclePrecision = 6u;
 
+  /**
+   * Address: 0x00650490 (FUN_00650490, Moho::RDebugNavWaypoints::DrawWaypointCircles helper)
+   *
+   * What it does:
+   * Draws one wire-circle marker for each waypoint in the contiguous batch.
+   */
   void DrawSteeringWaypoints(moho::Sim* const sim, const Wm3::Vector3f* const waypoints, const int waypointCount)
   {
-    if (sim == nullptr || waypoints == nullptr || waypointCount <= 0) {
+    if (waypointCount <= 0) {
       return;
     }
 
     moho::CDebugCanvas* const debugCanvas = sim->GetDebugCanvas();
-    if (debugCanvas == nullptr) {
-      return;
-    }
 
     Wm3::Vector3f up{};
     up.x = 0.0f;

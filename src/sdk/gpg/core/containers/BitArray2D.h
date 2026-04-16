@@ -30,6 +30,14 @@ namespace gpg
 		BitArray2D(unsigned int width, unsigned int height);
 
 		/**
+		 * Address: 0x008D8320 (FUN_008D8320, ??0BitArray2D@gpg@@QAE@ABV01@@Z_0)
+		 *
+		 * What it does:
+		 * Copy-constructs dimensions/word storage and clones packed bit words.
+		 */
+		BitArray2D(const BitArray2D& other);
+
+		/**
 		 * Address: 0x008D8200 (FUN_008D8200, ??1BitArray2D@gpg@@QAE@XZ)
 		 *
 		 * What it does:

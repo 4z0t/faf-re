@@ -3223,7 +3223,7 @@ void moho::FWaitHandleSet::InvalidateFileInfoCache(
 }
 
 /**
- * Address: 0x00458D30 (FUN_00458D30, Moho::FWaitHandleSet::GetFileInfo)
+  * Alias of FUN_00458D30 (non-canonical helper lane).
  *
  * What it does:
  * Resolves file metadata through the wait-handle/VFS runtime when available.

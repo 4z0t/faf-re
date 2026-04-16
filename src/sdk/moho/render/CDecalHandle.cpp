@@ -166,7 +166,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x007788B0 (FUN_007788B0, Moho::CDecalHandle::GetClass)
+    * Alias of FUN_007788B0 (non-canonical helper lane).
    */
   gpg::RType* CDecalHandle::GetClass() const
   {

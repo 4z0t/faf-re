@@ -27,6 +27,21 @@ BitArray2D::BitArray2D(const unsigned int newWidth, const unsigned int newHeight
 }
 
 /**
+ * Address: 0x008D8320 (FUN_008D8320, ??0BitArray2D@gpg@@QAE@ABV01@@Z_0)
+ */
+BitArray2D::BitArray2D(const BitArray2D& other)
+  : ptr(nullptr)
+  , size(0)
+  , width(0)
+  , height(0)
+{
+  Reset(static_cast<unsigned int>(other.width), static_cast<unsigned int>(other.height));
+  if (size > 0 && ptr != nullptr && other.ptr != nullptr) {
+    std::memcpy(ptr, other.ptr, static_cast<std::size_t>(size) * sizeof(std::int32_t));
+  }
+}
+
+/**
  * Address: 0x008D8200 (FUN_008D8200, ??1BitArray2D@gpg@@QAE@XZ)
  */
 BitArray2D::~BitArray2D()

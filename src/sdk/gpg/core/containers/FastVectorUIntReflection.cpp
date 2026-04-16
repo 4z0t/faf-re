@@ -139,6 +139,13 @@ namespace gpg
     void Init() override;
     gpg::RRef SubscriptIndex(void* obj, int ind) const override;
     size_t GetCount(void* obj) const override;
+    /**
+     * Address: 0x00515F40 (FUN_00515F40, gpg::RFastVectorType_Vector3f::SetCount)
+     *
+     * What it does:
+     * Resizes one reflected `fastvector<Wm3::Vector3f>` lane and zero-fills
+     * appended elements.
+     */
     void SetCount(void* obj, int count) const override;
   };
 
@@ -279,10 +286,18 @@ namespace
     gFastVectorFloatTypeNameCleanupRegistered = false;
   }
 
-  void FastVectorFloatResize(const float* fillValue, const unsigned int newSize, void* objectStorage)
+  /**
+   * Address: 0x00657820 (FUN_00657820)
+   *
+   * What it does:
+   * Resizes one runtime `fastvector<float>` lane to `newSize`, truncating or
+   * appending `*fillValue` as needed.
+   */
+  [[nodiscard]] unsigned int FastVectorFloatResize(const float* fillValue, const unsigned int newSize, void* objectStorage)
   {
     auto& view = gpg::AsFastVectorRuntimeView<float>(objectStorage);
     gpg::FastVectorRuntimeResizeFill(fillValue, newSize, view);
+    return static_cast<unsigned int>(view.begin ? (view.end - view.begin) : 0u);
   }
 
   /**
@@ -903,7 +918,7 @@ void gpg::RFastVectorType<unsigned int>::SetCount(void* obj, const int count) co
 }
 
 /**
- * Address: 0x0065AA60 (FUN_0065AA60, preregister_FastVectorFloatType)
+  * Alias of FUN_0065AA60 (non-canonical helper lane).
  *
  * What it does:
  * Constructs and preregisters startup RTTI descriptor for `gpg::fastvector<float>`.
@@ -1258,7 +1273,7 @@ void gpg::RFastVectorType<msvc8::string>::SetCount(void* obj, const int count) c
 namespace gpg
 {
 /**
- * Address: 0x005173B0 (FUN_005173B0, preregister_FastVectorVector3fType)
+  * Alias of FUN_005173B0 (non-canonical helper lane).
  *
  * What it does:
  * Constructs and preregisters startup RTTI descriptor for
@@ -1345,7 +1360,7 @@ const gpg::RIndexed* gpg::RFastVectorType<Wm3::Vector3f>::IsIndexed() const
 }
 
 /**
- * Address: 0x005173B0 family
+  * Alias of FUN_005173B0 (non-canonical helper lane).
  */
 void gpg::RFastVectorType<Wm3::Vector3f>::Init()
 {
@@ -1356,7 +1371,7 @@ void gpg::RFastVectorType<Wm3::Vector3f>::Init()
 }
 
 /**
- * Address: 0x005173B0 family
+  * Alias of FUN_005173B0 (non-canonical helper lane).
  */
 gpg::RRef gpg::RFastVectorType<Wm3::Vector3f>::SubscriptIndex(void* obj, const int ind) const
 {
@@ -1385,7 +1400,7 @@ gpg::RRef gpg::RFastVectorType<Wm3::Vector3f>::SubscriptIndex(void* obj, const i
 }
 
 /**
- * Address: 0x005173B0 family
+  * Alias of FUN_005173B0 (non-canonical helper lane).
  */
 size_t gpg::RFastVectorType<Wm3::Vector3f>::GetCount(void* obj) const
 {
@@ -1401,7 +1416,11 @@ size_t gpg::RFastVectorType<Wm3::Vector3f>::GetCount(void* obj) const
 }
 
 /**
- * Address: 0x005173B0 family
+ * Address: 0x00515F40 (FUN_00515F40, gpg::RFastVectorType_Vector3f::SetCount)
+ *
+ * What it does:
+ * Resizes one reflected `fastvector<Wm3::Vector3f>` lane and zero-fills
+ * appended elements.
  */
 void gpg::RFastVectorType<Wm3::Vector3f>::SetCount(void* obj, const int count) const
 {

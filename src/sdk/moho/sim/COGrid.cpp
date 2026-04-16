@@ -530,7 +530,7 @@ namespace moho
   } // namespace
 
   /**
-   * Address: 0x00721A90 (FUN_00721A90, Moho::COGrid::ExecuteOccupy)
+    * Alias of FUN_00721A90 (non-canonical helper lane).
    *
    * IDA signature:
    * void __usercall Moho::COGrid::ExecuteOccupy(

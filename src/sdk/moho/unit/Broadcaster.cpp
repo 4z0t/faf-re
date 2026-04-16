@@ -178,6 +178,12 @@ namespace
     return sType;
   }
 
+  [[nodiscard]] RListenerRType_ECommandEvent& ListenerCommandEventRType()
+  {
+    static RListenerRType_ECommandEvent sType;
+    return sType;
+  }
+
   [[nodiscard]] moho::Listener<moho::EUnitCommandQueueStatus>* ListenerFromLinkNode(moho::Broadcaster* const node) noexcept
   {
     if (node == nullptr) {
@@ -452,6 +458,20 @@ namespace moho
   {
     auto& type = BroadcasterCommandEventRType();
     gpg::PreRegisterRType(typeid(moho::BroadcasterEventTag<moho::ECommandEvent>), &type);
+    return &type;
+  }
+
+  /**
+   * Address: 0x005F4A70 (FUN_005F4A70, register_Listener_ECommandEvent_RType)
+   *
+   * What it does:
+   * Initializes/preregisters reflection type metadata for the
+   * `Listener< ECommandEvent >` event-link family.
+   */
+  gpg::RType* register_Listener_ECommandEvent_RType()
+  {
+    auto& type = ListenerCommandEventRType();
+    gpg::PreRegisterRType(typeid(moho::Listener<moho::ECommandEvent>), &type);
     return &type;
   }
 

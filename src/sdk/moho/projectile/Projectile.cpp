@@ -16,6 +16,7 @@
 #include "moho/projectile/CProjectileAttributes.h"
 #include "moho/projectile/ProjectileStartupRegistrations.h"
 #include "moho/sim/EImpactTypeTypeInfo.h"
+#include "moho/sim/Sim.h"
 
 namespace gpg
 {
@@ -351,6 +352,19 @@ namespace moho
   Projectile* Projectile::IsProjectile()
   {
     return this;
+  }
+
+  /**
+   * Address: 0x0069DE80 (FUN_0069DE80, Moho::Projectile::SetLifetime)
+   *
+   * What it does:
+   * Sets the projectile expiration tick to `mCurTick + int(seconds * 10.0f)`.
+   */
+  void Projectile::SetLifetime(const float lifetimeSeconds)
+  {
+    auto& view = *reinterpret_cast<ProjectileDeserializeRuntimeView*>(this);
+    const std::uint32_t lifetimeTicks = static_cast<std::uint32_t>(static_cast<std::int32_t>(lifetimeSeconds * 10.0f));
+    view.mLifetimeEnd = SimulationRef->mCurTick + lifetimeTicks;
   }
 
   /**

@@ -170,7 +170,7 @@ void MapImager::AddBorder(const msvc8::string& meshBlueprintPath)
 }
 
 /**
- * Address: 0x007F6530 (FUN_007F6530, Moho::REN_ShowSkeletons)
+  * Alias of FUN_007F6530 (non-canonical helper lane).
  *
  * What it does:
  * Toggles global skeleton-debug rendering and mirrors that bool lane into the
@@ -184,6 +184,16 @@ void REN_ShowSkeletons()
   if (ISTIDriver* const activeDriver = SIM_GetActiveDriver(); activeDriver != nullptr) {
     activeDriver->SetSyncFilterOptionFlag(showSkeletons);
   }
+}
+
+/**
+ * Address: 0x007FA720 (FUN_007FA720, Moho::REN_RenderShadowDebugOverlay)
+ *
+ * What it does:
+ * No-op shadow debug overlay callback lane retained for binary parity.
+ */
+void REN_RenderShadowDebugOverlay()
+{
 }
 
 /**

@@ -22,6 +22,7 @@
 #include "gpg/gal/Error.hpp"
 #include "gpg/gal/Head.hpp"
 #include "gpg/gal/OutputContext.hpp"
+#include "gpg/core/utils/BoostWrappers.h"
 #include "gpg/core/utils/Global.h"
 #include "platform/Platform.h"
 
@@ -1225,6 +1226,13 @@ namespace gpg::gal
       throw Error(MakeShortString("PipelineStateD3D10.cpp"), line, MakeD3DErrorString(code));
     }
 
+    /**
+     * Address: 0x008EA950 (FUN_008EA950)
+     *
+     * What it does:
+     * Appends one validated multisample option (`type/quality/label`) into one
+     * head capability list.
+     */
     void AppendHeadSampleOption(
       Head& head, const unsigned int sampleType, const unsigned int sampleQuality, const char* const label
     )
@@ -2670,6 +2678,7 @@ namespace gpg::gal
     }
 
     /**
+     * Address: 0x008F76C0 (FUN_008F76C0)
      * Address: 0x008F7B30 (FUN_008F7B30, gpg::gal::AdapterD3D10 destructor body)
      *
      * What it does:
@@ -2687,6 +2696,142 @@ namespace gpg::gal
       runtime.begin = nullptr;
       runtime.end = nullptr;
       runtime.capacityEnd = nullptr;
+    }
+
+    /**
+     * Address: 0x008F71D0 (FUN_008F71D0)
+     *
+     * What it does:
+     * Initializes one adapter-mode entry from `(format, output)`, resets its
+     * embedded mode-vector lanes, and snapshots one output descriptor.
+     */
+    AdapterModeD3D10* InitializeAdapterModeEntry(
+      AdapterModeD3D10* const entry,
+      const std::uint32_t format,
+      IDXGIOutput* const output
+    )
+    {
+      entry->format_ = format;
+      entry->output_ = output;
+      entry->modes_.clear();
+      entry->outputDesc_ = {};
+      entry->outputDescPad_ = 0U;
+      if (output != nullptr) {
+        static_cast<void>(output->GetDesc(&entry->outputDesc_));
+      }
+      return entry;
+    }
+
+    /**
+     * Address: 0x008F7C50 (FUN_008F7C50)
+     *
+     * What it does:
+     * Appends one populated adapter-mode entry into the retained adapter mode
+     * vector.
+     */
+    void AppendAdapterModeEntry(msvc8::vector<AdapterModeD3D10>& modes, const AdapterModeD3D10& entry)
+    {
+      modes.push_back(entry);
+    }
+
+    /**
+     * Address: 0x008F6230 (FUN_008F6230)
+     *
+     * What it does:
+     * Releases retained output COM lanes for every cached adapter-mode entry,
+     * then releases the retained DXGI adapter lane.
+     */
+    int ReleaseAdapterOutputAndDeviceRefs(AdapterD3D10* const adapter) noexcept
+    {
+      for (AdapterModeD3D10& mode : adapter->modes_) {
+        ReleaseComLike(mode.output_);
+      }
+      return ReleaseComLikeWithResult(adapter->dxgiAdapter_);
+    }
+
+    /**
+     * Address: 0x009009D0 (FUN_009009D0)
+     *
+     * What it does:
+     * Appends one adapter wrapper into the retained backend adapter vector.
+     */
+    void AppendBackendAdapter(msvc8::vector<AdapterD3D10>& adapters, const AdapterD3D10& adapter)
+    {
+      adapters.push_back(adapter);
+    }
+
+    /**
+     * Address: 0x008FE4B0 (FUN_008FE4B0)
+     *
+     * What it does:
+     * Appends one swap-chain handle into the retained backend swap-chain vector.
+     */
+    void* AppendBackendSwapChain(msvc8::vector<void*>& swapChains, IDXGISwapChain* const swapChain)
+    {
+      swapChains.push_back(swapChain);
+      return swapChain;
+    }
+
+    /**
+     * Address: 0x008F8670 (FUN_008F8670)
+     *
+     * What it does:
+     * Initializes one 13-lane texture-load info block with binary defaults.
+     */
+    std::int32_t* InitializeTextureLoadInfoDefaults(std::int32_t* const loadInfo) noexcept
+    {
+      loadInfo[0] = -1;
+      loadInfo[1] = -1;
+      loadInfo[2] = -1;
+      loadInfo[3] = -1;
+      loadInfo[4] = -1;
+      loadInfo[5] = -1;
+      loadInfo[6] = -1;
+      loadInfo[7] = -1;
+      loadInfo[8] = -1;
+      loadInfo[9] = -3;
+      loadInfo[10] = -1;
+      loadInfo[11] = -1;
+      loadInfo[12] = 0;
+      return loadInfo;
+    }
+
+    /**
+     * Address: 0x00901C90 (FUN_00901C90)
+     *
+     * What it does:
+     * Executes non-deleting destructor body lanes for `IndexBufferD3D10`.
+     */
+    void DestroyIndexBufferD3D10Body(IndexBufferD3D10* const indexBuffer)
+    {
+      indexBuffer->DestroyState();
+      indexBuffer->context_.~IndexBufferContext();
+    }
+
+    /**
+     * Address: 0x0094DA80 (FUN_0094DA80)
+     *
+     * What it does:
+     * Executes non-deleting destructor body lanes for `VertexBufferD3D10`.
+     */
+    void DestroyVertexBufferD3D10Body(VertexBufferD3D10* const vertexBuffer)
+    {
+      vertexBuffer->DestroyState();
+      vertexBuffer->context_.~VertexBufferContext();
+    }
+
+    /**
+     * Address: 0x00900F50 (FUN_00900F50)
+     *
+     * What it does:
+     * Executes non-deleting destructor body lanes for `EffectTechniqueD3D10`.
+     */
+    void DestroyEffectTechniqueD3D10Body(EffectTechniqueD3D10* const technique) noexcept
+    {
+      ReleaseComLike(technique->dxEffect_);
+      technique->techniqueHandle_ = nullptr;
+      technique->name_.tidy(true, 0U);
+      technique->beginEndActive_ = false;
     }
 
     /**
@@ -3101,6 +3246,254 @@ namespace gpg::gal
 
       ReleaseSharedCount(destination);
       destination = source;
+    }
+
+    /**
+     * Address: 0x008F9C20 (FUN_008F9C20)
+     *
+     * What it does:
+     * Constructs one `boost::detail::shared_count` lane from one raw
+     * `CubeRenderTargetD3D10*` pointee.
+     */
+    [[maybe_unused]] boost::detail::shared_count* ConstructSharedCountCubeRenderTargetD3D10FromRaw(
+      boost::detail::shared_count* const outCount, CubeRenderTargetD3D10* const cubeRenderTarget
+    )
+    {
+      return boost::ConstructSharedCountFromRaw(outCount, cubeRenderTarget);
+    }
+
+    /**
+     * Address: 0x008F9CB0 (FUN_008F9CB0)
+     *
+     * What it does:
+     * Constructs one `boost::detail::shared_count` lane from one raw
+     * `DepthStencilTargetD3D10*` pointee.
+     */
+    [[maybe_unused]] boost::detail::shared_count* ConstructSharedCountDepthStencilTargetD3D10FromRaw(
+      boost::detail::shared_count* const outCount, DepthStencilTargetD3D10* const depthStencilTarget
+    )
+    {
+      return boost::ConstructSharedCountFromRaw(outCount, depthStencilTarget);
+    }
+
+    /**
+     * Address: 0x008F9D40 (FUN_008F9D40)
+     *
+     * What it does:
+     * Constructs one `boost::detail::shared_count` lane from one raw
+     * `VertexFormatD3D10*` pointee.
+     */
+    [[maybe_unused]] boost::detail::shared_count* ConstructSharedCountVertexFormatD3D10FromRaw(
+      boost::detail::shared_count* const outCount, VertexFormatD3D10* const vertexFormat
+    )
+    {
+      return boost::ConstructSharedCountFromRaw(outCount, vertexFormat);
+    }
+
+    /**
+     * Address: 0x008F9DD0 (FUN_008F9DD0)
+     *
+     * What it does:
+     * Constructs one `boost::detail::shared_count` lane from one raw
+     * `VertexBufferD3D10*` pointee.
+     */
+    [[maybe_unused]] boost::detail::shared_count* ConstructSharedCountVertexBufferD3D10FromRaw(
+      boost::detail::shared_count* const outCount, VertexBufferD3D10* const vertexBuffer
+    )
+    {
+      return boost::ConstructSharedCountFromRaw(outCount, vertexBuffer);
+    }
+
+    /**
+     * Address: 0x008F9E60 (FUN_008F9E60)
+     *
+     * What it does:
+     * Constructs one `boost::detail::shared_count` lane from one raw
+     * `IndexBufferD3D10*` pointee.
+     */
+    [[maybe_unused]] boost::detail::shared_count* ConstructSharedCountIndexBufferD3D10FromRaw(
+      boost::detail::shared_count* const outCount, IndexBufferD3D10* const indexBuffer
+    )
+    {
+      return boost::ConstructSharedCountFromRaw(outCount, indexBuffer);
+    }
+
+    /**
+     * Address: 0x0094B750 (FUN_0094B750)
+     *
+     * What it does:
+     * Constructs one `boost::detail::shared_count` lane from one raw
+     * `EffectVariableD3D10*` pointee.
+     */
+    [[maybe_unused]] boost::detail::shared_count* ConstructSharedCountEffectVariableD3D10FromRaw(
+      boost::detail::shared_count* const outCount, EffectVariableD3D10* const effectVariable
+    )
+    {
+      return boost::ConstructSharedCountFromRaw(outCount, effectVariable);
+    }
+
+    /**
+     * Address: 0x0094B6C0 (FUN_0094B6C0)
+     *
+     * What it does:
+     * Constructs one `boost::detail::shared_count` lane from one raw
+     * `EffectTechniqueD3D10*` pointee.
+     */
+    [[maybe_unused]] boost::detail::shared_count* ConstructSharedCountEffectTechniqueD3D10FromRaw(
+      boost::detail::shared_count* const outCount, EffectTechniqueD3D10* const effectTechnique
+    )
+    {
+      return boost::ConstructSharedCountFromRaw(outCount, effectTechnique);
+    }
+
+    /**
+     * Address: 0x008FA3D0 (FUN_008FA3D0, boost::shared_ptr_EffectD3D10::shared_ptr_EffectD3D10)
+     *
+     * What it does:
+     * Constructs one `shared_ptr<EffectD3D10>` from one raw pointer lane.
+     */
+    boost::shared_ptr<EffectD3D10>* ConstructSharedEffectD3D10FromRaw(
+      boost::shared_ptr<EffectD3D10>* const outEffect, EffectD3D10* const effect
+    )
+    {
+      return ::new (outEffect) boost::shared_ptr<EffectD3D10>(effect);
+    }
+
+    /**
+     * Address: 0x008FA460 (FUN_008FA460, boost::shared_ptr_CubeRenderTargetD3D10::shared_ptr_CubeRenderTargetD3D10)
+     *
+     * What it does:
+     * Constructs one `shared_ptr<CubeRenderTargetD3D10>` from one raw pointer lane.
+     */
+    boost::shared_ptr<CubeRenderTargetD3D10>* ConstructSharedCubeRenderTargetD3D10FromRaw(
+      boost::shared_ptr<CubeRenderTargetD3D10>* const outCubeRenderTarget,
+      CubeRenderTargetD3D10* const cubeRenderTarget
+    )
+    {
+      return boost::ConstructSharedFromRaw(outCubeRenderTarget, cubeRenderTarget);
+    }
+
+    /**
+     * Address: 0x008FA490 (FUN_008FA490, boost::shared_ptr_DepthStencilTargetD3D10::shared_ptr_DepthStencilTargetD3D10)
+     *
+     * What it does:
+     * Constructs one `shared_ptr<DepthStencilTargetD3D10>` from one raw pointer lane.
+     */
+    boost::shared_ptr<DepthStencilTargetD3D10>* ConstructSharedDepthStencilTargetD3D10FromRaw(
+      boost::shared_ptr<DepthStencilTargetD3D10>* const outDepthStencilTarget,
+      DepthStencilTargetD3D10* const depthStencilTarget
+    )
+    {
+      return boost::ConstructSharedFromRaw(outDepthStencilTarget, depthStencilTarget);
+    }
+
+    /**
+     * Address: 0x008FA4C0 (FUN_008FA4C0, boost::shared_ptr_VertexFormatD3D10::shared_ptr_VertexFormatD3D10)
+     *
+     * What it does:
+     * Constructs one `shared_ptr<VertexFormatD3D10>` from one raw pointer lane.
+     */
+    boost::shared_ptr<VertexFormatD3D10>* ConstructSharedVertexFormatD3D10FromRaw(
+      boost::shared_ptr<VertexFormatD3D10>* const outVertexFormat,
+      VertexFormatD3D10* const vertexFormat
+    )
+    {
+      return boost::ConstructSharedFromRaw(outVertexFormat, vertexFormat);
+    }
+
+    /**
+     * Address: 0x008FA4F0 (FUN_008FA4F0, boost::shared_ptr_VertexBufferD3D10::shared_ptr_VertexBufferD3D10)
+     *
+     * What it does:
+     * Constructs one `shared_ptr<VertexBufferD3D10>` from one raw pointer lane.
+     */
+    boost::shared_ptr<VertexBufferD3D10>* ConstructSharedVertexBufferD3D10FromRaw(
+      boost::shared_ptr<VertexBufferD3D10>* const outVertexBuffer,
+      VertexBufferD3D10* const vertexBuffer
+    )
+    {
+      return boost::ConstructSharedFromRaw(outVertexBuffer, vertexBuffer);
+    }
+
+    /**
+     * Address: 0x008FA520 (FUN_008FA520, boost::shared_ptr_IndexBufferD3D10::shared_ptr_IndexBufferD3D10)
+     *
+     * What it does:
+     * Constructs one `shared_ptr<IndexBufferD3D10>` from one raw pointer lane.
+     */
+    boost::shared_ptr<IndexBufferD3D10>* ConstructSharedIndexBufferD3D10FromRaw(
+      boost::shared_ptr<IndexBufferD3D10>* const outIndexBuffer,
+      IndexBufferD3D10* const indexBuffer
+    )
+    {
+      return boost::ConstructSharedFromRaw(outIndexBuffer, indexBuffer);
+    }
+
+    /**
+     * Address: 0x0094B840 (FUN_0094B840, boost::shared_ptr_EffectTechniqueD3D10::shared_ptr_EffectTechniqueD3D10)
+     *
+     * What it does:
+     * Constructs one `shared_ptr<EffectTechniqueD3D10>` from one raw pointer lane.
+     */
+    boost::shared_ptr<EffectTechniqueD3D10>* ConstructSharedEffectTechniqueD3D10FromRaw(
+      boost::shared_ptr<EffectTechniqueD3D10>* const outEffectTechnique,
+      EffectTechniqueD3D10* const effectTechnique
+    )
+    {
+      return boost::ConstructSharedFromRaw(outEffectTechnique, effectTechnique);
+    }
+
+    /**
+     * Address: 0x0094B870 (FUN_0094B870, boost::shared_ptr_EffectVariableD3D10::shared_ptr_EffectVariableD3D10)
+     *
+     * What it does:
+     * Constructs one `shared_ptr<EffectVariableD3D10>` from one raw pointer lane.
+     */
+    boost::shared_ptr<EffectVariableD3D10>* ConstructSharedEffectVariableD3D10FromRaw(
+      boost::shared_ptr<EffectVariableD3D10>* const outEffectVariable,
+      EffectVariableD3D10* const effectVariable
+    )
+    {
+      return boost::ConstructSharedFromRaw(outEffectVariable, effectVariable);
+    }
+
+    /**
+     * Address: 0x008FA400 (FUN_008FA400, boost::shared_ptr_TextureD3D10::shared_ptr_TextureD3D10)
+     *
+     * What it does:
+     * Constructs one `shared_ptr<TextureD3D10>` from one raw pointer lane.
+     */
+    boost::shared_ptr<TextureD3D10>* ConstructSharedTextureD3D10FromRaw(
+      boost::shared_ptr<TextureD3D10>* const outTexture, TextureD3D10* const texture
+    )
+    {
+      return ::new (outTexture) boost::shared_ptr<TextureD3D10>(texture);
+    }
+
+    /**
+     * Address: 0x008FA430 (FUN_008FA430, boost::shared_ptr_RenderTargetD3D10::shared_ptr_RenderTargetD3D10)
+     *
+     * What it does:
+     * Constructs one `shared_ptr<RenderTargetD3D10>` from one raw pointer lane.
+     */
+    boost::shared_ptr<RenderTargetD3D10>* ConstructSharedRenderTargetD3D10FromRawCtor(
+      boost::shared_ptr<RenderTargetD3D10>* const outRenderTarget, RenderTargetD3D10* const renderTarget
+    )
+    {
+      return ::new (outRenderTarget) boost::shared_ptr<RenderTargetD3D10>(renderTarget);
+    }
+
+    /**
+     * Address: 0x008FA5F0 (FUN_008FA5F0, boost::shared_ptr_PipelineStateD3D10::shared_ptr_PipelineStateD3D10)
+     *
+     * What it does:
+     * Constructs one `shared_ptr<PipelineStateD3D10>` from one raw pointer lane.
+     */
+    boost::shared_ptr<PipelineStateD3D10>* ConstructSharedPipelineStateD3D10FromRaw(
+      boost::shared_ptr<PipelineStateD3D10>* const outPipelineState, PipelineStateD3D10* const pipelineState
+    )
+    {
+      return ::new (outPipelineState) boost::shared_ptr<PipelineStateD3D10>(pipelineState);
     }
 
     /**
@@ -3576,6 +3969,34 @@ namespace gpg::gal
     }
 
     /**
+     * Address: 0x009000F0 (FUN_009000F0)
+     *
+     * What it does:
+     * Copy-constructs `copyCount` adapter lanes from `sourceAdapter` into
+     * `destinationBegin`, unwinds the constructed range with scalar-dtor calls,
+     * then rethrows the active exception.
+     */
+    [[noreturn]] void ThrowAfterCopyConstructingAdapterRange(
+      AdapterD3D10* const destinationBegin,
+      std::size_t copyCount,
+      const AdapterD3D10* const sourceAdapter
+    )
+    {
+      AdapterD3D10* destinationCursor = destinationBegin;
+      while (copyCount != 0u) {
+        new (static_cast<void*>(destinationCursor)) AdapterD3D10(*sourceAdapter);
+        --copyCount;
+        ++destinationCursor;
+      }
+
+      for (AdapterD3D10* it = destinationBegin; it != destinationCursor; ++it) {
+        it->~AdapterD3D10();
+      }
+
+      throw;
+    }
+
+    /**
      * Address: 0x009001B0 (FUN_009001B0)
      *
      * What it does:
@@ -3682,6 +4103,19 @@ namespace gpg::gal
   }
 
   /**
+   * Address: 0x008FF450 (FUN_008FF450)
+   *
+   * What it does:
+   * Copy-constructs one adapter wrapper by cloning descriptor payload and
+   * deep-copying cached mode vectors from `other`.
+   */
+  AdapterD3D10::AdapterD3D10(const AdapterD3D10& other)
+    : dxgiAdapter_(other.dxgiAdapter_)
+    , description_(other.description_)
+    , modes_(other.modes_)
+  {}
+
+  /**
    * Address: 0x008F7CF0 (FUN_008F7CF0, sub_8F7CF0)
    *
    * What it does:
@@ -3713,8 +4147,7 @@ namespace gpg::gal
         }
 
         AdapterModeD3D10 modeEntry{};
-        modeEntry.format_ = static_cast<std::uint32_t>(format);
-        modeEntry.output_ = output;
+        static_cast<void>(InitializeAdapterModeEntry(&modeEntry, static_cast<std::uint32_t>(format), output));
         modeEntry.outputDesc_ = outputDesc;
         modeEntry.outputDescPad_ = 0U;
 
@@ -3729,7 +4162,7 @@ namespace gpg::gal
           }
         }
 
-        modes_.push_back(modeEntry);
+        AppendAdapterModeEntry(modes_, modeEntry);
       }
 
       result = dxgiAdapter_->EnumOutputs(outputIndex + 1U, &output);
@@ -3747,6 +4180,7 @@ namespace gpg::gal
    */
   AdapterD3D10::~AdapterD3D10()
   {
+    static_cast<void>(ReleaseAdapterOutputAndDeviceRefs(this));
     DestroyAdapterModeVectorStorage(modes_);
   }
 
@@ -4175,6 +4609,20 @@ namespace gpg::gal
     destination.lane32 = source.streamFlagB0;
     ConvertFloat32To16Array(&destination.lane36, &source.streamScalarB4, 1U);
     destination.lane40 = source.streamScalar04;
+  }
+
+  /**
+   * Address: 0x00902D20 (FUN_00902D20, ??0RenderTargetD3D10@gal@gpg@@QAE@@Z)
+   *
+   * What it does:
+   * Initializes default render-target context lanes and null resource pointers.
+   */
+  RenderTargetD3D10::RenderTargetD3D10()
+    : context_()
+    , renderTexture_(nullptr)
+    , renderTargetView_(nullptr)
+    , shaderResourceView_(nullptr)
+  {
   }
 
   /**
@@ -4821,7 +5269,7 @@ namespace gpg::gal
    */
   IndexBufferD3D10::~IndexBufferD3D10()
   {
-    DestroyState();
+    DestroyIndexBufferD3D10Body(this);
   }
 
   /**
@@ -4983,7 +5431,7 @@ namespace gpg::gal
    */
   VertexBufferD3D10::~VertexBufferD3D10()
   {
-    DestroyState();
+    DestroyVertexBufferD3D10Body(this);
   }
 
   /**
@@ -5424,7 +5872,7 @@ namespace gpg::gal
     for (unsigned int adapterIndex = 0U; result >= 0; ++adapterIndex) {
       AdapterD3D10 adapterEntry(adapter);
       if (adapterEntry.ProbeOutputsAndModes() >= 0) {
-        backend->adapters_.push_back(adapterEntry);
+        AppendBackendAdapter(backend->adapters_, adapterEntry);
       }
 
       adapter = nullptr;
@@ -5750,7 +6198,7 @@ namespace gpg::gal
         ThrowDeviceD3D10Hresult(631, createSwapChainResult);
       }
 
-      backend->swapChains_.push_back(swapChain);
+      static_cast<void>(AppendBackendSwapChain(backend->swapChains_, swapChain));
     }
 
     const HRESULT createSignatureResult = backend->createEffectFromMemoryApi_(
@@ -6072,8 +6520,7 @@ namespace gpg::gal
     boost::shared_ptr<CubeRenderTargetD3D10>* const outCubeRenderTarget, const CubeRenderTargetContext* const context
   )
   {
-    outCubeRenderTarget->reset(new CubeRenderTargetD3D10(context));
-    return outCubeRenderTarget;
+    return ConstructSharedCubeRenderTargetD3D10FromRaw(outCubeRenderTarget, new CubeRenderTargetD3D10(context));
   }
 
   /**
@@ -6138,10 +6585,10 @@ namespace gpg::gal
       }
     }
 
-    outDepthStencilTarget->reset(
+    return ConstructSharedDepthStencilTargetD3D10FromRaw(
+      outDepthStencilTarget,
       new DepthStencilTargetD3D10(context, depthTexture, depthStencilView, shaderResourceView)
     );
-    return outDepthStencilTarget;
   }
 
   /**
@@ -6170,8 +6617,7 @@ namespace gpg::gal
       ThrowGalErrorFromHresult("DeviceD3D10.cpp", 1029, createInputLayoutResult);
     }
 
-    outVertexFormat->reset(new VertexFormatD3D10(formatToken, inputLayout));
-    return outVertexFormat;
+    return ConstructSharedVertexFormatD3D10FromRaw(outVertexFormat, new VertexFormatD3D10(formatToken, inputLayout));
   }
 
   /**
@@ -6214,8 +6660,10 @@ namespace gpg::gal
       ThrowGalErrorFromHresult("DeviceD3D10.cpp", 1056, createStagingBufferResult);
     }
 
-    outVertexBuffer->reset(new VertexBufferD3D10(context, GetDeviceNativeHandle(this), gpuBuffer, stagingBuffer));
-    return outVertexBuffer;
+    return ConstructSharedVertexBufferD3D10FromRaw(
+      outVertexBuffer,
+      new VertexBufferD3D10(context, GetDeviceNativeHandle(this), gpuBuffer, stagingBuffer)
+    );
   }
 
   /**
@@ -6259,8 +6707,10 @@ namespace gpg::gal
       ThrowGalErrorFromHresult("DeviceD3D10.cpp", 1083, createStagingBufferResult);
     }
 
-    outIndexBuffer->reset(new IndexBufferD3D10(context, GetDeviceNativeHandle(this), gpuBuffer, stagingBuffer));
-    return outIndexBuffer;
+    return ConstructSharedIndexBufferD3D10FromRaw(
+      outIndexBuffer,
+      new IndexBufferD3D10(context, GetDeviceNativeHandle(this), gpuBuffer, stagingBuffer)
+    );
   }
 
   /**
@@ -6429,9 +6879,8 @@ namespace gpg::gal
     }
 
     std::int32_t loadInfo[14];
-    for (std::int32_t& value : loadInfo) {
-      value = -1;
-    }
+    static_cast<void>(InitializeTextureLoadInfoDefaults(loadInfo));
+    loadInfo[13] = -1;
     loadInfo[4] = 1;
     loadInfo[9] = 77;
     loadInfo[12] = 0;
@@ -6565,9 +7014,8 @@ namespace gpg::gal
     }
 
     std::int32_t loadInfo[14];
-    for (std::int32_t& value : loadInfo) {
-      value = -1;
-    }
+    static_cast<void>(InitializeTextureLoadInfoDefaults(loadInfo));
+    loadInfo[13] = -1;
     loadInfo[4] = 1;
     loadInfo[9] = 77;
     loadInfo[12] = 0;
@@ -7304,7 +7752,13 @@ namespace gpg::gal
       ThrowGalError("EffectD3D10.cpp", 82, message);
     }
 
-    return boost::shared_ptr<EffectVariableD3D10>(new EffectVariableD3D10(variableName, dxEffect_, variableHandle));
+    boost::shared_ptr<EffectVariableD3D10> effectVariable;
+    static_cast<void>(
+      ConstructSharedEffectVariableD3D10FromRaw(
+        &effectVariable, new EffectVariableD3D10(variableName, dxEffect_, variableHandle)
+      )
+    );
+    return effectVariable;
   }
 
   /**
@@ -7333,7 +7787,13 @@ namespace gpg::gal
       ThrowGalError("EffectD3D10.cpp", 92, message);
     }
 
-    return boost::shared_ptr<EffectTechniqueD3D10>(new EffectTechniqueD3D10(techniqueName, dxEffect_, techniqueHandle));
+    boost::shared_ptr<EffectTechniqueD3D10> effectTechnique;
+    static_cast<void>(
+      ConstructSharedEffectTechniqueD3D10FromRaw(
+        &effectTechnique, new EffectTechniqueD3D10(techniqueName, dxEffect_, techniqueHandle)
+      )
+    );
+    return effectTechnique;
   }
 
   /**
@@ -7369,10 +7829,7 @@ namespace gpg::gal
    */
   EffectTechniqueD3D10::~EffectTechniqueD3D10()
   {
-    ReleaseComLike(dxEffect_);
-    techniqueHandle_ = nullptr;
-    beginEndActive_ = false;
-    name_.tidy(true, 0U);
+    DestroyEffectTechniqueD3D10Body(this);
   }
 
   /**

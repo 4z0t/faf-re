@@ -11,6 +11,7 @@
 #include <typeinfo>
 
 #include "gpg/core/containers/String.h"
+#include "gpg/core/utils/Logging.h"
 #include "gpg/core/reflection/Reflection.h"
 #include "legacy/containers/String.h"
 #include "lua/LuaRuntimeTypes.h"
@@ -63,6 +64,8 @@ namespace moho
 
 namespace
 {
+  void WarnFocusArmyUnitDamagedCallbackError(const std::exception& exception) noexcept;
+
   constexpr const char* kLuaExpectedArgsWarning = "%s\n  expected %d args, but got %d";
   constexpr const char* kLuaExpectedArgsRangeWarning = "%s\n  expected between %d and %d args, but got %d";
   constexpr const char* kUserUnitCanAttackTargetName = "CanAttackTarget";
@@ -1231,6 +1234,13 @@ namespace
     return queueRange == nullptr || queueRange->begin == queueRange->end;
   }
 
+  /**
+   * Address: 0x008B79A0 (FUN_008B79A0)
+   *
+   * What it does:
+   * Unlinks each resolved-queue entry from its helper-owned intrusive owner
+   * chain across one half-open `[begin,end)` range.
+   */
   void UnlinkResolvedQueueOwnerLinks(
     UserCommandQueueEntryView* const begin, UserCommandQueueEntryView* const end
   ) noexcept
@@ -1540,6 +1550,14 @@ namespace
     return nullptr;
   }
 
+  /**
+   * Address: 0x008B4140 (FUN_008B4140)
+   *
+   * What it does:
+   * Scans command-issue events from newest to oldest and returns the most
+   * recent explicit command-type override; otherwise returns helper baseline
+   * command type.
+   */
   [[nodiscard]] EUnitCommandType ResolveHelperCommandType(const UserCommandIssueHelperRuntimeView& helper) noexcept
   {
     if (const UserCommandIssueEventRuntimeView* const event = FindLatestIssueEvent(helper, kCommandIssueEventSetType);
@@ -1985,6 +2003,18 @@ namespace
     static CScrLuaInitFormSet fallbackSet("user");
     return fallbackSet;
   }
+
+  /**
+   * Address: 0x008C1410 (FUN_008C1410)
+   *
+   * What it does:
+   * Emits one fixed warning when the focus-army-damaged Lua callback throws.
+   */
+  void WarnFocusArmyUnitDamagedCallbackError(const std::exception& exception) noexcept
+  {
+    const char* const message = exception.what() != nullptr ? exception.what() : "";
+    gpg::Warnf("Error running '/lua/ui/game/gamemain.lua:OnFocusArmyUnitDamaged': %s", message);
+  }
 } // namespace
 
 CScrLuaMetatableFactory<UserUnit> CScrLuaMetatableFactory<UserUnit>::sInstance{};
@@ -2239,7 +2269,7 @@ void UserUnit::Tick(const std::int32_t seqNo)
 }
 
 /**
- * Address: 0x008B8EB0 (FUN_008B8EB0, ?UpdateEntityData@UserEntity@Moho@@UAEXABUSSTIEntityVariableData@2@@Z)
+  * Alias of FUN_008B8EB0 (non-canonical helper lane).
  *
  * What it does:
  * For UserUnit instances, forwards replicated variable-data updates to the
@@ -2331,7 +2361,7 @@ std::int32_t UserUnit::GetFactoryCommandQueue2() const
 }
 
 /**
- * Address: 0x008B8530 (FUN_008B8530)
+  * Alias of FUN_008B8530 (non-canonical helper lane).
  *
  * What it does:
  * Returns replicated UI-dirty state from UserEntity variable-data bytes.
@@ -2414,7 +2444,13 @@ void UserUnit::NotifyFocusArmyUnitDamaged()
 
   IUnit* const iunitBridge = GetIUnitBridge(this);
   const LuaPlus::LuaObject unitObject = iunitBridge->GetLuaObject();
-  callback.Call_Object(unitObject);
+  try {
+    callback.Call_Object(unitObject);
+  } catch (const std::exception& exception) {
+    WarnFocusArmyUnitDamagedCallbackError(exception);
+  } catch (...) {
+    gpg::Warnf("Error running '/lua/ui/game/gamemain.lua:OnFocusArmyUnitDamaged': unknown exception");
+  }
 }
 
 /**
@@ -2842,6 +2878,53 @@ bool UserUnit::CanAttackTarget(const UserEntity* targetEntity, bool rangeCheck) 
   return false;
 }
 
+namespace moho
+{
+  struct UserCommand;
+
+  bool USERUNIT_CanBeBuiltAt(
+    CWldSession& session,
+    const RUnitBlueprint* buildBlueprint,
+    const SCoordsVec2& buildPosition,
+    bool allowCommandOverlap,
+    SOccupationResult* buildInfo,
+    const UserCommand* ignoredCommand
+  );
+} // namespace moho
+
+/**
+ * Address: 0x008C1BC0 (FUN_008C1BC0, ?USERUNIT_CanBeBuiltAt@Moho@@YA_NAAVCWldSession@1@PBVRUnitBlueprint@1@ABUSOCellPos@1@_NPAUSBuildInfo@1@@Z)
+ *
+ * What it does:
+ * Converts one cell-origin placement probe into world-space center
+ * coordinates and forwards to the world-space buildability path.
+ */
+bool moho::USERUNIT_CanBeBuiltAt(
+  CWldSession& session,
+  const RUnitBlueprint* const buildBlueprint,
+  const SOCellPos& cellPosition,
+  const bool allowCommandOverlap,
+  SOccupationResult* const buildInfo
+)
+{
+  const float halfSizeX = static_cast<float>(buildBlueprint->mFootprint.mSizeX) * 0.5f;
+  const float halfSizeZ = static_cast<float>(buildBlueprint->mFootprint.mSizeZ) * 0.5f;
+
+  const SCoordsVec2 buildPosition{
+    static_cast<float>(cellPosition.x) + halfSizeX,
+    static_cast<float>(cellPosition.z) + halfSizeZ,
+  };
+
+  return USERUNIT_CanBeBuiltAt(
+    session,
+    buildBlueprint,
+    buildPosition,
+    allowCommandOverlap,
+    buildInfo,
+    nullptr
+  );
+}
+
 /**
  * Address: 0x008C1430 (FUN_008C1430, ?USERUNIT_CanOccupy@Moho@@YA_NAAVCWldSession@1@ABUSFootprint@1@AAUSOCellPos@1@@Z)
  *
@@ -2958,6 +3041,49 @@ bool moho::USERUNIT_WithinBuildDistance(
   }
 
   return true;
+}
+
+/**
+ * Address: 0x008C1C30 (FUN_008C1C30, ?USERUNIT_GetBounds@Moho@@YA?AV?$AxisAlignedBox3@M@Wm3@@PBVRUnitBlueprint@1@ABV?$Vector3@M@3@@Z)
+ *
+ * What it does:
+ * Builds one world-space unit bounds AABB from collision offsets/sizes for
+ * mobile blueprints, and from skirt-rectangle extents for non-mobile
+ * blueprints.
+ */
+Wm3::AxisAlignedBox3f moho::USERUNIT_GetBounds(
+  const RUnitBlueprint* const unitBlueprint,
+  const Wm3::Vector3f& worldPosition
+)
+{
+  Wm3::AxisAlignedBox3f bounds{};
+
+  if (unitBlueprint->IsMobile()) {
+    const float minX =
+      (worldPosition.x + unitBlueprint->mCollisionOffsetX) - (unitBlueprint->mSizeX * 0.5f);
+    const float minY = worldPosition.y + unitBlueprint->mCollisionOffsetY;
+    const float minZ =
+      (worldPosition.z + unitBlueprint->mCollisionOffsetZ) - (unitBlueprint->mSizeZ * 0.5f);
+
+    bounds.Min.x = minX;
+    bounds.Min.y = minY;
+    bounds.Min.z = minZ;
+    bounds.Max.x = minX + unitBlueprint->mSizeX;
+    bounds.Max.y = minY + unitBlueprint->mSizeY;
+    bounds.Max.z = minZ + unitBlueprint->mSizeZ;
+    return bounds;
+  }
+
+  const SCoordsVec2 footprintPosition{worldPosition.x, worldPosition.z};
+  const gpg::Rect2f skirtRect = unitBlueprint->GetSkirtRect(footprintPosition);
+
+  bounds.Min.x = skirtRect.x0;
+  bounds.Min.y = worldPosition.y;
+  bounds.Min.z = skirtRect.z0;
+  bounds.Max.x = skirtRect.x1;
+  bounds.Max.y = worldPosition.y + unitBlueprint->mSizeY;
+  bounds.Max.z = skirtRect.z1;
+  return bounds;
 }
 
 /**

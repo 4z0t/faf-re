@@ -16,6 +16,7 @@ namespace gpg
 
 namespace moho
 {
+  class Broadcaster;
   class Entity;
   class Unit;
   struct SOCellPos;
@@ -201,6 +202,15 @@ namespace moho
      * otherwise resets attacker reporting state.
      */
     [[nodiscard]] bool UpdateDesiredTarget(CAiTarget* desiredTarget);
+
+    /**
+     * Address: 0x005F42C0 (FUN_005F42C0, CUnitMeleeAttackTargetTask::RelinkAiAttackerListener)
+     *
+     * What it does:
+     * Unlinks this task's attacker-listener node from its current intrusive
+     * list and relinks it before `attackerListenerHead`.
+     */
+    void RelinkAiAttackerListener(Broadcaster* attackerListenerHead);
 
     /**
      * Address: 0x00615CA0 (FUN_00615CA0)

@@ -185,6 +185,8 @@ namespace moho
   }
 
   /**
+   * Address: 0x0069EB80 (FUN_0069EB80, Moho::ProjectileSaveConstruct::RegisterSaveConstructArgsFunction)
+   *
    * What it does:
    * Binds save-construct callback into reflected RTTI for `Projectile`.
    */
@@ -196,13 +198,13 @@ namespace moho
       Projectile::sType = type;
     }
 
-    GPG_ASSERT(
-      type->serSaveConstructArgsFunc_ == nullptr || type->serSaveConstructArgsFunc_ == mSaveConstructArgsCallback
-    );
+    GPG_ASSERT(type->serSaveConstructArgsFunc_ == nullptr);
     type->serSaveConstructArgsFunc_ = mSaveConstructArgsCallback;
   }
 
   /**
+   * Address: 0x0069EC00 (FUN_0069EC00, Moho::ProjectileConstruct::RegisterConstructFunction)
+   *
    * What it does:
    * Binds construct/delete callbacks into reflected RTTI for `Projectile`.
    */
@@ -214,8 +216,7 @@ namespace moho
       Projectile::sType = type;
     }
 
-    GPG_ASSERT(type->serConstructFunc_ == nullptr || type->serConstructFunc_ == mConstructCallback);
-    GPG_ASSERT(type->deleteFunc_ == nullptr || type->deleteFunc_ == mDeconstructCallback);
+    GPG_ASSERT(type->serConstructFunc_ == nullptr);
     type->serConstructFunc_ = mConstructCallback;
     type->deleteFunc_ = mDeconstructCallback;
   }

@@ -343,23 +343,40 @@ namespace
   }
 
   /**
+   * Address: 0x004FECF0 (FUN_004FECF0)
+   *
+   * What it does:
+   * Serializes one sphere primitive's shape payload and local-center payload
+   * through the primitive virtual accessors used by save-construct lanes.
+   */
+  void SaveSpherePrimitiveConstructArgs(
+    moho::SphereCollisionPrimitive* const primitive,
+    gpg::WriteArchive* const archive,
+    gpg::SerSaveConstructArgsResult* const result
+  )
+  {
+    Wm3::Vec3f center{};
+    gpg::RRef shapeOwnerRef{};
+    archive->Write(CachedDColPrimSphereShapeType(), primitive->GetSphere(), shapeOwnerRef);
+
+    gpg::RRef centerOwnerRef{};
+    archive->Write(CachedDColPrimSphereVector3fType(), primitive->GetCenter(&center), centerOwnerRef);
+    result->SetUnowned(0u);
+  }
+
+  /**
    * Address: 0x004FEC50 (FUN_004FEC50)
    *
    * What it does:
-   * Saves one sphere collision primitive's shape and local-center construct
-   * arguments in binary archive order.
+   * Tail-forwards save-construct-args dispatch into the shared sphere
+   * primitive serialization helper.
    */
   void SaveConstructArgsDColPrimSphere(
     gpg::WriteArchive* const archive, const int objectPtr, const int, gpg::SerSaveConstructArgsResult* const result
   )
   {
     auto* const primitive = reinterpret_cast<moho::SphereCollisionPrimitive*>(objectPtr);
-    Wm3::Vec3f center{};
-    const gpg::RRef ownerRef{};
-
-    archive->Write(CachedDColPrimSphereShapeType(), primitive->GetSphere(), ownerRef);
-    archive->Write(CachedDColPrimSphereVector3fType(), primitive->GetCenter(&center), ownerRef);
-    result->SetUnowned(0u);
+    SaveSpherePrimitiveConstructArgs(primitive, archive, result);
   }
 
   /**
@@ -477,6 +494,25 @@ namespace moho
   }
 
   /**
+   * Address: 0x004FE640 (FUN_004FE640, preregister_DColPrimSphereTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters the startup-owned `DColPrimSphereTypeInfo`
+   * instance for `typeid(CColPrimitive<Wm3::Sphere3f>)`.
+   */
+  [[nodiscard]] gpg::RType* preregister_DColPrimSphereTypeInfo()
+  {
+    if (!gDColPrimSphereTypeInfoConstructed) {
+      new (gDColPrimSphereTypeInfoStorage) DColPrimSphereTypeInfo();
+      gDColPrimSphereTypeInfoConstructed = true;
+    }
+
+    auto* const type = reinterpret_cast<gpg::RType*>(gDColPrimSphereTypeInfoStorage);
+    gpg::PreRegisterRType(typeid(CColPrimitive<Wm3::Sphere3f>), type);
+    return type;
+  }
+
+  /**
    * Address: 0x00BC7550 (FUN_00BC7550, register_DColPrimSphereTypeInfo)
    *
    * What it does:
@@ -485,12 +521,7 @@ namespace moho
    */
   int register_DColPrimSphereTypeInfo()
   {
-    if (!gDColPrimSphereTypeInfoConstructed) {
-      new (gDColPrimSphereTypeInfoStorage) DColPrimSphereTypeInfo();
-      gDColPrimSphereTypeInfoConstructed = true;
-      gpg::PreRegisterRType(typeid(CColPrimitive<Wm3::Sphere3f>), reinterpret_cast<gpg::RType*>(gDColPrimSphereTypeInfoStorage));
-    }
-
+    (void)preregister_DColPrimSphereTypeInfo();
     return std::atexit(&cleanup_DColPrimSphereTypeInfo_atexit);
   }
 

@@ -1,6 +1,7 @@
 #include "CGpgNetInterface.h"
 
 #include <cstring>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <vector>
@@ -99,6 +100,311 @@ namespace
   )
   {
     gpg::Warnf("GPGNET: Ignoring unknown gpg.net command \"%s\".", commandName.c_str());
+  }
+
+  /**
+   * Address: 0x007B7DB0 (FUN_007B7DB0)
+   *
+   * What it does:
+   * Resets one legacy VC8 string lane back to empty SSO storage and releases
+   * any heap buffer owned by that string.
+   */
+  [[maybe_unused]] void ResetLegacyStringStorage(
+    msvc8::string& value
+  ) noexcept
+  {
+    value.tidy(true, 0U);
+  }
+
+  /**
+   * Address: 0x007B8190 (FUN_007B8190)
+   *
+   * What it does:
+   * Drops one shared pointer lane and releases the last ownership reference
+   * when this was the final live handle.
+   */
+  void ReleaseGlobalGpgNetPtr(
+    boost::shared_ptr<CGpgNetInterface>& ptr
+  ) noexcept
+  {
+    ptr.reset();
+  }
+
+  /**
+   * Address: 0x007BB0E0 (FUN_007BB0E0)
+   *
+   * What it does:
+   * Returns the live element count for one legacy vector lane.
+   */
+  [[nodiscard]] std::size_t GetCommandArgCount(
+    const msvc8::vector<SNetCommandArg>& args
+  ) noexcept
+  {
+    return args.size();
+  }
+
+  /**
+   * Address: 0x007BB0A0 (FUN_007BB0A0)
+   *
+   * What it does:
+   * Clears one command-argument vector lane before the owning command object
+   * finishes destruction.
+   */
+  void DestroyCommandArgStorage(
+    msvc8::vector<SNetCommandArg>& args
+  ) noexcept
+  {
+    args = msvc8::vector<SNetCommandArg>{};
+  }
+
+  /**
+   * Address: 0x007BBA90 (FUN_007BBA90)
+   *
+   * What it does:
+   * Clears the queued command deque and releases its element payload lanes.
+   */
+  void ClearCommandQueue(
+    msvc8::deque<SNetCommand>& commands
+  ) noexcept
+  {
+    commands.clear();
+  }
+
+  template <class T>
+  struct LegacyDequeRuntimeView
+  {
+    void* mProxy;
+    T** mMap;
+    std::size_t mMapSize;
+    std::size_t mOffset;
+    std::size_t mSize;
+  };
+
+  static_assert(sizeof(LegacyDequeRuntimeView<SNetCommand>) == 0x14, "LegacyDequeRuntimeView size must be 0x14");
+
+  template <class T>
+  [[nodiscard]] LegacyDequeRuntimeView<T>& AsLegacyDequeRuntimeView(
+    msvc8::deque<T>& deque
+  ) noexcept
+  {
+    return *reinterpret_cast<LegacyDequeRuntimeView<T>*>(&deque);
+  }
+
+  /**
+   * Address: 0x007BB920 (FUN_007BB920)
+   *
+   * What it does:
+   * Grows one legacy deque map by the binary's guarded step policy, moves the
+   * existing slot map into the new allocation, and zero-fills the newly added
+   * pointer lanes.
+   */
+  [[maybe_unused]] SNetCommand** GrowLegacyDequeMap(
+    msvc8::deque<SNetCommand>& deque
+  )
+  {
+    LegacyDequeRuntimeView<SNetCommand>& view = AsLegacyDequeRuntimeView(deque);
+
+    constexpr std::size_t kMaxDequeSlots = 0x05555555u;
+    if (view.mMapSize == kMaxDequeSlots) {
+      throw std::length_error("deque<T> too long");
+    }
+
+    std::size_t growth = 1U;
+    const std::size_t halfMapSize = view.mMapSize >> 1U;
+    if (halfMapSize >= 8U) {
+      if (halfMapSize > 1U) {
+        growth = halfMapSize;
+      }
+    } else {
+      growth = 8U;
+    }
+
+    if (view.mMapSize > kMaxDequeSlots - growth) {
+      growth = 1U;
+    }
+
+    const std::size_t newMapSize = view.mMapSize + growth;
+    SNetCommand** const newMap = static_cast<SNetCommand**>(::operator new(sizeof(SNetCommand*) * newMapSize));
+    std::memset(newMap, 0, sizeof(SNetCommand*) * newMapSize);
+
+    const std::size_t oldMapSize = view.mMapSize;
+    const std::size_t offset = view.mOffset;
+    SNetCommand** const oldMap = view.mMap;
+
+    if (oldMap != nullptr && oldMapSize != 0U) {
+      const std::size_t tailCount = offset < oldMapSize ? oldMapSize - offset : 0U;
+      if (tailCount != 0U) {
+        (void)memmove_s(
+          newMap + offset,
+          tailCount * sizeof(SNetCommand*),
+          oldMap + offset,
+          tailCount * sizeof(SNetCommand*)
+        );
+      }
+
+      if (offset > growth) {
+        const std::size_t prefixCount = growth;
+        if (prefixCount != 0U) {
+          (void)memmove_s(
+            newMap + oldMapSize,
+            prefixCount * sizeof(SNetCommand*),
+            oldMap,
+            prefixCount * sizeof(SNetCommand*)
+          );
+        }
+
+        const std::size_t middleCount = offset - growth;
+        if (middleCount != 0U) {
+          (void)memmove_s(
+            newMap,
+            middleCount * sizeof(SNetCommand*),
+            oldMap + growth,
+            middleCount * sizeof(SNetCommand*)
+          );
+        }
+      } else {
+        const std::size_t copiedCount = offset;
+        if (copiedCount != 0U) {
+          (void)memmove_s(
+            newMap + oldMapSize,
+            copiedCount * sizeof(SNetCommand*),
+            oldMap,
+            copiedCount * sizeof(SNetCommand*)
+          );
+        }
+
+        if (growth > copiedCount) {
+          std::memset(
+            newMap + oldMapSize + copiedCount,
+            0,
+            (growth - copiedCount) * sizeof(SNetCommand*)
+          );
+        }
+      }
+    }
+
+    if (oldMap != nullptr) {
+      ::operator delete(static_cast<void*>(oldMap));
+    }
+
+    view.mMap = newMap;
+    view.mMapSize = newMapSize;
+    return newMap;
+  }
+
+  /**
+   * Address: 0x007BB440 (FUN_007BB440, deque push-back lane)
+   *
+   * What it does:
+   * Appends one `SNetCommand` to the back of the legacy deque command queue.
+   */
+  [[maybe_unused]] void PushBackQueuedCommand(
+    msvc8::deque<SNetCommand>& commandQueue,
+    const SNetCommand& command
+  )
+  {
+    commandQueue.push_back(command);
+  }
+
+  /**
+   * Address: 0x007BE750 (FUN_007BE750, deque push-front lane)
+   *
+   * What it does:
+   * Prepends one `SNetCommand` to the front of the legacy deque command queue
+   * and returns the stored front element address.
+   */
+  [[maybe_unused]] [[nodiscard]] SNetCommand* PushFrontQueuedCommand(
+    msvc8::deque<SNetCommand>& commandQueue,
+    const SNetCommand& command
+  )
+  {
+    commandQueue.push_front(command);
+    return commandQueue.empty() ? nullptr : &commandQueue.front();
+  }
+
+  /**
+   * Address: 0x007BDBB0 (FUN_007BDBB0)
+   *
+   * What it does:
+   * Resets one command-argument string lane to empty SSO storage while
+   * preserving the scalar `mType/mNum` lanes.
+   */
+  [[maybe_unused]] void ResetSingleCommandArgStorage(
+    SNetCommandArg& arg
+  ) noexcept
+  {
+    ResetLegacyStringStorage(arg.mStr);
+  }
+
+  /**
+   * Address: 0x007BE4B0 (FUN_007BE4B0)
+   *
+   * What it does:
+   * Copy-assigns one `SNetCommandArg` lane by mirroring scalar fields and
+   * rebuilding the legacy string payload from source text.
+   */
+  [[maybe_unused]] SNetCommandArg* CopyAssignSingleCommandArg(
+    SNetCommandArg* const destination,
+    const SNetCommandArg& source
+  )
+  {
+    if (destination == nullptr) {
+      return nullptr;
+    }
+
+    destination->mType = source.mType;
+    destination->mNum = source.mNum;
+    destination->mStr.reset_and_assign(source.mStr);
+    return destination;
+  }
+
+  /**
+   * Address: 0x007BD810 (FUN_007BD810)
+   *
+   * What it does:
+   * Writes `count` copies of one command-argument prototype into contiguous
+   * destination lanes, and on exception destroys already-written lanes before
+   * rethrowing.
+   */
+  [[maybe_unused]] void CopyAssignCommandArgRangeWithRollback(
+    const SNetCommandArg& prototype,
+    std::uint32_t count,
+    SNetCommandArg* const destination
+  )
+  {
+    if (destination == nullptr || count == 0U) {
+      return;
+    }
+
+    SNetCommandArg* const begin = destination;
+    SNetCommandArg* cursor = destination;
+    try {
+      for (std::uint32_t i = 0; i < count; ++i, ++cursor) {
+        (void)CopyAssignSingleCommandArg(cursor, prototype);
+      }
+    } catch (...) {
+      for (SNetCommandArg* rollback = begin; rollback != cursor; ++rollback) {
+        ResetSingleCommandArgStorage(*rollback);
+      }
+      throw;
+    }
+  }
+
+  /**
+   * Address: 0x007BD8F0 (FUN_007BD8F0)
+   *
+   * What it does:
+   * Destroys one half-open `SNetCommandArg` range by releasing each string
+   * payload lane in turn.
+   */
+  [[maybe_unused]] void DestroyCommandArgRange(
+    SNetCommandArg* first,
+    SNetCommandArg* last
+  ) noexcept
+  {
+    for (; first != last; ++first) {
+      ResetLegacyStringStorage(first->mStr);
+    }
   }
 } // namespace
 
@@ -277,7 +583,7 @@ void moho::GPGNET_Attach(
  */
 void moho::GPGNET_Shutdown()
 {
-  sGPGNet = boost::shared_ptr<CGpgNetInterface>{};
+  ReleaseGlobalGpgNetPtr(sGPGNet);
 }
 
 /**
@@ -451,12 +757,34 @@ moho::SNetCommand::SNetCommand(
 {}
 
 /**
+ * Address: 0x007BCE70 (FUN_007BCE70)
+ *
+ * What it does:
+ * Copy-constructs one queued command entry by initializing destination name
+ * and argument-vector storage from source lanes, then copying queued value.
+ */
+moho::SNetCommand::SNetCommand(
+  const SNetCommand& source
+)
+  : mName()
+  , mArgs()
+  , mVal(0)
+{
+  mName.reset_and_assign(source.mName);
+  mArgs = source.mArgs;
+  mVal = source.mVal;
+}
+
+/**
  * Address: 0x007BAEF0 (FUN_007BAEF0, ??1SNetCommand@Moho@@QAE@@Z)
  *
  * What it does:
  * Runs member destructors for queued-command name/argument storage.
  */
-moho::SNetCommand::~SNetCommand() = default;
+moho::SNetCommand::~SNetCommand()
+{
+  DestroyCommandArgStorage(mArgs);
+}
 
 /**
  * Address: 0x007BCA70 (FUN_007BCA70, Moho::CGpgNetInterface::CreatePtr)
@@ -544,7 +872,7 @@ bool CGpgNetInterface::Shutdown()
     mConnectThreadWorker = nullptr;
   }
 
-  mCommands.clear();
+  ClearCommandQueue(mCommands);
 
   if (mTcpSocket) {
     delete mTcpSocket;
@@ -760,7 +1088,7 @@ void CGpgNetInterface::WriteCommand(
 
   WriteCommandName(name);
 
-  const uint32_t argc = static_cast<uint32_t>(args.size());
+  const uint32_t argc = static_cast<uint32_t>(GetCommandArgCount(args));
   mTcpSocket->Write(argc);
 
   for (const SNetCommandArg& arg : args) {
@@ -1064,9 +1392,10 @@ void CGpgNetInterface::Test(
   msvc8::vector<SNetCommandArg>& args
 )
 {
-  gpg::Logf("GPGNET: test message, %d args", static_cast<int>(args.size()));
+  const std::size_t argCount = GetCommandArgCount(args);
+  gpg::Logf("GPGNET: test message, %d args", static_cast<int>(argCount));
 
-  for (std::size_t i = 0; i < args.size(); ++i) {
+  for (std::size_t i = 0; i < argCount; ++i) {
     const SNetCommandArg& arg = args[i];
     switch (arg.mType) {
     case SNetCommandArg::NETARG_Num:
@@ -1583,7 +1912,7 @@ void CGpgNetInterface::EnqueueCommand(
   }
 
   const SNetCommand command(name, args, val);
-  mCommands.push_back(command);
+  PushBackQueuedCommand(mCommands, command);
 }
 
 namespace

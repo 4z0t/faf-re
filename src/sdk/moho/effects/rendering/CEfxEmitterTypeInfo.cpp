@@ -108,7 +108,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x0065DFE0 (FUN_0065DFE0, register_CEfxEmitterTypeInfo_00)
+    * Alias of FUN_0065DFE0 (non-canonical helper lane).
    *
    * What it does:
    * Constructs/preregisters startup RTTI metadata for `moho::CEfxEmitter`.

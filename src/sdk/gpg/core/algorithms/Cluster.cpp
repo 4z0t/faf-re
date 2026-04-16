@@ -1,5 +1,6 @@
 #include "Cluster.h"
 
+#include <algorithm>
 #include <array>
 #include <climits>
 #include <cmath>
@@ -12,6 +13,7 @@
 
 #include <intrin.h>
 
+#include "gpg/core/containers/FastVectorInsertLanes.h"
 #include "gpg/core/utils/Global.h"
 
 namespace
@@ -62,6 +64,113 @@ namespace
 
     constexpr std::uint32_t kOccupationKeySalt = 0x7BEF2693u;
     constexpr std::uint32_t kSubclusterKeySalt = 0x0001F31Du;
+
+    struct FastVectorShortRuntimeView
+    {
+        std::int16_t* start;        // +0x00
+        std::int16_t* end;          // +0x04
+        std::int16_t* capacity;     // +0x08
+        std::int16_t* inlineOrigin; // +0x0C
+    };
+    static_assert(sizeof(FastVectorShortRuntimeView) == 0x10, "FastVectorShortRuntimeView size must be 0x10");
+
+    constexpr std::array<std::uint8_t, 4> kOccupationEdgeStartBit = { 0u, 0u, 0u, 8u };
+    constexpr std::array<std::uint8_t, 4> kOccupationEdgeStartLayer = { 0u, 8u, 0u, 0u };
+    constexpr std::array<std::uint8_t, 4> kOccupationEdgeBitStep = { 1u, 1u, 0u, 0u };
+    constexpr std::array<std::uint8_t, 4> kOccupationEdgeLayerStep = { 0u, 0u, 1u, 1u };
+
+    void AppendPackedEdgeWord(
+      FastVectorShortRuntimeView& outEdges,
+      const std::uint8_t lowByte,
+      const std::uint8_t highByte
+    )
+    {
+      const std::uint16_t packed = static_cast<std::uint16_t>(lowByte)
+        | static_cast<std::uint16_t>(static_cast<std::uint16_t>(highByte) << 8u);
+
+      if (outEdges.end == outEdges.capacity) {
+        auto& insertView = reinterpret_cast<gpg::core::legacy::FastVectorInsertRuntimeView&>(outEdges);
+        const std::byte* const sourceBegin = reinterpret_cast<const std::byte*>(&packed);
+        const std::byte* const sourceEnd = sourceBegin + sizeof(packed);
+        (void)gpg::core::legacy::AppendRangeWordLane(
+          insertView,
+          reinterpret_cast<std::byte*>(outEdges.end),
+          sourceBegin,
+          sourceEnd
+        );
+        return;
+      }
+
+      if (outEdges.end != nullptr) {
+        *outEdges.end = static_cast<std::int16_t>(packed);
+      }
+      ++outEdges.end;
+    }
+
+    /**
+     * Address: 0x009550E0 (FUN_009550E0, gpg::HaStar::ClusterBuild occupation edge extraction lane)
+     *
+     * What it does:
+     * Scans four occupancy edge lanes, emits packed edge-contact markers into
+     * `outEdges`, sorts them, and removes duplicates in-place.
+     */
+    [[maybe_unused]] std::int16_t* BuildOccupationEdgeContacts(
+      const gpg::HaStar::OccupationData& occupationData,
+      FastVectorShortRuntimeView& outEdges
+    )
+    {
+      for (std::uint32_t edgeIndex = 0; edgeIndex < 4u; ++edgeIndex) {
+        std::uint8_t currentBit = kOccupationEdgeStartBit[edgeIndex];
+        std::uint8_t currentLayer = kOccupationEdgeStartLayer[edgeIndex];
+        std::uint8_t runStart = 0xFFu;
+        std::uint8_t runEnd = 0xFFu;
+
+        for (std::uint8_t step = 0u; step <= 8u; ++step) {
+          const bool occupied =
+            (occupationData.mWords[currentLayer] & (1u << currentBit)) != 0u;
+          if (occupied) {
+            runEnd = step;
+            if (runStart == 0xFFu) {
+              runStart = step;
+            }
+          }
+
+          if (runStart != 0xFFu && (step == 8u || step != runEnd)) {
+            std::uint8_t midpoint = 0u;
+            if (runStart <= 4u && runEnd >= 4u) {
+              midpoint = 4u;
+            } else if (runStart == 0u) {
+              midpoint = 0u;
+            } else if (runEnd == 8u) {
+              midpoint = 8u;
+            } else {
+              midpoint = static_cast<std::uint8_t>(
+                (static_cast<std::uint32_t>(runStart)
+                  + static_cast<std::uint32_t>(runEnd)
+                  + (runEnd < 4u ? 1u : 0u))
+                >> 1u
+              );
+            }
+
+            if (kOccupationEdgeBitStep[edgeIndex] != 0u) {
+              AppendPackedEdgeWord(outEdges, midpoint, currentLayer);
+            } else {
+              AppendPackedEdgeWord(outEdges, currentBit, midpoint);
+            }
+
+            runStart = 0xFFu;
+            runEnd = 0xFFu;
+          }
+
+          currentBit = static_cast<std::uint8_t>(currentBit + kOccupationEdgeBitStep[edgeIndex]);
+          currentLayer = static_cast<std::uint8_t>(currentLayer + kOccupationEdgeLayerStep[edgeIndex]);
+        }
+      }
+
+      std::sort(outEdges.start, outEdges.end);
+      outEdges.end = std::unique(outEdges.start, outEdges.end);
+      return outEdges.end;
+    }
 
     struct ClusterCacheTreeLayout
     {
@@ -463,10 +572,15 @@ namespace
         }
     }
 
+    using OccupationCacheRuntimeMap =
+        std::unordered_map<OccupationCacheKey, gpg::HaStar::Cluster::Data*, OccupationKeyHash, OccupationKeyEq>;
+    using SubclusterCacheRuntimeMap =
+        std::unordered_map<SubclusterCacheKey, gpg::HaStar::Cluster::Data*, SubclusterKeyHash, SubclusterKeyEq>;
+
     struct RuntimeClusterCacheStore
     {
-        std::unordered_map<OccupationCacheKey, gpg::HaStar::Cluster::Data*, OccupationKeyHash, OccupationKeyEq> mOccupation;
-        std::unordered_map<SubclusterCacheKey, gpg::HaStar::Cluster::Data*, SubclusterKeyHash, SubclusterKeyEq> mSubcluster;
+        OccupationCacheRuntimeMap mOccupation;
+        SubclusterCacheRuntimeMap mSubcluster;
     };
 
     struct CacheLookupResult
@@ -537,6 +651,122 @@ namespace
         OccupationCacheKey key{};
         std::memcpy(key.mBytes.data(), &occupationData, key.mBytes.size());
         return key;
+    }
+
+    struct OccupationCacheIteratorRange
+    {
+        OccupationCacheRuntimeMap::iterator mFirst{};
+        OccupationCacheRuntimeMap::iterator mLast{};
+    };
+
+    constexpr std::size_t kInitialOccupationBucketSlotCount = 9u;
+
+    /**
+     * Address: 0x00933EF0 (FUN_00933EF0, sub_933EF0)
+     *
+     * What it does:
+     * Resolves the iterator range matching one occupation cache key.
+     */
+    [[maybe_unused]] OccupationCacheIteratorRange* FindOccupationCacheEquivalentRange(
+        RuntimeClusterCacheStore& store,
+        OccupationCacheIteratorRange& outRange,
+        const gpg::HaStar::OccupationData& occupationData
+    )
+    {
+        const OccupationCacheKey key = MakeOccupationCacheKey(occupationData);
+        const auto range = store.mOccupation.equal_range(key);
+        outRange.mFirst = range.first;
+        outRange.mLast = range.second;
+        return &outRange;
+    }
+
+    /**
+     * Address: 0x00933F80 (FUN_00933F80, sub_933F80)
+     *
+     * What it does:
+     * Erases one occupation-cache map node and returns its successor iterator.
+     */
+    [[maybe_unused]] OccupationCacheRuntimeMap::iterator* EraseOccupationCacheNode(
+        RuntimeClusterCacheStore& store,
+        OccupationCacheRuntimeMap::iterator& outNext,
+        const OccupationCacheRuntimeMap::iterator nodeIt
+    )
+    {
+        if (nodeIt == store.mOccupation.end()) {
+            outNext = nodeIt;
+            return &outNext;
+        }
+
+        outNext = store.mOccupation.erase(nodeIt);
+        return &outNext;
+    }
+
+    /**
+     * Address: 0x00934EA0 (FUN_00934EA0, sub_934EA0)
+     *
+     * What it does:
+     * Clears occupation-cache nodes and restores default bucket-lane state.
+     */
+    [[maybe_unused]] int ResetOccupationCacheEntryStorage(RuntimeClusterCacheStore& store)
+    {
+        store.mOccupation.clear();
+        store.mOccupation.rehash(kInitialOccupationBucketSlotCount);
+        return 1;
+    }
+
+    /**
+     * Address: 0x00935280 (FUN_00935280, sub_935280)
+     *
+     * What it does:
+     * Erases one occupation-cache iterator range and returns the next iterator.
+     */
+    [[maybe_unused]] OccupationCacheRuntimeMap::iterator* EraseOccupationCacheRange(
+        RuntimeClusterCacheStore& store,
+        OccupationCacheRuntimeMap::iterator& outNext,
+        OccupationCacheRuntimeMap::iterator first,
+        const OccupationCacheRuntimeMap::iterator last
+    )
+    {
+        if (first == store.mOccupation.begin() && last == store.mOccupation.end()) {
+            (void)ResetOccupationCacheEntryStorage(store);
+            outNext = store.mOccupation.begin();
+            return &outNext;
+        }
+
+        while (first != last) {
+            const OccupationCacheRuntimeMap::iterator eraseNode = first;
+            ++first;
+            OccupationCacheRuntimeMap::iterator erasedNext{};
+            (void)EraseOccupationCacheNode(store, erasedNext, eraseNode);
+        }
+
+        outNext = first;
+        return &outNext;
+    }
+
+    /**
+     * Address: 0x00935480 (FUN_00935480, sub_935480)
+     *
+     * What it does:
+     * Removes all occupation-cache entries matching one key and returns the
+     * number of removed nodes.
+     */
+    [[maybe_unused]] int EraseOccupationCacheEntriesForKey(
+        RuntimeClusterCacheStore& store,
+        const gpg::HaStar::OccupationData& occupationData
+    )
+    {
+        OccupationCacheIteratorRange range{};
+        (void)FindOccupationCacheEquivalentRange(store, range, occupationData);
+
+        int removedCount = 0;
+        for (auto it = range.mFirst; it != range.mLast; ++it) {
+            ++removedCount;
+        }
+
+        OccupationCacheRuntimeMap::iterator outNext{};
+        (void)EraseOccupationCacheRange(store, outNext, range.mFirst, range.mLast);
+        return removedCount;
     }
 
     [[nodiscard]] SubclusterCacheKey MakeSubclusterCacheKey(const gpg::HaStar::SubclusterData& subclusterData)
@@ -1101,6 +1331,39 @@ gpg::Rect2i ClusterMap::ClusterIndexRect(const int worldX, const int worldZ, con
         : kClusterSizeLog2ByLevel[kClusterSizeLog2Count - 1];
 
     return gpg::HaStar::ClusterIndexRect(worldX, worldZ, level, (mWidth >> shift), (mHeight >> shift));
+}
+
+/**
+ * Address: 0x008E3530 (FUN_008E3530,
+ * ?ClusterRect@ClusterMap@HaStar@gpg@@QBE?AV?$Rect2@H@3@ABV43@E@Z)
+ */
+gpg::Rect2i ClusterMap::ClusterRect(const gpg::Rect2i& worldRect, const std::uint8_t level) const
+{
+    const int clusterSize = static_cast<int>(kClusterSizeByLevel[level]);
+    const int alignMask = -clusterSize;
+
+    gpg::Rect2i out{};
+    out.z1 = (alignMask & (worldRect.z1 + clusterSize - 1)) + 1;
+    if (out.z1 >= mHeight) {
+        out.z1 = mHeight;
+    }
+
+    out.x1 = (alignMask & (worldRect.x1 + clusterSize - 1)) + 1;
+    if (out.x1 >= mWidth) {
+        out.x1 = mWidth;
+    }
+
+    out.z0 = alignMask & (worldRect.z0 - 1);
+    if (out.z0 < 0) {
+        out.z0 = 0;
+    }
+
+    out.x0 = alignMask & (worldRect.x0 - 1);
+    if (out.x0 < 0) {
+        out.x0 = 0;
+    }
+
+    return out;
 }
 
 /**

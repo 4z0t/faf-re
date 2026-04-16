@@ -461,6 +461,25 @@ namespace
    * Preserves one legacy no-op callback lane installed by PositionHistory RTTI init.
    */
   void PositionHistoryTypeInfoNoOpCallback(void* /*self*/) {}
+
+  /**
+   * Address: 0x0067E020 (FUN_0067E020)
+   *
+   * What it does:
+   * Initializes one `PositionHistory` payload in caller-owned storage and
+   * returns typed reflection reference lanes for that storage.
+   */
+  [[nodiscard]] gpg::RRef ConstructPositionHistoryRefInPlace(void* const objectStorage)
+  {
+    auto* const history = static_cast<moho::PositionHistory*>(objectStorage);
+    if (history != nullptr) {
+      moho::InitializePositionHistory(*history);
+    }
+
+    gpg::RRef out{};
+    (void)gpg::RRef_PositionHistory(&out, history);
+    return out;
+  }
 } // namespace
 
 namespace moho
@@ -650,6 +669,7 @@ namespace moho
   void PositionHistoryTypeInfo::Init()
   {
     size_ = sizeof(PositionHistory);
+    ctorRefFunc_ = &ConstructPositionHistoryRefInPlace;
     dtrFunc_ = &PositionHistoryTypeInfoNoOpCallback;
     gpg::RType::Init();
     Finish();

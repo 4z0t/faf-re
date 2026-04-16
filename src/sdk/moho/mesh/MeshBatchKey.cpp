@@ -244,6 +244,23 @@ namespace moho
    */
   MeshBatchKey::~MeshBatchKey() = default;
 
+  MeshBatchBucket::MeshBatchBucket()
+    : key()
+    , instances{nullptr, nullptr, nullptr, nullptr}
+  {}
+
+  /**
+   * Address: 0x007E36C0 (FUN_007E36C0, ??0MeshBatchBucket@Moho@@QAE@ABU01@@Z)
+   *
+   * What it does:
+   * Copy-constructs one mesh-batch bucket key and clones the owned
+   * instance-pointer vector payload.
+   */
+  MeshBatchBucket::MeshBatchBucket(const MeshBatchBucket& other)
+    : key(other.key)
+    , instances(CloneMeshBatchInstanceVector(other.instances))
+  {}
+
   /**
    * Address: 0x007E35B0 (FUN_007E35B0)
    *

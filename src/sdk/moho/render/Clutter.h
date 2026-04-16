@@ -246,6 +246,14 @@ namespace moho
     ~Clutter();
 
     /**
+     * Address: 0x007D62B0 (FUN_007D62B0, ?Initialize@Clutter@Moho@@QAEXXZ)
+     *
+     * What it does:
+     * Thunk lane that reuses `Shutdown()` to reset region/surface state.
+     */
+    void Initialize();
+
+    /**
      * Address: 0x007D62C0 (FUN_007D62C0, ?Shutdown@Clutter@Moho@@QAEXXZ)
      *
      * What it does:
@@ -274,6 +282,15 @@ namespace moho
 
   private:
     /**
+     * Address: 0x007D6E10 (FUN_007D6E10, ?UnlinkRegion@Clutter@Moho@@AAEXPAVRegion@12@@Z)
+     *
+     * What it does:
+     * Detaches one region node from the active doubly-linked chain and updates
+     * `mCurRegion` when it points at the removed node.
+     */
+    void UnlinkRegion(ClutterRegion* region);
+
+    /**
      * Address: 0x007D6410 (FUN_007D6410, ?IsVisible@Clutter@Moho@@AAE_NPBVGeomCamera3@2@ABV?$AxisAlignedBox3@M@Wm3@@@Z)
      *
      * What it does:
@@ -283,6 +300,15 @@ namespace moho
     bool IsVisible(const GeomCamera3* camera, const Wm3::AxisAlignedBox3f& regionBox);
 
     /**
+     * Address: 0x007D64C0 (FUN_007D64C0, ?IsVisible@Clutter@Moho@@AAE_NPBVGeomCamera3@2@PBVRegion@12@@Z)
+     *
+     * What it does:
+     * Returns visibility state for one clutter region by delegating to AABB
+     * visibility test using the region's box lane.
+     */
+    bool IsVisible(const GeomCamera3* camera, const ClutterRegion* region);
+
+    /**
      * Address: 0x007D6510 (FUN_007D6510, ?UpdateCurrent@Clutter@Moho@@AAEXPBVGeomCamera3@2@@Z)
      *
      * What it does:
@@ -290,6 +316,24 @@ namespace moho
      * or outside the current camera frustum-solid lane.
      */
     void UpdateCurrent(const GeomCamera3* camera);
+
+    /**
+     * Address: 0x007D7050 (FUN_007D7050, ?UpdateRegion@Clutter@Moho@@AAEXPBVGeomCamera3@2@PAVRegion@12@@Z)
+     *
+     * What it does:
+     * Rebinds each mesh-instance payload in one region map to this clutter
+     * owner lane.
+     */
+    void UpdateRegion(const GeomCamera3* camera, ClutterRegion* region);
+
+    /**
+     * Address: 0x007D64D0 (FUN_007D64D0, ?IsCluttered@Clutter@Moho@@AAE_NHH@Z)
+     *
+     * What it does:
+     * Checks whether one `(x,z)` region key already exists in the clutter
+     * region-key RB-tree lane.
+     */
+    [[nodiscard]] bool IsCluttered(int x, int z);
 
     /**
      * Address: 0x007D7150 (FUN_007D7150, ?GetSurface@Clutter@Moho@@AAEABVSurface@12@E@Z)

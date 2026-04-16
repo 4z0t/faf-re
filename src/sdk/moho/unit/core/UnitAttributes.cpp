@@ -10,11 +10,30 @@
 
 namespace
 {
+  class UnitAttributesTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "UnitAttributes";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::UnitAttributes);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
   [[nodiscard]] gpg::RType* CachedUnitAttributesType()
   {
     gpg::RType* type = moho::UnitAttributes::sType;
     if (!type) {
       type = gpg::LookupRType(typeid(moho::UnitAttributes));
+      if (!type) {
+        type = moho::preregister_UnitAttributesTypeInfo();
+      }
       moho::UnitAttributes::sType = type;
     }
 
@@ -55,6 +74,20 @@ namespace
 namespace moho
 {
   gpg::RType* UnitAttributes::sType = nullptr;
+
+  /**
+   * Address: 0x0055C210 (FUN_0055C210, preregister_UnitAttributesTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `UnitAttributes`.
+   */
+  gpg::RType* preregister_UnitAttributesTypeInfo()
+  {
+    static UnitAttributesTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(UnitAttributes), &typeInfo);
+    UnitAttributes::sType = &typeInfo;
+    return &typeInfo;
+  }
 
   /**
    * Address: 0x0055C2D0 (FUN_0055C2D0, Moho::UnitAttributes::StaticGetClass)
@@ -147,3 +180,16 @@ namespace moho
     archive->WriteBool(attributes->mCapturable);
   }
 } // namespace moho
+
+namespace
+{
+  struct UnitAttributesTypeInfoBootstrap
+  {
+    UnitAttributesTypeInfoBootstrap()
+    {
+      (void)moho::preregister_UnitAttributesTypeInfo();
+    }
+  };
+
+  [[maybe_unused]] UnitAttributesTypeInfoBootstrap gUnitAttributesTypeInfoBootstrap;
+} // namespace

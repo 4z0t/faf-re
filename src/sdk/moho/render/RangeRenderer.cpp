@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <new>
 #include <string_view>
 
 #include "gpg/gal/backends/d3d9/DeviceD3D9.hpp"
@@ -173,6 +174,60 @@ namespace
   {
     payloads.push_back(payload);
     return payloads.end();
+  }
+
+  struct RangeExtractionFastVectorN20RuntimeView
+  {
+    moho::SRangeExtractionPayload* mStart;         // +0x00
+    moho::SRangeExtractionPayload* mFinish;        // +0x04
+    moho::SRangeExtractionPayload* mCapacity;      // +0x08
+    moho::SRangeExtractionPayload* mOriginalStart; // +0x0C
+    moho::SRangeExtractionPayload mInlineStorage[20]; // +0x10
+  };
+  static_assert(sizeof(RangeExtractionFastVectorN20RuntimeView) == 0x150, "RangeExtractionFastVectorN20RuntimeView size must be 0x150");
+
+  /**
+   * Address: 0x007F03D0 (FUN_007F03D0, sub_7F03D0)
+   *
+   * What it does:
+   * Rebinds one `fastvector_n<SRangeExtractionPayload,20>` lane to inline
+   * storage and copies source payload entries, spilling to heap when source
+   * exceeds inline capacity.
+   */
+  [[maybe_unused]] RangeExtractionFastVectorN20RuntimeView* CopyRangeExtractionFastVectorN20(
+    RangeExtractionFastVectorN20RuntimeView* const destination,
+    const RangeExtractionFastVectorN20RuntimeView& source
+  )
+  {
+    if (destination == nullptr) {
+      return nullptr;
+    }
+
+    constexpr std::size_t kInlineCount = 20u;
+    moho::SRangeExtractionPayload* const inlineStart = &destination->mInlineStorage[0];
+    destination->mStart = inlineStart;
+    destination->mFinish = inlineStart;
+    destination->mCapacity = inlineStart + kInlineCount;
+    destination->mOriginalStart = inlineStart;
+
+    const moho::SRangeExtractionPayload* const sourceStart = source.mStart;
+    const moho::SRangeExtractionPayload* const sourceFinish = source.mFinish;
+    if (sourceStart == nullptr || sourceFinish == nullptr || sourceFinish <= sourceStart) {
+      return destination;
+    }
+
+    const std::size_t sourceCount = static_cast<std::size_t>(sourceFinish - sourceStart);
+    moho::SRangeExtractionPayload* writeStart = inlineStart;
+    if (sourceCount > kInlineCount) {
+      writeStart = static_cast<moho::SRangeExtractionPayload*>(::operator new[](sourceCount * sizeof(*writeStart)));
+      destination->mStart = writeStart;
+      destination->mFinish = writeStart;
+      destination->mCapacity = writeStart + sourceCount;
+    }
+
+    std::memcpy(writeStart, sourceStart, sourceCount * sizeof(*writeStart));
+    destination->mFinish = writeStart + sourceCount;
+    return destination;
   }
 
   struct RangeRingGeometryBuildState
@@ -402,6 +457,44 @@ namespace
 
     return candidate;
   }
+
+  void DestroyRangeProfileNodesRecursive(
+    moho::SRangeRenderCategoryTreeNode* const node,
+    const moho::SRangeRenderCategoryTreeNode* const head
+  ) noexcept
+  {
+    if (node == nullptr || node == head || node->mIsSentinel != 0u) {
+      return;
+    }
+
+    DestroyRangeProfileNodesRecursive(node->mLeft, head);
+    DestroyRangeProfileNodesRecursive(node->mRight, head);
+    ::operator delete(node);
+  }
+
+  /**
+   * Address: 0x007EDE20 (FUN_007EDE20, sub_7EDE20)
+   *
+   * What it does:
+   * Releases one range-profile RB-tree storage lane by erasing all entries,
+   * deleting the tree head sentinel, and zeroing `{head,size}`.
+   */
+  std::int32_t ReleaseRangeProfileTreeStorage(moho::SRangeRenderCategoryTree* const tree) noexcept
+  {
+    if (tree == nullptr) {
+      return 0;
+    }
+
+    moho::SRangeRenderCategoryTreeNode* const head = tree->mHead;
+    if (head != nullptr) {
+      DestroyRangeProfileNodesRecursive(head->mParent, head);
+      ::operator delete(head);
+    }
+
+    tree->mHead = nullptr;
+    tree->mSize = 0u;
+    return 0;
+  }
 } // namespace
 
 namespace moho
@@ -557,12 +650,7 @@ namespace moho
     SRangeRenderCategoryTree& tree
   )
   {
-    if (tree.mHead) {
-      ::operator delete(tree.mHead);
-    }
-
-    tree.mHead = nullptr;
-    tree.mSize = 0u;
+    (void)ReleaseRangeProfileTreeStorage(&tree);
     tree.mMeta00 = 0u;
   }
 } // namespace moho

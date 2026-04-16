@@ -48,6 +48,35 @@ namespace
   };
   static_assert(sizeof(DecalMapNode) == 0x20, "DecalMapNode size must be 0x20");
 
+  struct DecalBucketTreeStorage
+  {
+    void* allocatorCookie;  // +0x00
+    DecalBucketNode* head;  // +0x04
+    std::uint32_t size;     // +0x08
+  };
+  static_assert(sizeof(DecalBucketTreeStorage) == 0x0C, "DecalBucketTreeStorage size must be 0x0C");
+
+  /**
+   * Address: 0x0077CD00 (FUN_0077CD00)
+   *
+   * What it does:
+   * Allocates one decal-bucket RB-tree node lane with null links/payload and
+   * default marker bytes (`color=black`, `isNil=0`).
+   */
+  [[nodiscard]] DecalBucketNode* AllocateDecalBucketNode()
+  {
+    auto* const node = static_cast<DecalBucketNode*>(::operator new(sizeof(DecalBucketNode)));
+    node->left = nullptr;
+    node->parent = nullptr;
+    node->right = nullptr;
+    node->handle = nullptr;
+    node->color = 1u;
+    node->isNil = 0u;
+    node->reserved12[0] = 0u;
+    node->reserved12[1] = 0u;
+    return node;
+  }
+
   [[nodiscard]]
   DecalMapNode* AllocateMapHeadNode()
   {
@@ -66,6 +95,47 @@ namespace
     return node;
   }
 
+  void DestroyMapNodes(DecalMapNode* node, const DecalMapNode* const head);
+
+  /**
+   * Address: 0x0077BCD0 (FUN_0077BCD0)
+   *
+   * What it does:
+   * Finds the lower-bound start-tick bucket node for a given decal start tick
+   * using the sentinel-backed RB-tree layout.
+   */
+  [[maybe_unused]] [[nodiscard]] DecalMapNode* FindStartTickBucketNode(
+    DecalMapNode* const head, const std::uint32_t startTick
+  ) noexcept
+  {
+    if (head == nullptr) {
+      return nullptr;
+    }
+
+    DecalMapNode* candidate = head;
+    for (DecalMapNode* node = head->parent; node != nullptr && node->isNil == 0u;) {
+      candidate = node;
+      if (startTick < node->startTick) {
+        node = node->left;
+      } else {
+        node = node->right;
+      }
+    }
+
+    return candidate;
+  }
+
+  /**
+   * Address: 0x0077A0A0 (FUN_0077A0A0)
+   *
+   * What it does:
+   * Appends one visible decal payload into the pending publish vector.
+   */
+  void AppendVisibleDecal(msvc8::vector<SDecalInfo>& visibleDecals, const SDecalInfo& decalInfo)
+  {
+    visibleDecals.push_back(decalInfo);
+  }
+
   void DestroyBucketTreeNodes(DecalBucketNode* node, const DecalBucketNode* const head)
   {
     if (!node || node == head) {
@@ -77,14 +147,83 @@ namespace
     ::operator delete(node);
   }
 
-  void DestroyBucketHead(DecalBucketNode* const head)
+  /**
+   * Address: 0x00779B80 (FUN_00779B80, sub_779B80)
+   *
+   * What it does:
+   * Releases one decal-bucket RB-tree storage lane by erasing all nodes,
+   * deleting the head sentinel, and zeroing `{head,size}`.
+   */
+  std::int32_t ReleaseDecalBucketTreeStorage(DecalBucketTreeStorage* const storage)
   {
-    if (!head) {
-      return;
+    if (storage == nullptr) {
+      return 0;
     }
 
-    DestroyBucketTreeNodes(head->left, head);
-    ::operator delete(head);
+    DecalBucketNode* const head = storage->head;
+    if (head != nullptr) {
+      DestroyBucketTreeNodes(head->left, head);
+      ::operator delete(head);
+    }
+
+    storage->head = nullptr;
+    storage->size = 0u;
+    return 0;
+  }
+
+  /**
+   * Address: 0x00779240 (FUN_00779240, sub_779240)
+   *
+   * What it does:
+   * Releases one start-tick map RB-tree storage lane by erasing all map nodes,
+   * deleting the head sentinel, and zeroing `{head,size}`.
+   */
+  std::int32_t ReleaseDecalStartTickMapStorage(CDecalStartTickMapStorage* const storage)
+  {
+    if (storage == nullptr) {
+      return 0;
+    }
+
+    auto* const head = static_cast<DecalMapNode*>(storage->head);
+    if (head != nullptr) {
+      DestroyMapNodes(head->left, head);
+      ::operator delete(head);
+    }
+
+    storage->head = nullptr;
+    storage->size = 0u;
+    return 0;
+  }
+
+  /**
+   * Address: 0x0077B7D0 (FUN_0077B7D0)
+   *
+   * What it does:
+   * Alias wrapper for the decal-bucket RB-tree storage teardown lane.
+   */
+  std::int32_t DestroyDecalBucketTreeStorage(DecalBucketTreeStorage* const storage)
+  {
+    return ReleaseDecalBucketTreeStorage(storage);
+  }
+
+  /**
+   * Address: 0x0077AC30 (FUN_0077AC30)
+   *
+   * What it does:
+   * Alias wrapper for the start-tick map RB-tree storage teardown lane.
+   */
+  std::int32_t DestroyStartTickMapStorage(CDecalStartTickMapStorage* const storage)
+  {
+    return ReleaseDecalStartTickMapStorage(storage);
+  }
+
+  void DestroyBucketHead(DecalBucketNode* const head)
+  {
+    DecalBucketTreeStorage storage{};
+    storage.allocatorCookie = nullptr;
+    storage.head = head;
+    storage.size = 0u;
+    (void)DestroyDecalBucketTreeStorage(&storage);
   }
 
   void DestroyMapNodes(DecalMapNode* node, const DecalMapNode* const head)
@@ -164,7 +303,7 @@ CDecalBuffer::CDecalBuffer()
 {}
 
 /**
- * Address: 0x00779170 (FUN_00779170)
+    * Alias of FUN_00779170 (non-canonical helper lane).
  *
  * What it does:
  * Initializes decal runtime storage bound to a Sim owner.
@@ -203,8 +342,7 @@ CDecalBuffer::~CDecalBuffer()
 
   auto* const mapHead = static_cast<DecalMapNode*>(mStartTickBuckets.head);
   if (mapHead) {
-    DestroyMapNodes(mapHead->left, mapHead);
-    ::operator delete(mapHead);
+    (void)DestroyStartTickMapStorage(&mStartTickBuckets);
   }
 
   mStartTickBuckets.head = nullptr;
@@ -259,9 +397,6 @@ CDecalHandle* CDecalBuffer::CreateHandle(const SDecalInfo& info)
 
   handle->mListNode.ListLinkBefore(&mHandleListHead);
 
-  // Start-tick bucket-tree insertion is deferred until map mutation helpers
-  // are fully lifted from sub_77A250/sub_77A930.
-
   CArmyImpl** const armiesBegin = mSim->mArmiesList.begin();
   CArmyImpl** const armiesEnd = mSim->mArmiesList.end();
   const std::size_t armyCount = ResolveArmyCount(armiesBegin, armiesEnd);
@@ -312,8 +447,6 @@ void CDecalBuffer::DestroyHandle(CDecalHandle* const handleOpaque)
   if (!handleOpaque) {
     return;
   }
-
-  // Start-tick tree removal is deferred until map mutation helpers are fully lifted.
   if (handleOpaque->mVisibleInFocus != 0u) {
     mPendingHideObjectIds.push_back(handleOpaque->mInfo.mObj);
   }
@@ -473,7 +606,7 @@ void CDecalBuffer::CleanupTick()
 
         if (shouldBeVisible) {
           if (handle->mVisibleInFocus == 0u) {
-            mVisibleDecals.push_back(handle->mInfo);
+            AppendVisibleDecal(mVisibleDecals, handle->mInfo);
             handle->mVisibleInFocus = 1u;
           }
         } else if (handle->mVisibleInFocus != 0u) {

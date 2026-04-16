@@ -20,7 +20,7 @@ namespace moho
     static gpg::RType* sType;
 
     /**
-     * Address: 0x007788B0 (FUN_007788B0, Moho::CDecalHandle::GetClass)
+      * Alias of FUN_007788B0 (non-canonical helper lane).
      *
      * What it does:
      * Returns cached reflection descriptor for `CDecalHandle`.
@@ -70,7 +70,7 @@ namespace moho
     void MemberSerialize(gpg::WriteArchive* archive) const;
 
     /**
-     * Address: 0x007788B0 (FUN_007788B0, Moho::CDecalHandle::GetClass)
+      * Alias of FUN_007788B0 (non-canonical helper lane).
      * Slot: 0
      */
     [[nodiscard]]

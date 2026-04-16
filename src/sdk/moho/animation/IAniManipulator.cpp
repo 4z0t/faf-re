@@ -439,6 +439,21 @@ namespace moho
   }
 
   /**
+   * Address: 0x006392E0 (FUN_006392E0, ??0CFootPlantManipulator@Moho@@QAE@XZ)
+   */
+  CFootPlantManipulator::CFootPlantManipulator()
+    : IAniManipulator()
+    , mGoalUnit()
+    , mFootBoneIndex(0)
+    , mKneeBoneIndex(0)
+    , mHipBoneIndex(0)
+    , mStraightLegs(false)
+    , mMaxFootFall(0.0f)
+    , mHalfLegSpan(0.0f)
+  {
+  }
+
+  /**
    * Address: 0x0062FC70 (FUN_0062FC70, ??1IAniManipulator@Moho@@UAE@XZ)
    */
   IAniManipulator::~IAniManipulator()

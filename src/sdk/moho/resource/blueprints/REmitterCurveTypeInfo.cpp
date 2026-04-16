@@ -1,5 +1,6 @@
 #include "REmitterCurveTypeInfo.h"
 
+#include <cstdint>
 #include <cstdlib>
 #include <new>
 #include <typeinfo>
@@ -99,6 +100,37 @@ namespace
   }
 
   /**
+   * Address: 0x00518310 (FUN_00518310)
+   *
+   * What it does:
+   * Copy-constructs one half-open `REmitterCurveKey` range into caller
+   * storage and returns one-past-last destination slot.
+   */
+  [[maybe_unused]] [[nodiscard]] moho::REmitterCurveKey* CopyEmitterCurveKeyRange(
+    moho::REmitterCurveKey* const destinationBegin,
+    const moho::REmitterCurveKey* sourceBegin,
+    const moho::REmitterCurveKey* sourceEnd
+  )
+  {
+    std::uintptr_t destinationCursor = reinterpret_cast<std::uintptr_t>(destinationBegin);
+    for (const moho::REmitterCurveKey* sourceCursor = sourceBegin;
+      sourceCursor != sourceEnd;
+      ++sourceCursor, destinationCursor += sizeof(moho::REmitterCurveKey)) {
+      if (destinationCursor == 0U) {
+        continue;
+      }
+
+      auto* const destinationCursorTyped = reinterpret_cast<moho::REmitterCurveKey*>(destinationCursor);
+      ::new (static_cast<void*>(destinationCursorTyped)) moho::REmitterCurveKey();
+      destinationCursorTyped->X = sourceCursor->X;
+      destinationCursorTyped->Y = sourceCursor->Y;
+      destinationCursorTyped->Z = sourceCursor->Z;
+    }
+
+    return reinterpret_cast<moho::REmitterCurveKey*>(destinationCursor);
+  }
+
+  /**
    * Address: 0x00515BA0 (FUN_00515BA0, gpg::RVectorType_REmitterCurveKey::GetName)
    *
    * What it does:
@@ -149,6 +181,11 @@ namespace
     serSaveFunc_ = &CurveKeyVectorTypeInfo::SerSave;
   }
 
+  void AppendLoadedEmitterCurveKey(
+    CurveKeyVector& storage,
+    const moho::REmitterCurveKey& element
+  );
+
   /**
    * Address: 0x00516100 (FUN_00516100, gpg::RVectorType_REmitterCurveKey::SerLoad)
    *
@@ -176,10 +213,25 @@ namespace
       moho::REmitterCurveKey key{};
       gpg::RRef elementOwner{};
       archive->Read(elementType, &key, elementOwner);
-      loaded.push_back(key);
+      AppendLoadedEmitterCurveKey(loaded, key);
     }
 
     *destination = loaded;
+  }
+
+  /**
+   * Address: 0x005164D0 (FUN_005164D0)
+   *
+   * What it does:
+   * Appends one deserialized `REmitterCurveKey` element into the destination
+   * vector, preserving the legacy append-and-grow lane used by `SerLoad`.
+   */
+  void AppendLoadedEmitterCurveKey(
+    CurveKeyVector& storage,
+    const moho::REmitterCurveKey& element
+  )
+  {
+    storage.push_back(element);
   }
 
   /**
@@ -234,6 +286,35 @@ namespace
     return storage ? storage->size() : 0u;
   }
 
+  /**
+   * Address: 0x00516410 (FUN_00516410)
+   *
+   * What it does:
+   * Adjusts one `vector<REmitterCurveKey>` length to `requestedCount` and
+   * uses one caller-provided fill lane for growth.
+   */
+  [[nodiscard]] std::size_t ResizeEmitterCurveKeyVectorWithFill(
+    CurveKeyVector& storage,
+    const std::size_t requestedCount,
+    const moho::REmitterCurveKey& fillValue
+  )
+  {
+    const std::size_t currentCount = storage.size();
+    if (currentCount < requestedCount) {
+      storage.resize(requestedCount, fillValue);
+      return requestedCount;
+    }
+
+    if (requestedCount < currentCount) {
+      storage.resize(requestedCount);
+    }
+
+    return requestedCount;
+  }
+
+  /**
+   * Address: 0x00515D20 (FUN_00515D20, gpg::RVectorType_REmitterCurveKey::SetCount)
+   */
   void CurveKeyVectorTypeInfo::SetCount(void* const obj, const int count) const
   {
     if (obj == nullptr || count < 0) {
@@ -241,7 +322,8 @@ namespace
     }
 
     auto* const storage = static_cast<CurveKeyVector*>(obj);
-    storage->resize(static_cast<std::size_t>(count));
+    const moho::REmitterCurveKey fillValue{};
+    (void)ResizeEmitterCurveKeyVectorWithFill(*storage, static_cast<std::size_t>(count), fillValue);
   }
 
   [[nodiscard]] CurveTypeInfo& AcquireREmitterBlueprintCurveTypeInfo()

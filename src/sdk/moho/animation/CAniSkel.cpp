@@ -26,6 +26,132 @@ namespace
       DefaultAniSkelNoDelete(const_cast<moho::CAniSkel*>(skeleton));
     }
   };
+
+  /**
+   * Address: 0x0054E5A0 (FUN_0054E5A0)
+   *
+   * What it does:
+   * Builds the shared-pointer control lane for the process-global default
+   * animation skeleton and binds the no-delete deleter.
+   */
+  boost::shared_ptr<const moho::CAniSkel>* BuildDefaultAniSkelSharedPtr(
+    boost::shared_ptr<const moho::CAniSkel>* const outShared
+  )
+  {
+    static moho::CAniDefaultSkel defaultSkeleton{};
+    if (outShared != nullptr) {
+      *outShared = boost::shared_ptr<const moho::CAniSkel>(
+        static_cast<const moho::CAniSkel*>(&defaultSkeleton),
+        NoDeleteAniSkel{}
+      );
+    }
+
+    return outShared;
+  }
+
+  /**
+   * Address: 0x0054CA40 (FUN_0054CA40)
+   *
+   * What it does:
+   * Sets `vector<SAniSkelBone>` length to `requestedCount` by destroying tail
+   * lanes on shrink and value-initializing new lanes on growth.
+   */
+  [[maybe_unused]] [[nodiscard]] std::size_t ResizeAniSkelBoneVector(
+    msvc8::vector<moho::SAniSkelBone>& storage,
+    const std::size_t requestedCount
+  )
+  {
+    auto& view = msvc8::AsVectorRuntimeView(storage);
+    const std::size_t currentCount = view.begin ? static_cast<std::size_t>(view.end - view.begin) : 0u;
+
+    if (requestedCount < currentCount) {
+      if (view.begin && view.end) {
+        moho::SAniSkelBone* const eraseBegin = view.begin + requestedCount;
+        for (moho::SAniSkelBone* cursor = eraseBegin; cursor != view.end; ++cursor) {
+          cursor->~SAniSkelBone();
+        }
+        view.end = eraseBegin;
+      }
+      return requestedCount;
+    }
+
+    if (requestedCount > currentCount) {
+      storage.resize(requestedCount);
+    }
+
+    return requestedCount;
+  }
+
+  /**
+   * Address: 0x0054CB80 (FUN_0054CB80)
+   *
+   * What it does:
+   * Sets `vector<SAniSkelBoneNameIndex>` length to `requestedCount` using one
+   * caller-provided fill lane for growth.
+   */
+  [[maybe_unused]] [[nodiscard]] std::size_t ResizeAniSkelBoneNameIndexVectorWithFill(
+    msvc8::vector<moho::SAniSkelBoneNameIndex>& storage,
+    const std::size_t requestedCount,
+    const moho::SAniSkelBoneNameIndex& fillValue
+  )
+  {
+    auto& view = msvc8::AsVectorRuntimeView(storage);
+    const std::size_t currentCount = view.begin ? static_cast<std::size_t>(view.end - view.begin) : 0u;
+
+    if (requestedCount < currentCount) {
+      if (view.begin) {
+        view.end = view.begin + requestedCount;
+      }
+      return requestedCount;
+    }
+
+    if (requestedCount > currentCount) {
+      storage.resize(requestedCount, fillValue);
+    }
+
+    return requestedCount;
+  }
+
+  /**
+   * Address: 0x0054DB30 (FUN_0054DB30)
+   *
+   * What it does:
+   * Copies one `SAniSkelBone` payload into destination storage.
+   */
+  [[maybe_unused]] [[nodiscard]] moho::SAniSkelBone* CopyAniSkelBone(
+    moho::SAniSkelBone* const destination,
+    const moho::SAniSkelBone* const source
+  ) noexcept
+  {
+    if (destination != nullptr && source != nullptr) {
+      *destination = *source;
+    }
+    return destination;
+  }
+
+  /**
+   * Address: 0x0054FED0 (FUN_0054FED0)
+   *
+   * What it does:
+   * Copies one half-open `SAniSkelBone` source range into destination storage
+   * and returns the destination end pointer.
+   */
+  [[maybe_unused]] [[nodiscard]] moho::SAniSkelBone* CopyAniSkelBoneRange(
+    const moho::SAniSkelBone* sourceBegin,
+    moho::SAniSkelBone* destinationBegin,
+    const moho::SAniSkelBone* sourceEnd
+  ) noexcept
+  {
+    while (sourceBegin != sourceEnd) {
+      if (destinationBegin != nullptr) {
+        (void)CopyAniSkelBone(destinationBegin, sourceBegin);
+      }
+      ++sourceBegin;
+      ++destinationBegin;
+    }
+
+    return destinationBegin;
+  }
 } // namespace
 
 namespace moho
@@ -118,8 +244,9 @@ namespace moho
    */
   boost::shared_ptr<const CAniSkel> CAniSkel::GetDefaultSkeleton()
   {
-    static CAniDefaultSkel defaultSkeleton{};
-    return boost::shared_ptr<const CAniSkel>(static_cast<const CAniSkel*>(&defaultSkeleton), NoDeleteAniSkel{});
+    boost::shared_ptr<const CAniSkel> result{};
+    (void)BuildDefaultAniSkelSharedPtr(&result);
+    return result;
   }
 
   /**

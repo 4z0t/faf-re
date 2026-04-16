@@ -89,6 +89,14 @@ namespace moho
     static gpg::RType* sType;
 
     /**
+     * Address: 0x0050E530 (FUN_0050E530, ??0REmitterBlueprintCurve@Moho@@QAE@XZ)
+     *
+     * What it does:
+     * Installs the curve vftable and zero-initializes range/key-storage lanes.
+     */
+    REmitterBlueprintCurve();
+
+    /**
      * Address: 0x0050E4F0 (FUN_0050E4F0)
      * Mangled: ?GetClass@REmitterBlueprintCurve@Moho@@UBEPAVRType@gpg@@XZ
      *

@@ -1,12 +1,17 @@
 #include "PathTables.h"
 
+#include <array>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <new>
 
+#include "gpg/core/utils/Global.h"
 #include "moho/path/ClusterMap.h"
+#include "moho/sim/COGrid.h"
+#include "moho/sim/SRuleFootprintsBlueprint.h"
+#include "moho/sim/STIMap.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -128,6 +133,13 @@ namespace
     triplet.mCapacity = nullptr;
   }
 
+  /**
+   * Address: 0x007676A0 (FUN_007676A0, Moho::PathQueue::ImplBase::~ImplBase helper)
+   *
+   * What it does:
+   * Clears all owned intrusive nodes under the owner sentinel, resets sentinel
+   * self-links, and zeroes the tracked node-count lane.
+   */
   void ClearOwnedPathQueueNodes(PathQueueOwnedNodeLane& owner)
   {
     PathQueueIntrusiveNode* const sentinel = owner.mSentinel;
@@ -181,6 +193,53 @@ namespace moho
   static_assert(offsetof(PathQueue::Impl, mSize) == 0x00, "PathQueue::Impl::mSize offset must be 0x00");
   static_assert(offsetof(PathQueue::Impl, mBase) == 0x0C, "PathQueue::Impl::mBase offset must be 0x0C");
 
+  struct OccupySourceBinding final : public gpg::HaStar::IOccupationSource
+  {
+    COGrid* mGrid;                // +0x04
+    SNamedFootprint* mFootprint;  // +0x08
+
+    /**
+     * Address: 0x0076B750 (FUN_0076B750, ??0OccupySourceBinding@Moho@@QAE@@Z_0)
+     *
+     * What it does:
+     * Initializes one path occupation-source binding with null grid and
+     * null footprint owners.
+     */
+    OccupySourceBinding();
+
+    /**
+     * Address: 0x0076B760 (FUN_0076B760, ??0OccupySourceBinding@Moho@@QAE@@Z_1)
+     *
+     * What it does:
+     * Initializes one path occupation-source binding with explicit grid and
+     * footprint owners.
+     */
+    OccupySourceBinding(COGrid* grid, SNamedFootprint* footprint);
+
+    /**
+     * Address: 0x0076CB50 (FUN_0076CB50, ??0OccupySourceBinding@Moho@@QAE@@Z)
+     *
+     * What it does:
+     * Copy-constructs one path occupation-source binding owner pair.
+     */
+    OccupySourceBinding(const OccupySourceBinding& other);
+
+    /**
+     * Address: 0x0076B770 (FUN_0076B770, Moho::OccupySourceBinding::GetOccupyData)
+     *
+     * What it does:
+     * Builds one 9-lane HaStar occupation mask neighborhood for the supplied
+     * world cell using footprint occupancy filtering.
+     */
+    void GetOccupationData(int worldX, int worldY, gpg::HaStar::OccupationData& outData) override;
+  };
+
+  static_assert(sizeof(OccupySourceBinding) == 0x0C, "OccupySourceBinding size must be 0x0C");
+  static_assert(offsetof(OccupySourceBinding, mGrid) == 0x04, "OccupySourceBinding::mGrid offset must be 0x04");
+  static_assert(
+    offsetof(OccupySourceBinding, mFootprint) == 0x08, "OccupySourceBinding::mFootprint offset must be 0x08"
+  );
+
   struct PathTablesImpl
   {
     /**
@@ -195,7 +254,7 @@ namespace moho
     std::int32_t mWidth;                                      // +0x00
     std::int32_t mHeight;                                     // +0x04
     std::int32_t mUnknown08;                                  // +0x08
-    LegacyVectorStorage<std::uint8_t> mSources;               // +0x0C
+    LegacyVectorStorage<OccupySourceBinding> mSources;        // +0x0C
     std::int32_t mUnknown18;                                  // +0x18
     LegacyVectorStorage<moho::ClusterMap*> mMaps;             // +0x1C
     gpg::HaStar::ClusterCache mClusterCache;                  // +0x28
@@ -219,6 +278,69 @@ namespace
 #else
     return false;
 #endif
+  }
+
+  struct OccupationDataRuntimeView
+  {
+    std::uint16_t mLayers[9];
+    std::uint16_t mPad;
+  };
+  static_assert(
+    sizeof(OccupationDataRuntimeView) == sizeof(gpg::HaStar::OccupationData),
+    "OccupationDataRuntimeView size must match OccupationData"
+  );
+
+  template <typename T>
+  bool ResizeLegacyVectorStorage(LegacyVectorStorage<T>& storage, const std::size_t count, const T& fillValue)
+  {
+    if (count == 0u) {
+      storage.mFirst = nullptr;
+      storage.mLast = nullptr;
+      storage.mEnd = nullptr;
+      return true;
+    }
+
+    auto* const begin = static_cast<T*>(::operator new(sizeof(T) * count, std::nothrow));
+    if (begin == nullptr) {
+      storage.mFirst = nullptr;
+      storage.mLast = nullptr;
+      storage.mEnd = nullptr;
+      return false;
+    }
+
+    T* current = begin;
+    for (std::size_t i = 0; i < count; ++i, ++current) {
+      ::new (current) T(fillValue);
+    }
+
+    storage.mFirst = begin;
+    storage.mLast = begin + count;
+    storage.mEnd = begin + count;
+    return true;
+  }
+
+  bool ResizeLegacyPointerStorage(LegacyVectorStorage<moho::ClusterMap*>& storage, const std::size_t count)
+  {
+    if (count == 0u) {
+      storage.mFirst = nullptr;
+      storage.mLast = nullptr;
+      storage.mEnd = nullptr;
+      return true;
+    }
+
+    auto* const begin = static_cast<moho::ClusterMap**>(::operator new(sizeof(moho::ClusterMap*) * count, std::nothrow));
+    if (begin == nullptr) {
+      storage.mFirst = nullptr;
+      storage.mLast = nullptr;
+      storage.mEnd = nullptr;
+      return false;
+    }
+
+    std::memset(begin, 0, sizeof(moho::ClusterMap*) * count);
+    storage.mFirst = begin;
+    storage.mLast = begin + count;
+    storage.mEnd = begin + count;
+    return true;
   }
 
   template <typename T>
@@ -325,6 +447,102 @@ namespace moho
   }
 
   /**
+   * Address: 0x0076B750 (FUN_0076B750, ??0OccupySourceBinding@Moho@@QAE@@Z_0)
+   *
+   * What it does:
+   * Initializes one path occupation-source binding with null grid and
+   * null footprint owners.
+   */
+  OccupySourceBinding::OccupySourceBinding()
+    : mGrid(nullptr)
+    , mFootprint(nullptr)
+  {
+  }
+
+  /**
+   * Address: 0x0076B760 (FUN_0076B760, ??0OccupySourceBinding@Moho@@QAE@@Z_1)
+   *
+   * What it does:
+   * Initializes one path occupation-source binding with explicit grid and
+   * footprint owners.
+   */
+  OccupySourceBinding::OccupySourceBinding(COGrid* const grid, SNamedFootprint* const footprint)
+    : mGrid(grid)
+    , mFootprint(footprint)
+  {
+  }
+
+  /**
+   * Address: 0x0076CB50 (FUN_0076CB50, ??0OccupySourceBinding@Moho@@QAE@@Z)
+   *
+   * What it does:
+   * Copy-constructs one path occupation-source binding owner pair.
+   */
+  OccupySourceBinding::OccupySourceBinding(const OccupySourceBinding& other)
+    : mGrid(other.mGrid)
+    , mFootprint(other.mFootprint)
+  {
+  }
+
+  /**
+   * Address: 0x0076B770 (FUN_0076B770, Moho::OccupySourceBinding::GetOccupyData)
+   *
+   * What it does:
+   * Builds one 9-lane HaStar occupation mask neighborhood for the supplied
+   * world cell using footprint occupancy filtering.
+   */
+  void OccupySourceBinding::GetOccupationData(
+    const int worldX,
+    const int worldY,
+    gpg::HaStar::OccupationData& outData
+  )
+  {
+    constexpr std::size_t kOccupationResultColumnCount = 9u;
+    constexpr std::size_t kMaxFootprintRows = 32u;
+    constexpr std::size_t kMaxRowMaskCount = kOccupationResultColumnCount + kMaxFootprintRows;
+
+    if (mFootprint == nullptr || mGrid == nullptr) {
+      outData = {};
+      return;
+    }
+
+    const std::uint32_t footprintWidth = static_cast<std::uint32_t>(mFootprint->mSizeX);
+    const std::uint32_t footprintHeight = static_cast<std::uint32_t>(mFootprint->mSizeZ);
+    const std::uint32_t activeRowCount = footprintHeight + static_cast<std::uint32_t>(kOccupationResultColumnCount - 1u);
+    const std::uint32_t widthMask = (1u << footprintWidth) - 1u;
+
+    std::array<std::uint32_t, kMaxRowMaskCount> rowMasks{};
+    for (std::uint32_t row = 0; row < activeRowCount && row < rowMasks.size(); ++row) {
+      rowMasks[row] = 0x1FFu;
+      for (std::uint32_t x = 0; x < (footprintWidth + static_cast<std::uint32_t>(kOccupationResultColumnCount - 1u)); ++x) {
+        SOCellPos cellPos{};
+        cellPos.x = static_cast<std::int16_t>(worldX + static_cast<int>(x));
+        cellPos.z = static_cast<std::int16_t>(worldY + static_cast<int>(row));
+
+        const EOccupancyCaps filteredCaps = OCCUPY_Filter(*mFootprint, *mGrid, cellPos, EOccupancyCaps::OC_ANY);
+        if (filteredCaps == static_cast<EOccupancyCaps>(0u)) {
+          const std::uint32_t shiftedMask = (widthMask << x) >> (footprintWidth - 1u);
+          rowMasks[row] &= ~shiftedMask;
+        }
+      }
+    }
+
+    if (footprintHeight > 1u) {
+      for (std::size_t column = 0; column < kOccupationResultColumnCount; ++column) {
+        for (std::uint32_t y = 1u; y < footprintHeight; ++y) {
+          rowMasks[column] &= rowMasks[column + y];
+        }
+      }
+    }
+
+    auto& outView = reinterpret_cast<OccupationDataRuntimeView&>(outData);
+    for (std::size_t i = 0; i < kOccupationResultColumnCount; ++i) {
+      outView.mLayers[i] = static_cast<std::uint16_t>(rowMasks[i]);
+    }
+    outView.mPad = 0u;
+  }
+
+  /**
    * Address: 0x0076BA40 (FUN_0076BA40, ??0Impl@PathTables@Moho@@QAE@@Z)
    *
    * What it does:
@@ -342,10 +560,87 @@ namespace moho
   }
 
   /**
+   * Address: 0x0076B8C0 (FUN_0076B8C0, ??0PathTables@Moho@@QAE@@Z)
+   *
+   * What it does:
+   * Builds per-footprint occupation-source bindings and cluster-map lanes for
+   * one `(width,height)` grid.
+   */
+  PathTables::PathTables(
+    const SRuleFootprintsBlueprint& footprints,
+    COGrid* const grid,
+    const int width,
+    const int height
+  )
+    : mImpl(static_cast<PathTablesImpl*>(::operator new(sizeof(PathTablesImpl), std::nothrow)))
+  {
+    if (mImpl == nullptr) {
+      return;
+    }
+
+    ::new (mImpl) PathTablesImpl();
+    mImpl->mWidth = width;
+    mImpl->mHeight = height;
+
+    const std::size_t footprintCount = static_cast<std::size_t>(footprints.mSize);
+    const OccupySourceBinding defaultSource{};
+    if (!ResizeLegacyVectorStorage(mImpl->mSources, footprintCount, defaultSource)
+      || !ResizeLegacyPointerStorage(mImpl->mMaps, footprintCount)) {
+      return;
+    }
+
+    const SRuleFootprintNode* const head = footprints.mHead;
+    if (head == nullptr) {
+      return;
+    }
+
+    const SRuleFootprintNode* node = head->next;
+    std::size_t sourceIndex = 0u;
+    std::size_t footprintIndex = 0u;
+    while (node != nullptr && node != head && sourceIndex < footprintCount) {
+      SNamedFootprint* const footprint = const_cast<SNamedFootprint*>(&node->value);
+      if (footprintIndex != static_cast<std::size_t>(footprint->mIndex)) {
+        gpg::HandleAssertFailure("i == fp.mIndex", 113, "c:\\work\\rts\\main\\code\\src\\sim\\PathTables.cpp");
+      }
+
+      OccupySourceBinding& source = mImpl->mSources.mFirst[sourceIndex];
+      source.mGrid = grid;
+      source.mFootprint = footprint;
+
+      ClusterMap* clusterMap = nullptr;
+      if (auto* const clusterStorage = static_cast<ClusterMap*>(::operator new(sizeof(ClusterMap), std::nothrow));
+          clusterStorage != nullptr) {
+        gpg::Rect2i area{};
+        area.x0 = -1;
+        area.z0 = -1;
+        area.x1 = static_cast<int>(footprint->mSizeX) + 1;
+        area.z1 = static_cast<int>(footprint->mSizeZ) + 1;
+        clusterMap = ::new (clusterStorage) ClusterMap(
+          &source,
+          static_cast<unsigned int>(width),
+          static_cast<unsigned int>(height),
+          mImpl->mClusterCache,
+          2u,
+          area
+        );
+      }
+
+      mImpl->mMaps.mFirst[footprintIndex] = clusterMap;
+      node = node->next;
+      ++sourceIndex;
+      ++footprintIndex;
+    }
+  }
+
+  /**
    * Address: 0x0076BAC0 (FUN_0076BAC0, ??1PathTables@Moho@@QAE@@Z)
    */
   PathTables::~PathTables()
   {
+    if (mImpl == nullptr) {
+      return;
+    }
+
     for (ClusterMap** it = mImpl->mMaps.mFirst; it != mImpl->mMaps.mLast; ++it) {
       ClusterMap* const map = *it;
       if (!map) {

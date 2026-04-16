@@ -391,7 +391,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x008855B0 (FUN_008855B0, func_GetWldSessionLoader)
+    * Alias of FUN_008855B0 (non-canonical helper lane).
    */
   CWldSessionLoaderImpl* GetWldSessionLoader()
   {

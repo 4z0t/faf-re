@@ -29,6 +29,8 @@ extern "C" {
 
 void* png_create_struct_2(int type, void* (*malloc_fn)(png_structp, std::uint32_t), void* mem_ptr);
 void  png_destroy_struct_2(void* struct_ptr, void (*free_fn)(png_structp, void*), void* mem_ptr);
+void* png_create_struct(int type);
+void  png_destroy_struct(void* struct_ptr);
 void  png_set_mem_fn(png_structp png_ptr, void* mem_ptr,
                      void* (*malloc_fn)(png_structp, std::uint32_t),
                      void  (*free_fn)(png_structp, void*));
@@ -127,6 +129,7 @@ constexpr std::uint32_t kPngHaveFileSig   = 0x1000;
 
 // Flag bits used by version handshake / read state.
 constexpr std::uint32_t kPngFlagLibraryMismatch = 0x20000;
+constexpr std::size_t kOffWarningFn = 0x44;
 
 [[nodiscard]] inline void*& MemPtrSlot(png_structp png_ptr)   { return Field<void*>(png_ptr, kOffMemPtr); }
 [[nodiscard]] inline png_malloc_ptr& MallocFnSlot(png_structp png_ptr) { return Field<png_malloc_ptr>(png_ptr, kOffMallocFn); }
@@ -142,6 +145,62 @@ constexpr int kPngStructPng  = 1;
 constexpr std::uint32_t kPngFreeAllRead = 0x4000;
 
 } // namespace
+
+/**
+ * Address: 0x009E0D7F (FUN_009E0D7F)
+ * Mangled: png_read_init_2
+ *
+ * What it does:
+ * Reinitializes one png read-state lane from legacy caller arguments while
+ * preserving the callback/jmp prefix and rebuilding zlib state.
+ */
+extern "C" void png_read_init_2(
+  png_structp* const png_ptr_ptr,
+  const char* const  user_png_ver,
+  const std::uint32_t png_struct_size)
+{
+  if (png_ptr_ptr == nullptr || *png_ptr_ptr == nullptr) {
+    return;
+  }
+
+  png_structp png_ptr = *png_ptr_ptr;
+  if (user_png_ver == nullptr || std::strcmp(user_png_ver, kPngLibraryVersion) != 0) {
+    Field<std::uint32_t>(png_ptr, kOffWarningFn) = 0u;
+    png_warning(png_ptr, "Application uses deprecated png_read_init() and should be recompiled.");
+  }
+
+  std::uint8_t preservedPrefix[0x40]{};
+  std::memcpy(preservedPrefix, png_ptr, sizeof(preservedPrefix));
+
+  if (png_struct_size < kPngStructSize) {
+    png_destroy_struct(png_ptr);
+    png_ptr = static_cast<png_structp>(png_create_struct(kPngStructPng));
+    *png_ptr_ptr = png_ptr;
+  }
+
+  std::memset(png_ptr, 0, kPngStructSize);
+  std::memcpy(png_ptr, preservedPrefix, sizeof(preservedPrefix));
+
+  Field<std::uint32_t>(png_ptr, kOffZbufSize) = 0x2000;
+  Field<void*>(png_ptr, kOffZbuf) = png_malloc(png_ptr, 0x2000);
+  Field<void*>(png_ptr, kOffZstreamZalloc) = reinterpret_cast<void*>(&png_zalloc);
+  Field<void*>(png_ptr, kOffZstreamZfree) = reinterpret_cast<void*>(&png_zfree);
+  Field<void*>(png_ptr, kOffZstreamOpaque) = png_ptr;
+
+  auto* const zstream = reinterpret_cast<z_stream_s*>(RawBase(png_ptr) + kOffZstream);
+  const int zret = inflateInit_(zstream, "1.1.4", 56);
+  if (zret == -6) {
+    png_error(png_ptr, "zlib version");
+  } else if (zret == -4 || zret == -2) {
+    png_error(png_ptr, "zlib memory");
+  } else if (zret != 0) {
+    png_error(png_ptr, "Unknown zlib error");
+  }
+
+  Field<void*>(png_ptr, kOffZstreamNextOut) = Field<void*>(png_ptr, kOffZbuf);
+  Field<std::uint32_t>(png_ptr, kOffZstreamAvailOut) = Field<std::uint32_t>(png_ptr, kOffZbufSize);
+  png_set_read_fn(png_ptr, nullptr, nullptr);
+}
 
 /**
  * Address: 0x009E0AE9 (FUN_009E0AE9)

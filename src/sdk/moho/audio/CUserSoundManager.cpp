@@ -221,6 +221,13 @@ namespace
   static_assert(sizeof(UserSessionEntityMapView) == 0x0C, "UserSessionEntityMapView size must be 0x0C");
   static_assert(offsetof(moho::CWldSession, mUnknownOwner44) == 0x44, "CWldSession::mUnknownOwner44 offset must be 0x44");
 
+  /**
+   * Address: 0x008AEEC0 (FUN_008AEEC0)
+   *
+   * What it does:
+   * Recursively destroys one entity-loop RB-tree branch and releases each
+   * node payload, stopping on the sentinel/head lane.
+   */
   void DestroyEntityLoopTree(EntityLoopTreeNode* node, EntityLoopTreeNode* const head)
   {
     if (node == nullptr || node == head || node->mIsSentinel != 0u) {
@@ -559,6 +566,13 @@ namespace
     RebuildSoundHandleOwnerChains(manager);
   }
 
+  /**
+   * Address: 0x008AA7C0 (FUN_008AA7C0)
+   *
+   * What it does:
+   * Returns one reusable loop-handle id from the free-id bitset, or allocates
+   * the next monotonic id when the free-id set is empty.
+   */
   [[nodiscard]] std::uint32_t AcquireSoundHandleIndex(moho::SoundHandleIdPool* const idPool)
   {
     if (idPool == nullptr) {

@@ -83,7 +83,9 @@
 #include "moho/path/IPathTraveler.h"
 #include "moho/path/PathTables.h"
 #include "moho/net/NetTransportEnums.h"
+#include "moho/effects/rendering/CEffectImpl.h"
 #include "moho/effects/rendering/CEfxBeam.h"
+#include "moho/effects/rendering/CEfxTrailEmitter.h"
 #include "moho/effects/rendering/IEffect.h"
 #include "moho/effects/rendering/IEffectManager.h"
 #include "moho/effects/rendering/SEfxCurve.h"
@@ -1218,6 +1220,293 @@ RRef CopyPointerSlotRef(RRef* const sourceRef)
     return MakePointerSlotRef<T>(slot);
 }
 
+/**
+ * Address: 0x005C8C80 (FUN_005C8C80)
+ *
+ * What it does:
+ * Allocates one `ReconBlip*` slot, copies the source lane pointer, and wraps
+ * it as `gpg::RRef_ReconBlip_P`.
+ */
+RRef CopyReconBlipPointerSlotRef(RRef* const sourceRef)
+{
+    auto* slot = static_cast<moho::ReconBlip**>(::operator new(sizeof(moho::ReconBlip*), std::nothrow));
+    if (slot) {
+        try {
+            *slot = *sourceRef->TryUpcastReconBlipPointerSlot();
+        } catch (...) {
+            ::operator delete(slot);
+            throw;
+        }
+    }
+
+    RRef out{};
+    gpg::RRef_ReconBlip_P(&out, slot);
+    return out;
+}
+
+/**
+ * Address: 0x005C8D40 (FUN_005C8D40)
+ *
+ * What it does:
+ * Moves one reflected `ReconBlip*` source slot into one destination slot lane
+ * and wraps the destination as one `gpg::RRef_ReconBlip_P` payload.
+ */
+RRef MoveReconBlipPointerSlotRef(void* const slotObject, RRef* const sourceRef)
+{
+    auto* slot = static_cast<moho::ReconBlip**>(slotObject);
+    moho::ReconBlip** resolvedSlot = slot;
+    if (slot != nullptr) {
+        *slot = *sourceRef->TryUpcastReconBlipPointerSlot();
+    } else {
+        resolvedSlot = nullptr;
+    }
+
+    RRef out{};
+    gpg::RRef_ReconBlip_P(&out, resolvedSlot);
+    return out;
+}
+
+/**
+ * Address: 0x0066CF40 (FUN_0066CF40)
+ *
+ * What it does:
+ * Allocates one `IEffect*` slot, copies the source lane pointer, and wraps it
+ * as `gpg::RRef_IEffect_P`.
+ */
+RRef CopyIEffectPointerSlotRef(RRef* const sourceRef)
+{
+    auto* slot = static_cast<moho::IEffect**>(::operator new(sizeof(moho::IEffect*), std::nothrow));
+    if (slot) {
+        try {
+            *slot = *sourceRef->TryUpcastIEffectPointerSlot();
+        } catch (...) {
+            ::operator delete(slot);
+            throw;
+        }
+    }
+
+    RRef out{};
+    gpg::RRef_IEffect_P(&out, slot);
+    return out;
+}
+
+/**
+ * Address: 0x0066D000 (FUN_0066D000)
+ *
+ * What it does:
+ * Moves one reflected `IEffect*` source slot into one destination slot lane
+ * and wraps the destination as one `gpg::RRef_IEffect_P` payload.
+ */
+RRef MoveIEffectPointerSlotRef(void* const slotObject, RRef* const sourceRef)
+{
+    auto* slot = static_cast<moho::IEffect**>(slotObject);
+    moho::IEffect** resolvedSlot = slot;
+    if (slot != nullptr) {
+        *slot = *sourceRef->TryUpcastIEffectPointerSlot();
+    } else {
+        resolvedSlot = nullptr;
+    }
+
+    RRef out{};
+    gpg::RRef_IEffect_P(&out, resolvedSlot);
+    return out;
+}
+
+/**
+ * Address: 0x006B2A10 (FUN_006B2A10)
+ *
+ * What it does:
+ * Allocates one `CEconomyEvent*` slot, copies the source lane pointer, and
+ * wraps it as `gpg::RRef_CEconomyEvent_P`.
+ */
+RRef CopyCEconomyEventPointerSlotRef(RRef* const sourceRef)
+{
+    auto* slot = static_cast<moho::CEconomyEvent**>(::operator new(sizeof(moho::CEconomyEvent*), std::nothrow));
+    if (slot) {
+        try {
+            *slot = *sourceRef->TryUpcastCEconomyEventPointerSlot();
+        } catch (...) {
+            ::operator delete(slot);
+            throw;
+        }
+    }
+
+    RRef out{};
+    gpg::RRef_CEconomyEvent_P(&out, slot);
+    return out;
+}
+
+/**
+ * Address: 0x006B2AD0 (FUN_006B2AD0)
+ *
+ * What it does:
+ * Moves one reflected `CEconomyEvent*` source slot into one destination slot
+ * lane and wraps the destination as one `gpg::RRef_CEconomyEvent_P` payload.
+ */
+RRef MoveCEconomyEventPointerSlotRef(void* const slotObject, RRef* const sourceRef)
+{
+    auto* slot = static_cast<moho::CEconomyEvent**>(slotObject);
+    moho::CEconomyEvent** resolvedSlot = slot;
+    if (slot != nullptr) {
+        *slot = *sourceRef->TryUpcastCEconomyEventPointerSlot();
+    } else {
+        resolvedSlot = nullptr;
+    }
+
+    RRef out{};
+    gpg::RRef_CEconomyEvent_P(&out, resolvedSlot);
+    return out;
+}
+
+/**
+ * Address: 0x00750B60 (FUN_00750B60)
+ *
+ * What it does:
+ * Allocates one `SimArmy*` slot, copies the source lane pointer, and wraps it
+ * as `gpg::RRef_SimArmy_P`.
+ */
+[[maybe_unused]] RRef CopySimArmyPointerSlotRef(RRef* const sourceRef)
+{
+    auto* slot = static_cast<moho::SimArmy**>(::operator new(sizeof(moho::SimArmy*), std::nothrow));
+    if (slot) {
+        try {
+            *slot = *sourceRef->TryUpcastSimArmyPointerSlot();
+        } catch (...) {
+            ::operator delete(slot);
+            throw;
+        }
+    }
+
+    RRef out{};
+    gpg::RRef_SimArmy_P(&out, slot);
+    return out;
+}
+
+/**
+ * Address: 0x00750C20 (FUN_00750C20)
+ *
+ * What it does:
+ * Moves one reflected `SimArmy*` source slot into one destination slot lane
+ * and wraps the destination as one `gpg::RRef_SimArmy_P` payload.
+ */
+[[maybe_unused]] RRef MoveSimArmyPointerSlotRef(void* const slotObject, RRef* const sourceRef)
+{
+    auto* slot = static_cast<moho::SimArmy**>(slotObject);
+    moho::SimArmy** resolvedSlot = slot;
+    if (slot != nullptr) {
+        *slot = *sourceRef->TryUpcastSimArmyPointerSlot();
+    } else {
+        resolvedSlot = nullptr;
+    }
+
+    RRef out{};
+    gpg::RRef_SimArmy_P(&out, resolvedSlot);
+    return out;
+}
+
+/**
+ * Address: 0x00750D90 (FUN_00750D90)
+ *
+ * What it does:
+ * Moves one reflected `Shield*` source slot into one destination slot lane
+ * and wraps the destination as one `gpg::RRef_Shield_P` payload.
+ */
+[[maybe_unused]] RRef MoveShieldPointerSlotRef(void* const slotObject, RRef* const sourceRef)
+{
+    auto* slot = static_cast<moho::Shield**>(slotObject);
+    moho::Shield** resolvedSlot = slot;
+    if (slot != nullptr) {
+        *slot = *sourceRef->TryUpcastShieldPointerSlot();
+    } else {
+        resolvedSlot = nullptr;
+    }
+
+    RRef out{};
+    gpg::RRef_Shield_P(&out, resolvedSlot);
+    return out;
+}
+
+/**
+ * Address: 0x0077F070 (FUN_0077F070)
+ *
+ * What it does:
+ * Moves one reflected `CDecalHandle*` source slot into one destination slot
+ * lane and wraps the destination as one `gpg::RRef_CDecalHandle_P` payload.
+ */
+[[maybe_unused]] RRef MoveCDecalHandlePointerSlotRef(void* const slotObject, RRef* const sourceRef)
+{
+    auto* slot = static_cast<moho::CDecalHandle**>(slotObject);
+    moho::CDecalHandle** resolvedSlot = slot;
+    if (slot != nullptr) {
+        *slot = *sourceRef->TryUpcastCDecalHandlePointerSlot();
+    } else {
+        resolvedSlot = nullptr;
+    }
+
+    RRef out{};
+    gpg::RRef_CDecalHandle_P(&out, resolvedSlot);
+    return out;
+}
+
+/**
+ * Address: 0x00672380 (FUN_00672380)
+ *
+ * What it does:
+ * Allocates one `CEfxTrailEmitter` object and wraps it as
+ * `gpg::RRef_CEfxTrailEmitter`.
+ */
+[[maybe_unused]] RRef NewCEfxTrailEmitterRef()
+{
+    moho::CEfxTrailEmitter* const emitter = new (std::nothrow) moho::CEfxTrailEmitter();
+
+    RRef out{};
+    gpg::RRef_CEfxTrailEmitter(&out, emitter);
+    return out;
+}
+
+/**
+ * Address: 0x00672410 (FUN_00672410)
+ *
+ * What it does:
+ * Constructs one in-place `CEfxTrailEmitter` object when storage is provided
+ * and wraps it as one `gpg::RRef_CEfxTrailEmitter` payload.
+ */
+[[maybe_unused]] RRef ConstructCEfxTrailEmitterRefInPlace(void* const objectStorage)
+{
+    auto* emitter = static_cast<moho::CEfxTrailEmitter*>(objectStorage);
+    if (emitter != nullptr) {
+        emitter = new (emitter) moho::CEfxTrailEmitter();
+    }
+
+    RRef out{};
+    gpg::RRef_CEfxTrailEmitter(&out, emitter);
+    return out;
+}
+
+/**
+ * Address: 0x00672490 (FUN_00672490)
+ *
+ * What it does:
+ * Resolves cached reflection type for `CEffectImpl`, builds a zero-offset base
+ * descriptor, and appends it to the target `RType`.
+ */
+[[maybe_unused]] void AddCEffectImplBaseField(gpg::RType* const typeInfo)
+{
+    gpg::RType* baseType = moho::CEffectImpl::sType;
+    if (!baseType) {
+        baseType = gpg::LookupRType(typeid(moho::CEffectImpl));
+        moho::CEffectImpl::sType = baseType;
+    }
+
+    gpg::RField baseField{};
+    baseField.mName = baseType ? baseType->GetName() : nullptr;
+    baseField.mType = baseType;
+    baseField.mOffset = 0;
+    baseField.v4 = 0;
+    baseField.mDesc = nullptr;
+    typeInfo->AddBase(baseField);
+}
+
 template <class T>
 RRef ConstructPointerSlotRef(void* const slotObject)
 {
@@ -2243,7 +2532,7 @@ struct PointerTypeRegistration
 {
     PointerTypeRegistration()
     {
-        gpg::PreRegisterRType(typeid(moho::CAcquireTargetTask*), &gCAcquireTargetTaskPointerType);
+        (void)gpg::preregister_CAcquireTargetTaskPointerTypeStartup();
         gpg::PreRegisterRType(typeid(moho::RBlueprint*), &gRBlueprintPointerType);
         gpg::PreRegisterRType(typeid(moho::UnitWeapon*), &gUnitWeaponPointerType);
         gpg::PreRegisterRType(typeid(moho::IAniManipulator*), &gIAniManipulatorPointerType);
@@ -2259,6 +2548,19 @@ struct PointerTypeRegistration
 
 PointerTypeRegistration gPointerTypeRegistration;
 } // namespace
+
+/**
+ * Address: 0x005DE010 (FUN_005DE010, preregister_CAcquireTargetTaskPointerTypeStartup)
+ *
+ * What it does:
+ * Preregisters the startup-owned pointer reflection descriptor for
+ * `moho::CAcquireTargetTask*`.
+ */
+gpg::RType* gpg::preregister_CAcquireTargetTaskPointerTypeStartup()
+{
+  gpg::PreRegisterRType(typeid(moho::CAcquireTargetTask*), &gCAcquireTargetTaskPointerType);
+  return &gCAcquireTargetTaskPointerType;
+}
 
 RType* RType::sType = nullptr;
 
@@ -2375,9 +2677,27 @@ void gpg::REF_RegisterAllTypes()
   }
 }
 
+/**
+ * Address: 0x008DD940 (FUN_008DD940, gpg::REF_GetTypeIndexed)
+ *
+ * What it does:
+ * Returns the reflected type descriptor at one global type-vector index.
+ */
 const RType* gpg::REF_GetTypeIndexed(const int index)
 {
   return GetRTypeVec()[index];
+}
+
+/**
+ * Address: 0x008DF950 (FUN_008DF950, gpg::REF_GetTypeCount)
+ *
+ * What it does:
+ * Returns the number of reflected types currently present in the global
+ * registration map.
+ */
+std::size_t gpg::REF_GetTypeCount()
+{
+  return GetRTypeMap().size();
 }
 
 /**
@@ -4468,6 +4788,62 @@ gpg::RRef* gpg::RRef_SimArmy_P(RRef* const out, moho::SimArmy** const value)
 }
 
 /**
+ * Address: 0x0074FF10 (FUN_0074FF10)
+ *
+ * What it does:
+ * Builds one bracketed lexical string (`[TypeLexical]`) for a reflected
+ * `moho::SimArmy*` slot, or `"NULL"` when the slot is empty.
+ */
+msvc8::string* gpg::BuildSimArmyPointerLexical(msvc8::string* const out, moho::SimArmy*** const slot)
+{
+  if (out == nullptr) {
+    return nullptr;
+  }
+
+  if (slot == nullptr || *slot == nullptr || **slot == nullptr) {
+    out->assign_owned("NULL");
+    return out;
+  }
+
+  gpg::RRef objectRef{};
+  (void)gpg::RRef_SimArmy(&objectRef, **slot);
+
+  gpg::RType* runtimeType = moho::SimArmy::sType;
+  if (runtimeType == nullptr) {
+    runtimeType = gpg::LookupRType(typeid(moho::SimArmy));
+    moho::SimArmy::sType = runtimeType;
+  }
+
+  const msvc8::string lexical = runtimeType != nullptr ? runtimeType->GetLexical(objectRef) : msvc8::string();
+  const msvc8::string bracketed = gpg::STR_Printf("[%s]", lexical.c_str());
+  out->assign_owned(bracketed.c_str());
+  return out;
+}
+
+/**
+ * Address: 0x0074FD80 (FUN_0074FD80)
+ *
+ * What it does:
+ * Builds and caches one pointer-type name lane (`"Type*"`) for
+ * `moho::SimArmy*`, reusing the reflected `SimArmy::sType` lookup cache.
+ */
+const char* gpg::BuildSimArmyPointerTypeName()
+{
+  static msvc8::string sCachedName;
+  if (sCachedName.empty()) {
+    gpg::RType* runtimeType = moho::SimArmy::sType;
+    if (runtimeType == nullptr) {
+      runtimeType = gpg::LookupRType(typeid(moho::SimArmy));
+      moho::SimArmy::sType = runtimeType;
+    }
+
+    const char* const baseName = runtimeType != nullptr ? runtimeType->GetName() : "";
+    sCachedName.assign_owned(gpg::STR_Printf("%s*", baseName).c_str());
+  }
+  return sCachedName.c_str();
+}
+
+/**
  * Address: 0x00544EE0 (FUN_00544EE0, gpg::RRef_LaunchInfoNew)
  *
  * What it does:
@@ -5182,6 +5558,64 @@ gpg::RRef* gpg::RRef_CDecalHandle_P(RRef* const out, moho::CDecalHandle** const 
 }
 
 /**
+ * Address: 0x0077EC40 (FUN_0077EC40)
+ *
+ * What it does:
+ * Builds one bracketed lexical string (`[TypeLexical]`) for a reflected
+ * `moho::CDecalHandle*` slot, or `"NULL"` when the slot is empty.
+ */
+msvc8::string* gpg::BuildCDecalHandlePointerLexical(
+  msvc8::string* const out,
+  moho::CDecalHandle*** const slot)
+{
+  if (out == nullptr) {
+    return nullptr;
+  }
+
+  if (slot == nullptr || *slot == nullptr || **slot == nullptr) {
+    out->assign_owned("NULL");
+    return out;
+  }
+
+  gpg::RRef objectRef{};
+  (void)gpg::RRef_CDecalHandle(&objectRef, **slot);
+
+  gpg::RType* runtimeType = moho::CDecalHandle::sType;
+  if (runtimeType == nullptr) {
+    runtimeType = gpg::LookupRType(typeid(moho::CDecalHandle));
+    moho::CDecalHandle::sType = runtimeType;
+  }
+
+  const msvc8::string lexical = runtimeType != nullptr ? runtimeType->GetLexical(objectRef) : msvc8::string();
+  const msvc8::string bracketed = gpg::STR_Printf("[%s]", lexical.c_str());
+  out->assign_owned(bracketed.c_str());
+  return out;
+}
+
+/**
+ * Address: 0x0077EAB0 (FUN_0077EAB0)
+ *
+ * What it does:
+ * Builds and caches one pointer-type name lane (`"Type*"`) for
+ * `moho::CDecalHandle*`, reusing the reflected `CDecalHandle::sType` cache.
+ */
+const char* gpg::BuildCDecalHandlePointerTypeName()
+{
+  static msvc8::string sCachedName;
+  if (sCachedName.empty()) {
+    gpg::RType* runtimeType = moho::CDecalHandle::sType;
+    if (runtimeType == nullptr) {
+      runtimeType = gpg::LookupRType(typeid(moho::CDecalHandle));
+      moho::CDecalHandle::sType = runtimeType;
+    }
+
+    const char* const baseName = runtimeType != nullptr ? runtimeType->GetName() : "";
+    sCachedName.assign_owned(gpg::STR_Printf("%s*", baseName).c_str());
+  }
+  return sCachedName.c_str();
+}
+
+/**
  * Address: 0x0077E390 (FUN_0077E390, gpg::RRef_CDecalHandle)
  *
  * What it does:
@@ -5743,6 +6177,62 @@ gpg::RRef* gpg::RRef_Shield_P(RRef* const out, moho::Shield** const value)
 }
 
 /**
+ * Address: 0x00750320 (FUN_00750320)
+ *
+ * What it does:
+ * Builds one bracketed lexical string (`[TypeLexical]`) for a reflected
+ * `moho::Shield*` slot, or `"NULL"` when the slot is empty.
+ */
+msvc8::string* gpg::BuildShieldPointerLexical(msvc8::string* const out, moho::Shield*** const slot)
+{
+  if (out == nullptr) {
+    return nullptr;
+  }
+
+  if (slot == nullptr || *slot == nullptr || **slot == nullptr) {
+    out->assign_owned("NULL");
+    return out;
+  }
+
+  gpg::RRef objectRef{};
+  (void)gpg::RRef_Shield(&objectRef, **slot);
+
+  gpg::RType* runtimeType = gShieldRRefType;
+  if (runtimeType == nullptr) {
+    runtimeType = gpg::LookupRType(typeid(moho::Shield));
+    gShieldRRefType = runtimeType;
+  }
+
+  const msvc8::string lexical = runtimeType != nullptr ? runtimeType->GetLexical(objectRef) : msvc8::string();
+  const msvc8::string bracketed = gpg::STR_Printf("[%s]", lexical.c_str());
+  out->assign_owned(bracketed.c_str());
+  return out;
+}
+
+/**
+ * Address: 0x00750190 (FUN_00750190)
+ *
+ * What it does:
+ * Builds and caches one pointer-type name lane (`"Type*"`) for
+ * `moho::Shield*`, reusing the reflected `Shield::sType` lookup cache.
+ */
+const char* gpg::BuildShieldPointerTypeName()
+{
+  static msvc8::string sCachedName;
+  if (sCachedName.empty()) {
+    gpg::RType* runtimeType = gShieldRRefType;
+    if (runtimeType == nullptr) {
+      runtimeType = gpg::LookupRType(typeid(moho::Shield));
+      gShieldRRefType = runtimeType;
+    }
+
+    const char* const baseName = runtimeType != nullptr ? runtimeType->GetName() : "";
+    sCachedName.assign_owned(gpg::STR_Printf("%s*", baseName).c_str());
+  }
+  return sCachedName.c_str();
+}
+
+/**
  * Address: 0x00758910 (FUN_00758910, gpg::RRef_IEffectManager)
  *
  * What it does:
@@ -6279,6 +6769,22 @@ void* RRef::GetObject() const noexcept
 }
 
 /**
+ * Address: 0x0094F730 (FUN_0094F730, gpg::RRefCompare::operator())
+ *
+ * What it does:
+ * Orders two reflected references lexicographically by reflected type lane
+ * and then by object pointer lane.
+ */
+bool RRefCompare::operator()(const RRef& lhs, const RRef& rhs) const noexcept
+{
+  if (lhs.mType != rhs.mType) {
+    return lhs.mType < rhs.mType;
+  }
+
+  return lhs.mObj < rhs.mObj;
+}
+
+/**
  * Address: 0x0084AB10 (FUN_0084AB10, gpg::RRef::CurrentUIState)
  *
  * What it does:
@@ -6761,6 +7267,18 @@ void RRef::Delete()
  * Initializes the base vftable lane for reflected objects.
  */
 RObject::RObject() noexcept = default;
+
+/**
+ * Address: 0x008DD460 (FUN_008DD460, ?IsA@RObject@gpg@@QBE_NPAVRType@2@@Z_0)
+ *
+ * What it does:
+ * Returns whether this object's dynamic reflected type is derived from one
+ * requested target type lane.
+ */
+bool RObject::IsA(RType* const type) const
+{
+  return GetClass()->IsDerivedFrom(type, nullptr);
+}
 
 /**
  * Address: 0x004012D0 (FUN_004012D0)
@@ -7316,10 +7834,10 @@ void gpg::RPointerType<moho::IEffect>::Init()
     v24 = true;
     size_ = sizeof(moho::IEffect*);
     newRefFunc_ = &NewPointerSlotRef<moho::IEffect>;
-    cpyRefFunc_ = &CopyPointerSlotRef<moho::IEffect>;
+    cpyRefFunc_ = &CopyIEffectPointerSlotRef;
     deleteFunc_ = &DeletePointerSlot<moho::IEffect>;
     ctorRefFunc_ = &ConstructPointerSlotRef<moho::IEffect>;
-    movRefFunc_ = &MovePointerSlotRef<moho::IEffect>;
+    movRefFunc_ = &MoveIEffectPointerSlotRef;
 }
 
 RType* gpg::RPointerType<moho::IEffect>::GetPointeeType() const
@@ -7561,10 +8079,10 @@ void gpg::RPointerType<moho::CEconomyEvent>::Init()
     v24 = true;
     size_ = sizeof(moho::CEconomyEvent*);
     newRefFunc_ = &NewPointerSlotRef<moho::CEconomyEvent>;
-    cpyRefFunc_ = &CopyPointerSlotRef<moho::CEconomyEvent>;
+    cpyRefFunc_ = &CopyCEconomyEventPointerSlotRef;
     deleteFunc_ = &DeletePointerSlot<moho::CEconomyEvent>;
     ctorRefFunc_ = &ConstructPointerSlotRef<moho::CEconomyEvent>;
-    movRefFunc_ = &MovePointerSlotRef<moho::CEconomyEvent>;
+    movRefFunc_ = &MoveCEconomyEventPointerSlotRef;
 }
 
 RType* gpg::RPointerType<moho::CEconomyEvent>::GetPointeeType() const
@@ -7630,9 +8148,9 @@ const RIndexed* gpg::RPointerType<moho::CLuaConOutputHandler>::IsPointer() const
 
 /**
  * Address: 0x00421310 (FUN_00421310)
- * Address: 0x00421620 (FUN_00421620, sub_421620 helper lane)
- * Address: 0x00421660 (FUN_00421660, sub_421660 helper lane)
- * Address: 0x00421670 (FUN_00421670, sub_421670 helper lane)
+  * Alias of FUN_00421620 (non-canonical helper lane).
+  * Alias of FUN_00421660 (non-canonical helper lane).
+  * Alias of FUN_00421670 (non-canonical helper lane).
  * Demangled: gpg::RPointerType_CLuaConOutputHandler::Init
  */
 void gpg::RPointerType<moho::CLuaConOutputHandler>::Init()
@@ -8060,10 +8578,10 @@ void gpg::RPointerType<moho::ReconBlip>::Init()
     v24 = true;
     size_ = sizeof(moho::ReconBlip*);
     newRefFunc_ = &NewPointerSlotRef<moho::ReconBlip>;
-    cpyRefFunc_ = &CopyPointerSlotRef<moho::ReconBlip>;
+    cpyRefFunc_ = &CopyReconBlipPointerSlotRef;
     deleteFunc_ = &DeletePointerSlot<moho::ReconBlip>;
     ctorRefFunc_ = &ConstructPointerSlotRef<moho::ReconBlip>;
-    movRefFunc_ = &MovePointerSlotRef<moho::ReconBlip>;
+    movRefFunc_ = &MoveReconBlipPointerSlotRef;
 }
 
 RType* gpg::RPointerType<moho::ReconBlip>::GetPointeeType() const
@@ -8825,6 +9343,13 @@ const char* REnumType::StripPrefix(const char* name) const
   return name;
 }
 
+/**
+ * Address: 0x008D9FD0 (FUN_008D9FD0)
+ *
+ * What it does:
+ * Scans enum options and writes the matched integer value for a
+ * case-insensitive enum token name.
+ */
 bool REnumType::GetEnumValue(const char* name, int* outVal) const
 {
   const ROptionValue* it = mEnumNames.begin();
@@ -8839,6 +9364,22 @@ bool REnumType::GetEnumValue(const char* name, int* outVal) const
 }
 
 /**
+ * Address: 0x008DF290 (FUN_008DF290)
+ *
+ * What it does:
+ * Appends one enum option lane into the backing `msvc8::vector` and returns
+ * the inserted slot.
+ */
+[[nodiscard]] static REnumType::ROptionValue* AppendEnumOptionValue(
+  msvc8::vector<REnumType::ROptionValue>& options,
+  const REnumType::ROptionValue& value
+)
+{
+  options.push_back(value);
+  return options.empty() ? nullptr : &options.back();
+}
+
+/**
  * Address: 0x008DF5F0 (FUN_008DF5F0, gpg::REnumType::AddEnum)
  *
  * What it does:
@@ -8847,5 +9388,5 @@ bool REnumType::GetEnumValue(const char* name, int* outVal) const
 void REnumType::AddEnum(char const* name, const int index)
 {
   const ROptionValue opt{index, name};
-  mEnumNames.push_back(opt);
+  (void)AppendEnumOptionValue(mEnumNames, opt);
 }

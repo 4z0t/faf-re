@@ -90,14 +90,55 @@ namespace
     return new CScApp();
   }
 
-  void CleanupManagedWindowsAtExit()
+  void UnlinkManagedWindowSlotRange(
+    moho::ManagedWindowSlot* begin,
+    moho::ManagedWindowSlot* end
+  ) noexcept
   {
-    moho::managedWindows = msvc8::vector<moho::ManagedWindowSlot>{};
+    while (begin != end) {
+      begin->UnlinkFromOwner();
+      ++begin;
+    }
   }
 
+  /**
+   * Address: 0x004F8180 (FUN_004F8180)
+   *
+   * What it does:
+   * Unlinks every managed-dialog slot node, frees the backing slot-storage
+   * lane, and clears begin/end/capacity lanes on the global dialog slot
+   * vector.
+   */
+  void CleanupManagedWindowsAtExit()
+  {
+    auto& slotRuntime = msvc8::AsVectorRuntimeView(moho::managedWindows);
+    if (slotRuntime.begin != nullptr) {
+      UnlinkManagedWindowSlotRange(slotRuntime.begin, slotRuntime.end);
+      ::operator delete(static_cast<void*>(slotRuntime.begin));
+    }
+    slotRuntime.begin = nullptr;
+    slotRuntime.end = nullptr;
+    slotRuntime.capacityEnd = nullptr;
+  }
+
+  /**
+   * Address: 0x004F82D0 (FUN_004F82D0)
+   *
+   * What it does:
+   * Unlinks every managed-frame slot node, frees the backing slot-storage
+   * lane, and clears begin/end/capacity lanes on the global frame slot
+   * vector.
+   */
   void CleanupManagedFramesAtExit()
   {
-    moho::managedFrames = msvc8::vector<moho::ManagedWindowSlot>{};
+    auto& slotRuntime = msvc8::AsVectorRuntimeView(moho::managedFrames);
+    if (slotRuntime.begin != nullptr) {
+      UnlinkManagedWindowSlotRange(slotRuntime.begin, slotRuntime.end);
+      ::operator delete(static_cast<void*>(slotRuntime.begin));
+    }
+    slotRuntime.begin = nullptr;
+    slotRuntime.end = nullptr;
+    slotRuntime.capacityEnd = nullptr;
   }
 
   [[maybe_unused]] const bool gWinAppBootstrap = []() {
@@ -1279,7 +1320,7 @@ namespace
   {
   public:
     using MiniDmpSenderCtorFn =
-      void(__thiscall*)(void*, const char*, const char*, const char*, const char*, unsigned long);
+      void* (__thiscall*)(void*, const char*, const char*, const char*, const char*, unsigned long);
     using MiniDmpSenderDtorFn = void(__thiscall*)(void*);
     using MiniDmpSenderSetCallbackFn = void(__thiscall*)(void*, BugSplatAttachmentCallbackFn);
     using MiniDmpSenderCreateReportFn = void(__thiscall*)(void*, _EXCEPTION_POINTERS*);
@@ -1310,6 +1351,12 @@ namespace
       return ctor_ != nullptr && dtor_ != nullptr && setCallback_ != nullptr && createReport_ != nullptr;
     }
 
+    /**
+     * Address: 0x00A814F0 (FUN_00A814F0, ??0MiniDmpSender@@QAE@PBD000K@Z)
+     *
+     * What it does:
+     * Typed import-thunk model for `MiniDmpSender` constructor export.
+     */
     void Construct(
       BugSplatMiniDmpSenderRuntime* const senderStorage,
       const char* const database,
@@ -1319,20 +1366,38 @@ namespace
       const unsigned long flags
     ) const
     {
-      ctor_(static_cast<void*>(senderStorage), database, appName, versionText, userName, flags);
+      (void)ctor_(static_cast<void*>(senderStorage), database, appName, versionText, userName, flags);
     }
 
+    /**
+     * Address: 0x00A814EA (FUN_00A814EA, ??1MiniDmpSender@@UAE@XZ)
+     *
+     * What it does:
+     * Typed import-thunk model for `MiniDmpSender` destructor export.
+     */
     void Destroy(BugSplatMiniDmpSenderRuntime* const senderStorage) const
     {
       dtor_(static_cast<void*>(senderStorage));
     }
 
+    /**
+     * Address: 0x00A814DE (FUN_00A814DE, ?setCallback@MiniDmpSender@@QAEXP6A_NIPAX0@Z@Z)
+     *
+     * What it does:
+     * Typed import-thunk model for `MiniDmpSender::setCallback` export.
+     */
     void SetCallback(BugSplatMiniDmpSenderRuntime* const senderStorage, const BugSplatAttachmentCallbackFn callback)
       const
     {
       setCallback_(static_cast<void*>(senderStorage), callback);
     }
 
+    /**
+     * Address: 0x00A814E4 (FUN_00A814E4, ?createReport@MiniDmpSender@@QAEXPAU_EXCEPTION_POINTERS@@@Z)
+     *
+     * What it does:
+     * Typed import-thunk model for `MiniDmpSender::createReport` export.
+     */
     void CreateReport(BugSplatMiniDmpSenderRuntime* const senderStorage, _EXCEPTION_POINTERS* const exceptionInfo)
       const
     {
@@ -1779,8 +1844,14 @@ namespace
     gpg::StrArg body;
   };
 
-  [[nodiscard]]
-  msvc8::string NormalizeDialogNewlines(const gpg::StrArg text)
+  /**
+   * Address: 0x004F0EB0 (FUN_004F0EB0, sub_4F0EB0)
+   *
+   * What it does:
+   * Converts lone `\n` bytes in one UTF-8 crash/body payload into CRLF
+   * sequences while preserving existing `\r\n` pairs.
+   */
+  [[nodiscard]] msvc8::string NormalizeDialogNewlines(const gpg::StrArg text)
   {
     const char* const source = text != nullptr ? text : "";
     std::string normalized;
@@ -2264,18 +2335,66 @@ msvc8::string moho::SPlatSymbolInfo::FormatResolvedLine() const
 }
 
 /**
- * Address: 0x004F1FC0
+ * Address: 0x004F2560 (FUN_004F2560, ?WIN_SetWakeupTimer@Moho@@YAXM@Z)
  *
  * What it does:
- * Requests that the main wait loop wake no later than `milliseconds` from now.
+ * Converts non-negative relative timeout to an absolute wakeup deadline and
+ * keeps only the earliest deadline; negative input requests immediate wake.
  */
-void moho::WIN_SetWakeupTimer(const float milliseconds)
+void moho::WIN_SetWakeupTimer(float milliseconds)
 {
-  if (milliseconds < wakeupTimerDur) {
-    wakeupTimerDur = milliseconds;
+  float resolvedWakeup = 0.0f;
+  if (milliseconds >= 0.0f) {
+    const float absoluteWakeupMs = gpg::time::CyclesToMilliseconds(wakeupTimer.ElapsedCycles()) + milliseconds;
+    if (wakeupTimerDur <= absoluteWakeupMs) {
+      return;
+    }
+    milliseconds = absoluteWakeupMs;
+    resolvedWakeup = milliseconds;
   }
+
+  wakeupTimerDur = resolvedWakeup;
 }
 
+/**
+ * Address: 0x004F2400 (FUN_004F2400, ?WIN_AppRequestExit@Moho@@YAXXZ_0)
+ *
+ * What it does:
+ * Requests immediate exit from the active wx app main loop.
+ */
+void moho::WIN_AppRequestExit()
+{
+  wxTheApp->ExitMainLoop();
+}
+
+/**
+ * Address: 0x004F2410 (FUN_004F2410, ?WIN_GetCurrentApp@Moho@@YAPAVIWinApp@1@XZ)
+ *
+ * What it does:
+ * Returns the process-global active app owner pointer.
+ */
+moho::IWinApp* moho::WIN_GetCurrentApp()
+{
+  return sSupComApp;
+}
+
+/**
+ * Address: 0x004F25B0 (FUN_004F25B0, ?WIN_GetMainWindow@Moho@@YAPAVwxWindow@@XZ)
+ *
+ * What it does:
+ * Returns the process-global main-window owner pointer.
+ */
+wxWindowBase* moho::WIN_GetMainWindow()
+{
+  return sMainWindow;
+}
+
+/**
+ * Address: 0x004F25C0 (FUN_004F25C0, ?WIN_SetMainWindow@Moho@@YAXPAVwxWindow@@@Z)
+ *
+ * What it does:
+ * Updates the process-global main-window owner pointer.
+ */
 void moho::WIN_SetMainWindow(wxWindowBase* const mainWindow)
 {
   sMainWindow = mainWindow;
@@ -3146,6 +3265,7 @@ void moho::WINX_InitSplash(const gpg::StrArg filename)
 
 /**
  * Address: 0x004F67E0 (FUN_004F67E0, ?WINX_PrecreateLogWindow@Moho@@YAXXZ)
+ * Thunk entry: 0x004F3CD0 (FUN_004F3CD0)
  *
  * What it does:
  * Lazily allocates the global log window object and stores it under the

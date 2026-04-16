@@ -130,6 +130,19 @@ namespace moho
   }
 
   /**
+   * Address: 0x004EAD30 (FUN_004EAD30, Moho::Zeroed<Wm3::Vector3<float>>)
+   *
+   * What it does:
+   * Returns one process-static zero vector singleton.
+   */
+  template <>
+  const Wm3::Vector3f& Zeroed<Wm3::Vector3f>()
+  {
+    static Wm3::Vector3f zeroVector{0.0f, 0.0f, 0.0f};
+    return zeroVector;
+  }
+
+  /**
    * Address: 0x004EAD40 (FUN_004EAD40, Moho::Invalid<Wm3::Vector3<float>>)
    *
    * What it does:

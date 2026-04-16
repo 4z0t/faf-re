@@ -71,6 +71,24 @@ namespace moho
     int Execute() override;
 
     /**
+     * Address: 0x0061A9C0 (FUN_0061A9C0)
+     *
+     * What it does:
+     * Deserializes base command-task state, weak formation pointer lane, and
+     * the formation-arrival flag.
+     */
+    void MemberDeserialize(gpg::ReadArchive* archive);
+
+    /**
+     * Address: 0x0061AA30 (FUN_0061AA30)
+     *
+     * What it does:
+     * Serializes base command-task state, weak formation pointer lane, and the
+     * formation-arrival flag.
+     */
+    void MemberSerialize(gpg::WriteArchive* archive) const;
+
+    /**
      * Address: 0x00619680 (FUN_00619680, listener callback lane)
      *
      * What it does:

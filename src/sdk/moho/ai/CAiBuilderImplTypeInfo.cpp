@@ -95,6 +95,29 @@ namespace
     return IAiBuilder::sType;
   }
 
+  /**
+   * Address: 0x005A1C20 (FUN_005A1C20)
+   *
+   * What it does:
+   * Registers `IAiBuilder` as one reflected base lane for `CAiBuilderImpl` at
+   * offset `+0x00`.
+   */
+  void AddIAiBuilderBaseToCAiBuilderImplType(gpg::RType* const typeInfo)
+  {
+    gpg::RType* const baseType = CachedIAiBuilderType();
+    if (!baseType) {
+      return;
+    }
+
+    gpg::RField baseField{};
+    baseField.mName = baseType->GetName();
+    baseField.mType = baseType;
+    baseField.mOffset = 0;
+    baseField.v4 = 0;
+    baseField.mDesc = nullptr;
+    typeInfo->AddBase(baseField);
+  }
+
   [[nodiscard]] gpg::RType* CachedUnsignedIntType()
   {
     static gpg::RType* type = nullptr;
@@ -457,15 +480,7 @@ void CAiBuilderImplTypeInfo::Init()
 {
   size_ = sizeof(CAiBuilderImpl);
   gpg::RType::Init();
-
-  gpg::RField baseField{};
-  baseField.mName = CachedIAiBuilderType()->GetName();
-  baseField.mType = CachedIAiBuilderType();
-  baseField.mOffset = 0;
-  baseField.v4 = 0;
-  baseField.mDesc = nullptr;
-  AddBase(baseField);
-
+  AddIAiBuilderBaseToCAiBuilderImplType(this);
   Finish();
 }
 

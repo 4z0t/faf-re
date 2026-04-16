@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
+#include <new>
 #include <typeinfo>
 
 #include "gpg/core/reflection/SerializationError.h"
@@ -17,6 +18,38 @@ namespace
 {
   constexpr std::uint32_t kAttachmentParentSentinel = moho::ToRaw(moho::EEntityIdSentinel::Invalid);
   constexpr moho::EUserEntityVisibilityMode kDefaultVisibilityMode = moho::EUserEntityVisibilityMode::MapPlayableRect;
+
+  class SSTIEntityAttachInfoTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "SSTIEntityAttachInfo";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::SSTIEntityAttachInfo);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
+  class EntityAttributesTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "EntityAttributes";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::SSTIIntelAttributes);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
 
   [[nodiscard]] gpg::RType* ResolveTypeByAnyName(const std::initializer_list<const char*> names)
   {
@@ -145,9 +178,9 @@ namespace
   {
     static gpg::RType* sType = nullptr;
     if (!sType) {
-      sType = ResolveTypeByAnyName({"EntityAttributes", "Moho::EntityAttributes"});
+      sType = ResolveTypeByAnyName({"EntityAttributes", "Moho::EntityAttributes", "SSTIIntelAttributes"});
       if (!sType) {
-        sType = gpg::LookupRType(typeid(moho::SSTIIntelAttributes));
+        sType = moho::preregister_EntityAttributesTypeInfo();
       }
     }
     return sType;
@@ -160,6 +193,60 @@ namespace
     ref.mObj = object;
     ref.mType = type;
     return ref;
+  }
+
+  struct SSTIEntityVariableDataSlotRuntime
+  {
+    std::uint32_t mHeaderWord0 = 0;               // +0x00
+    std::uint32_t mHeaderWord1 = 0;               // +0x04
+    moho::SSTIEntityVariableData mVariableData{}; // +0x08
+  };
+
+  static_assert(
+    offsetof(SSTIEntityVariableDataSlotRuntime, mVariableData) == 0x08,
+    "SSTIEntityVariableDataSlotRuntime::mVariableData offset must be 0x08"
+  );
+  static_assert(sizeof(SSTIEntityVariableDataSlotRuntime) == 0xD8, "SSTIEntityVariableDataSlotRuntime size must be 0xD8");
+
+  /**
+   * Address: 0x00680970 (FUN_00680970, copy_SSTIEntityVariableData_slot_range_with_rollback_counted)
+   *
+   * What it does:
+   * Copy-constructs one counted slot range (`header + SSTIEntityVariableData`)
+   * into destination storage and destroys already-constructed payload lanes
+   * before rethrowing if a copy step throws.
+   */
+  [[maybe_unused]] SSTIEntityVariableDataSlotRuntime* CopySSTIEntityVariableDataSlotRangeWithRollbackCounted(
+    const std::uint32_t count,
+    SSTIEntityVariableDataSlotRuntime* const destinationBegin,
+    const SSTIEntityVariableDataSlotRuntime* const sourceBegin
+  )
+  {
+    if (count == 0u) {
+      return destinationBegin;
+    }
+
+    if (destinationBegin == nullptr || sourceBegin == nullptr) {
+      return destinationBegin;
+    }
+
+    SSTIEntityVariableDataSlotRuntime* destinationCursor = destinationBegin;
+    try {
+      for (std::uint32_t i = 0; i < count; ++i, ++destinationCursor) {
+        const SSTIEntityVariableDataSlotRuntime* const sourceCursor = sourceBegin + i;
+        destinationCursor->mHeaderWord0 = sourceCursor->mHeaderWord0;
+        ::new (&destinationCursor->mVariableData) moho::SSTIEntityVariableData();
+        (void)sourceCursor->mVariableData.cpy(&destinationCursor->mVariableData);
+      }
+      return destinationCursor;
+    } catch (...) {
+      for (SSTIEntityVariableDataSlotRuntime* destroyCursor = destinationBegin;
+           destroyCursor != destinationCursor;
+           ++destroyCursor) {
+        destroyCursor->mVariableData.~SSTIEntityVariableData();
+      }
+      throw;
+    }
   }
 } // namespace
 
@@ -478,6 +565,46 @@ namespace moho
   }
 
   /**
+   * Address: 0x005581D0 (FUN_005581D0, preregister_SSTIEntityAttachInfoTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SSTIEntityAttachInfo`.
+   */
+  gpg::RType* preregister_SSTIEntityAttachInfoTypeInfo()
+  {
+    static SSTIEntityAttachInfoTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SSTIEntityAttachInfo), &typeInfo);
+    SSTIEntityAttachInfo::sType = &typeInfo;
+    return &typeInfo;
+  }
+
+  /**
+   * Address: 0x00558420 (FUN_00558420, preregister_EntityAttributesTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `EntityAttributes`.
+   */
+  gpg::RType* preregister_EntityAttributesTypeInfo()
+  {
+    static EntityAttributesTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SSTIIntelAttributes), &typeInfo);
+    return &typeInfo;
+  }
+
+  /**
+   * Address: 0x00558620 (FUN_00558620, preregister_SSTIEntityVariableDataTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SSTIEntityVariableData`.
+   */
+  gpg::RType* preregister_SSTIEntityVariableDataTypeInfo()
+  {
+    static SSTIEntityVariableDataTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SSTIEntityVariableData), &typeInfo);
+    return &typeInfo;
+  }
+
+  /**
    * Address: 0x005586B0 (FUN_005586B0, sub_5586B0)
    */
   SSTIEntityVariableDataTypeInfo::~SSTIEntityVariableDataTypeInfo() = default;
@@ -501,10 +628,6 @@ namespace moho
     Finish();
   }
 
-  // Static cached RType slot for the recovered placeholder
-  // `SSTIEntityAttachInfo` type. Populated by the first
-  // `gpg::RRef_SSTIEntityAttachInfo` call via cached lookup; no
-  // additional registration is required because the binary's only
-  // observed access to `sType` is through the same RRef helper.
+  // Cached reflected `SSTIEntityAttachInfo` lane.
   gpg::RType* SSTIEntityAttachInfo::sType = nullptr;
 } // namespace moho

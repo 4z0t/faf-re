@@ -45,13 +45,13 @@ namespace moho
    */
   CUnitFerryTask* CUnitFerryTask::Create(
     CCommandTask* parentTask,
-    CUnitCommand* command
+    Unit* targetUnit
   )
   {
     auto* raw = static_cast<CUnitFerryTask*>(::operator new(sizeof(CUnitFerryTask)));
     auto guard = std::unique_ptr<CUnitFerryTask, void (*)(CUnitFerryTask*)>(raw, [](CUnitFerryTask* p) {
       ::operator delete(p);
     });
-    return std::construct_at(guard.release(), parentTask, command);
+    return std::construct_at(guard.release(), parentTask, targetUnit);
   }
 } // namespace moho

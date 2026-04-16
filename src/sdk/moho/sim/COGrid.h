@@ -172,7 +172,7 @@ namespace moho
     void OccupyRect(const gpg::Rect2i& rect);
 
     /**
-     * Address: 0x00721A90 (FUN_00721A90, Moho::COGrid::ExecuteOccupy)
+      * Alias of FUN_00721A90 (non-canonical helper lane).
      *
      * What it does:
      * Marks the requested bits set in the terrain and/or water occupancy

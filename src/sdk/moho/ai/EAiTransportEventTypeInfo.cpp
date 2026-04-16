@@ -22,7 +22,6 @@ namespace
   {
     if (!gEAiTransportEventTypeInfoConstructed) {
       auto* const typeInfo = new (gEAiTransportEventTypeInfoStorage) EAiTransportEventTypeInfo();
-      gpg::PreRegisterRType(typeid(EAiTransportEvent), typeInfo);
       gEAiTransportEventTypeInfoConstructed = true;
     }
 
@@ -95,6 +94,14 @@ namespace
     gEAiTransportEventPrimitiveSerializerConstructed = false;
   }
 } // namespace
+
+/**
+ * Address: 0x005E3D10 (FUN_005E3D10, Moho::EAiTransportEventTypeInfo::EAiTransportEventTypeInfo)
+ */
+EAiTransportEventTypeInfo::EAiTransportEventTypeInfo()
+{
+  gpg::PreRegisterRType(typeid(EAiTransportEvent), this);
+}
 
 /**
  * Address: 0x005E3DA0 (FUN_005E3DA0, scalar deleting thunk)

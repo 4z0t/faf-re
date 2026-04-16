@@ -57,6 +57,15 @@ namespace moho
   }
 
   /**
+   * Address: 0x0051B840 (FUN_0051B840, Moho::RProjectileBlueprint::dtr)
+   *
+   * What it does:
+   * Runs non-deleting teardown for projectile-specific string lanes, then
+   * delegates to `REntityBlueprint` destruction.
+   */
+  RProjectileBlueprint::~RProjectileBlueprint() = default;
+
+  /**
    * Address: 0x0051B650 (FUN_0051B650)
    *
    * What it does:

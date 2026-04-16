@@ -31,6 +31,137 @@ namespace Wm3
    */
   void QueryRationalNoOpCallbackC(void* /*self*/) noexcept {}
 
+  /**
+   * Address: 0x00A4A4B0 (FUN_00A4A4B0)
+   *
+   * What it does:
+   * Builds one `(center.xyz, radiusSquared)` sphere lane from two opposite
+   * axis-aligned bounds corners.
+   */
+  float* ComputeSphereCenterAndRadiusSquaredFromBoundsEndpoints(
+    float* const outCenterRadiusSquared,
+    const float* const minCorner,
+    const float* const maxCorner
+  ) noexcept
+  {
+    if (outCenterRadiusSquared == nullptr || minCorner == nullptr || maxCorner == nullptr) {
+      return outCenterRadiusSquared;
+    }
+
+    const float centerX = (minCorner[0] + maxCorner[0]) * 0.5f;
+    const float centerY = (minCorner[1] + maxCorner[1]) * 0.5f;
+    const float centerZ = (minCorner[2] + maxCorner[2]) * 0.5f;
+    outCenterRadiusSquared[0] = centerX;
+    outCenterRadiusSquared[1] = centerY;
+    outCenterRadiusSquared[2] = centerZ;
+
+    const float deltaX = maxCorner[0] - minCorner[0];
+    const float deltaY = maxCorner[1] - minCorner[1];
+    const float deltaZ = maxCorner[2] - minCorner[2];
+    outCenterRadiusSquared[3] = (deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ) * 0.25f;
+    return outCenterRadiusSquared;
+  }
+
+  /**
+   * Address: 0x00A78870 (FUN_00A78870, Wm3::Query2TIntegerf::Det3 helper lane)
+   *
+   * What it does:
+   * Evaluates the 3x3 determinant used by the integer circumcircle query lane
+   * in `Query2TIntegerf`.
+   */
+  TInteger<4> Query2TIntegerfDet3(
+    const TInteger<4>& x0,
+    const TInteger<4>& y0,
+    const TInteger<4>& z0,
+    const TInteger<4>& x1,
+    const TInteger<4>& y1,
+    const TInteger<4>& z1,
+    const TInteger<4>& x2,
+    const TInteger<4>& y2,
+    const TInteger<4>& z2
+  )
+  {
+    const TInteger<4> c00 = y1 * z2 - y2 * z1;
+    const TInteger<4> c01 = y2 * z0 - y0 * z2;
+    const TInteger<4> c02 = y0 * z1 - y1 * z0;
+    return x0 * c00 + x1 * c01 + x2 * c02;
+  }
+
+  /**
+   * Address: 0x00A78A20 (FUN_00A78A20, Wm3::Query2TIntegerd::Det3 helper lane)
+   *
+   * What it does:
+   * Evaluates the 3x3 determinant used by the integer circumcircle query lane
+   * in `Query2TIntegerd`.
+   */
+  TInteger<4> Query2TIntegerdDet3(
+    const TInteger<4>& x0,
+    const TInteger<4>& y0,
+    const TInteger<4>& z0,
+    const TInteger<4>& x1,
+    const TInteger<4>& y1,
+    const TInteger<4>& z1,
+    const TInteger<4>& x2,
+    const TInteger<4>& y2,
+    const TInteger<4>& z2
+  )
+  {
+    const TInteger<4> c00 = y1 * z2 - y2 * z1;
+    const TInteger<4> c01 = y2 * z0 - y0 * z2;
+    const TInteger<4> c02 = y0 * z1 - y1 * z0;
+    return x0 * c00 + x1 * c01 + x2 * c02;
+  }
+
+  /**
+   * Address: 0x00A7B5C0 (FUN_00A7B5C0, Wm3::Query2TRationalf::Det3 helper lane)
+   *
+   * What it does:
+   * Evaluates the 3x3 determinant used by the rational circumcircle query lane
+   * in `Query2TRationalf`.
+   */
+  TRational<16> Query2TRationalfDet3(
+    const TRational<16>& x0,
+    const TRational<16>& y0,
+    const TRational<16>& z0,
+    const TRational<16>& x1,
+    const TRational<16>& y1,
+    const TRational<16>& z1,
+    const TRational<16>& x2,
+    const TRational<16>& y2,
+    const TRational<16>& z2
+  )
+  {
+    const TRational<16> c00 = y1 * z2 - y2 * z1;
+    const TRational<16> c01 = y2 * z0 - y0 * z2;
+    const TRational<16> c02 = y0 * z1 - y1 * z0;
+    return x0 * c00 + x1 * c01 + x2 * c02;
+  }
+
+  /**
+   * Address: 0x00A7B7B0 (FUN_00A7B7B0, Wm3::Query2TRationald::Det3 helper lane)
+   *
+   * What it does:
+   * Evaluates the 3x3 determinant used by the rational circumcircle query lane
+   * in `Query2TRationald`.
+   */
+  TRational<32> Query2TRationaldDet3(
+    const TRational<32>& x0,
+    const TRational<32>& y0,
+    const TRational<32>& z0,
+    const TRational<32>& x1,
+    const TRational<32>& y1,
+    const TRational<32>& z1,
+    const TRational<32>& x2,
+    const TRational<32>& y2,
+    const TRational<32>& z2
+  )
+  {
+    const TRational<32> c00 = y1 * z2 - y2 * z1;
+    const TRational<32> c01 = y2 * z0 - y0 * z2;
+    const TRational<32> c02 = y0 * z1 - y1 * z0;
+    return x0 * c00 + x1 * c01 + x2 * c02;
+  }
+
   namespace
   {
     constexpr float kWm3Epsilon = 0.000001f;

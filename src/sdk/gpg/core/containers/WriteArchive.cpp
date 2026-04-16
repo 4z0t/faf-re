@@ -262,6 +262,15 @@ public:
     }
 
     /**
+     * Address: 0x009046C0 (FUN_009046C0)
+     *
+     * What it does:
+     * Runs non-deleting teardown for one binary-write archive lane, releasing
+     * file shared-owner state before base `WriteArchive` destruction.
+     */
+    ~BinaryWriteArchive() override = default;
+
+    /**
      * Address: 0x00904A60 (FUN_00904A60, BinaryWriteArchive::WriteBytes)
      *
      * What it does:

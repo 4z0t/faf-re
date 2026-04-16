@@ -11,6 +11,7 @@
 #include "gpg/core/utils/Global.h"
 #include "moho/entity/Entity.h"
 #include "moho/render/camera/VTransform.h"
+#include "moho/ui/EScrollTypeTypeInfo.h"
 
 namespace
 {
@@ -48,6 +49,76 @@ namespace
       moho::SScroller::sType = gpg::LookupRType(typeid(moho::SScroller));
     }
     return moho::SScroller::sType;
+  }
+
+  [[nodiscard]] gpg::RType* CachedEScrollType()
+  {
+    static gpg::RType* cached = nullptr;
+    if (cached == nullptr) {
+      cached = gpg::LookupRType(typeid(moho::EScrollType));
+    }
+    return cached;
+  }
+
+  /**
+   * Address: 0x00778170 (FUN_00778170)
+   *
+   * What it does:
+   * Deserializes one `SScroller` payload by loading its reflected
+   * `EScrollType` lane followed by all ten float lanes in binary order.
+   */
+  [[nodiscard]] gpg::ReadArchive* DeserializeSScrollerConfigPayload(
+    moho::SScroller* const payload,
+    gpg::ReadArchive* const archive
+  )
+  {
+    if (archive == nullptr || payload == nullptr) {
+      return archive;
+    }
+
+    const gpg::RRef ownerRef{};
+    archive->Read(CachedEScrollType(), &payload->mType, ownerRef);
+    archive->ReadFloat(&payload->mFloat04);
+    archive->ReadFloat(&payload->mFloat08);
+    archive->ReadFloat(&payload->mFloat0C);
+    archive->ReadFloat(&payload->mFloat10);
+    archive->ReadFloat(&payload->mScroll1.x);
+    archive->ReadFloat(&payload->mScroll1.y);
+    archive->ReadFloat(&payload->mScroll2.x);
+    archive->ReadFloat(&payload->mScroll2.y);
+    archive->ReadFloat(&payload->mFloat24);
+    archive->ReadFloat(&payload->mFloat28);
+    return archive;
+  }
+
+  /**
+   * Address: 0x00778240 (FUN_00778240)
+   *
+   * What it does:
+   * Serializes one `SScroller` payload by writing its reflected
+   * `EScrollType` lane followed by all ten float lanes in binary order.
+   */
+  void SerializeSScrollerConfigPayload(
+    const moho::SScroller& payload,
+    gpg::WriteArchive* const archive
+  )
+  {
+    if (archive == nullptr) {
+      return;
+    }
+
+    const gpg::RRef ownerRef{};
+    archive->Write(CachedEScrollType(), &payload.mType, ownerRef);
+    archive->WriteFloat(payload.mFloat04);
+    archive->WriteFloat(payload.mFloat08);
+    archive->WriteFloat(payload.mFloat0C);
+    archive->WriteFloat(payload.mFloat10);
+    archive->WriteFloat(payload.mScroll1.x);
+    archive->WriteFloat(payload.mScroll1.y);
+    archive->WriteFloat(payload.mScroll2.x);
+    archive->WriteFloat(payload.mScroll2.y);
+    archive->WriteFloat(payload.mFloat24);
+    archive->WriteFloat(payload.mFloat28);
   }
 
   /**
@@ -251,9 +322,7 @@ namespace moho
 
     (void)archive->ReadPointer_Entity(&mEntity, &nullOwner);
 
-    gpg::RType* const scrollerType = CachedScrollerType();
-    GPG_ASSERT(scrollerType != nullptr);
-    archive->Read(scrollerType, &mScroller, nullOwner);
+    (void)DeserializeSScrollerConfigPayload(&mScroller, archive);
 
     bool dir0 = false;
     bool dir1 = false;
@@ -285,9 +354,7 @@ namespace moho
     gpg::RRef_Entity(&entityRef, mEntity);
     gpg::WriteRawPointer(archive, entityRef, gpg::TrackedPointerState::Unowned, nullOwner);
 
-    gpg::RType* const scrollerType = CachedScrollerType();
-    GPG_ASSERT(scrollerType != nullptr);
-    archive->Write(scrollerType, &mScroller, nullOwner);
+    SerializeSScrollerConfigPayload(mScroller, archive);
 
     archive->WriteBool(mDir[0] != 0u);
     archive->WriteBool(mDir[1] != 0u);

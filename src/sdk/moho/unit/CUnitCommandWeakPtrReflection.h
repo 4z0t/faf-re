@@ -111,6 +111,15 @@ namespace moho
   );
 
   /**
+   * Address: 0x005A07A0 (FUN_005A07A0, std::vector_WeakPtr_CUnitCommand::reset_storage)
+   *
+   * What it does:
+   * Destroys one `vector<WeakPtr<CUnitCommand>>` payload, releases the backing
+   * heap block, and clears the vector storage lanes to empty.
+   */
+  void ResetWeakPtrCUnitCommandVectorStorage(msvc8::vector<WeakPtr<CUnitCommand>>& storage);
+
+  /**
    * Address: 0x005A2270 (FUN_005A2270, Moho::WeakPtr_CUnitCommand::destruct_range)
    *
    * What it does:

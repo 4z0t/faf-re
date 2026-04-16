@@ -89,6 +89,14 @@ namespace moho
   void REN_ShowSkeletons();
 
   /**
+   * Address: 0x007FA720 (FUN_007FA720, Moho::REN_RenderShadowDebugOverlay)
+   *
+   * What it does:
+   * No-op shadow debug overlay callback lane retained for binary parity.
+   */
+  void REN_RenderShadowDebugOverlay();
+
+  /**
    * Address: 0x007F6560 (FUN_007F6560, Moho::REN_MapBorderAdd)
    *
    * What it does:

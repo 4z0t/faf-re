@@ -58,7 +58,7 @@ namespace
   {
     CWeaponAttributesTypeInfoBootstrap()
     {
-      (void)moho::register_CWeaponAttributesTypeInfo();
+      (void)register_CWeaponAttributesTypeInfo_00BD87B0_Impl();
       (void)moho::register_CWeaponAttributesSerializer();
     }
   };
@@ -104,19 +104,4 @@ namespace moho
     Finish();
   }
 
-  /**
-   * Address: 0x00BFE590 (FUN_00BFE590, Moho::CWeaponAttributesTypeInfo::~CWeaponAttributesTypeInfo)
-   */
-  void cleanup_CWeaponAttributesTypeInfo()
-  {
-    cleanup_CWeaponAttributesTypeInfo_00BFE590_Impl();
-  }
-
-  /**
-   * Address: 0x00BD87B0 (FUN_00BD87B0, register_CWeaponAttributesTypeInfo)
-   */
-  int register_CWeaponAttributesTypeInfo()
-  {
-    return register_CWeaponAttributesTypeInfo_00BD87B0_Impl();
-  }
 } // namespace moho

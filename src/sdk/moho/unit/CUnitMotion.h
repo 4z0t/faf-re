@@ -171,6 +171,17 @@ namespace moho
     void AddRecoilImpulse(const Wm3::Vector3f& impulse);
 
     /**
+     * Address: 0x006B8AC0 (FUN_006B8AC0, ?AddImpulse@CUnitMotion@Moho@@QAEXABV?$Vector3@M@Wm3@@_N@Z)
+     * Mangled: ?AddImpulse@CUnitMotion@Moho@@QAEXABV?$Vector3@M@Wm3@@_N@Z
+     *
+     * What it does:
+     * Applies impulse against owner motion runtime; air units forward directly
+     * into body velocity, while non-air units blend motion lanes and can force
+     * ballistic transition + pending transform update when requested.
+     */
+    void AddImpulse(const Wm3::Vector3f& impulse, bool transitionToBallistic);
+
+    /**
      * Address: 0x006B9460 (FUN_006B9460, ?SetImmediateVelocity@CUnitMotion@Moho@@QAEXABV?$Vector3@M@Wm3@@ABV?$Quaternion@M@4@@Z)
      *
      * What it does:

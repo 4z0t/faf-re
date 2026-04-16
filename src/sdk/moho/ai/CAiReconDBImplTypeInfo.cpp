@@ -582,13 +582,24 @@ namespace
     delete static_cast<CAiReconDBImpl*>(object);
   }
 
+  /**
+   * Address: 0x005C7F00 (FUN_005C7F00)
+   *
+   * What it does:
+   * Runs one in-place `CAiReconDBImpl` default construction lane and wraps the
+   * resulting storage pointer as one reflected `RRef_CAiReconDBImpl` payload.
+   */
   [[nodiscard]] gpg::RRef ConstructAiReconDbRefInPlace(void* objectStorage)
   {
     auto* const recon = static_cast<CAiReconDBImpl*>(objectStorage);
-    if (recon) {
-      new (recon) CAiReconDBImpl(nullptr, false);
+    CAiReconDBImpl* constructed = nullptr;
+    if (recon != nullptr) {
+      constructed = new (recon) CAiReconDBImpl();
     }
-    return MakeTypedRef(recon, CachedCAiReconDBImplType());
+
+    gpg::RRef out{};
+    gpg::RRef_CAiReconDBImpl(&out, constructed);
+    return out;
   }
 
   void DestroyAiReconDbInPlace(void* object)
@@ -635,7 +646,7 @@ namespace
   }
 
   /**
-   * Address: 0x00BF7CC0 (FUN_00BF7CC0, cleanup_RVectorType_ReconBlipPtr)
+    * Alias of FUN_00BF7CC0 (non-canonical helper lane).
    *
    * What it does:
    * Tears down startup-owned `vector<ReconBlip*>` reflection storage.
@@ -651,7 +662,7 @@ namespace
   }
 
   /**
-   * Address: 0x00BF7C60 (FUN_00BF7C60, cleanup_RMultiMapType_SReconKey_ReconBlipPtr)
+    * Alias of FUN_00BF7C60 (non-canonical helper lane).
    *
    * What it does:
    * Tears down startup-owned recon-blip map reflection storage.

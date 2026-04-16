@@ -77,12 +77,45 @@ namespace moho
   void WIN_AppExecute(IWinApp* app);
 
   /**
-   * Address: 0x004F1FC0 (called via Main-frame timing paths)
+   * Address: 0x004F2560 (FUN_004F2560, Moho::WIN_SetWakeupTimer)
    *
    * What it does:
-   * Requests that the main wait loop wake no later than `milliseconds` from now.
+   * Schedules wakeup deadline in absolute milliseconds since `wakeupTimer`
+   * baseline; keeps the earliest pending deadline and uses zero for immediate wake.
    */
   void WIN_SetWakeupTimer(float milliseconds);
+
+  /**
+   * Address: 0x004F2400 (FUN_004F2400, ?WIN_AppRequestExit@Moho@@YAXXZ_0)
+   *
+   * What it does:
+   * Requests immediate exit from the active wx app main loop.
+   */
+  void WIN_AppRequestExit();
+
+  /**
+   * Address: 0x004F2410 (FUN_004F2410, ?WIN_GetCurrentApp@Moho@@YAPAVIWinApp@1@XZ)
+   *
+   * What it does:
+   * Returns the process-global active `IWinApp` owner pointer.
+   */
+  IWinApp* WIN_GetCurrentApp();
+
+  /**
+   * Address: 0x004F25B0 (FUN_004F25B0, ?WIN_GetMainWindow@Moho@@YAPAVwxWindow@@XZ)
+   *
+   * What it does:
+   * Returns the process-global main-window owner pointer.
+   */
+  wxWindowBase* WIN_GetMainWindow();
+
+  /**
+   * Address: 0x004F25C0 (FUN_004F25C0, ?WIN_SetMainWindow@Moho@@YAXPAVwxWindow@@@Z)
+   *
+   * What it does:
+   * Updates the process-global main-window owner pointer.
+   */
+  void WIN_SetMainWindow(wxWindowBase* mainWindow);
 
   /**
    * Address: 0x004A2150 (FUN_004A2150)
@@ -395,8 +428,4 @@ namespace moho
    */
   void register_splashScreen();
 
-  /**
-   * Recovered helper used by startup/shutdown ownership handoff.
-   */
-  void WIN_SetMainWindow(wxWindowBase* mainWindow);
 } // namespace moho

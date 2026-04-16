@@ -10,6 +10,7 @@
 #include "moho/misc/WeakObject.h"
 #include "moho/render/camera/VTransform.h"
 #include "moho/vision/VisionDB.h"
+#include "Wm3Box3.h"
 
 namespace moho
 {
@@ -202,6 +203,14 @@ namespace moho
     virtual void DestroyMeshInstance();
 
     /**
+     * Address: 0x008B8BB0 (FUN_008B8BB0, ?GetMeshInstance@UserEntity@Moho@@QBEPAVMeshInstance@2@XZ)
+     *
+     * What it does:
+     * Returns the current mesh-instance pointer lane.
+     */
+    [[nodiscard]] MeshInstance* GetMeshInstance() const;
+
+    /**
      * Address: 0x007FD3F0 (FUN_007FD3F0, Moho::UserEntity::GetSelectionBracketTexture)
      *
      * What it does:
@@ -245,6 +254,16 @@ namespace moho
      * `GetInterpolatedTransform(interpolationAlpha)`.
      */
     [[nodiscard]] Wm3::Vec3f GetInterpolatedPosition(float interpolationAlpha) const;
+
+    /**
+     * Address: 0x008B9740 (FUN_008B9740, ?GetRenderSphere@UserEntity@Moho@@QBE?AV?$Sphere3@M@Wm3@@M@Z)
+     *
+     * What it does:
+     * Returns current render-oriented bounds; uses mesh interpolated box when
+     * a mesh instance exists, otherwise synthesizes a unit-half-extent box from
+     * interpolated entity transform/orientation.
+     */
+    [[nodiscard]] Wm3::Box3f GetRenderSphere(float interpolationAlpha) const;
 
     /**
      * Address: 0x008B8BC0 (FUN_008B8BC0, ?SetPose@UserEntity@Moho@@QAEXABV?$shared_ptr@VCAniPose@Moho@@@boost@@@Z)

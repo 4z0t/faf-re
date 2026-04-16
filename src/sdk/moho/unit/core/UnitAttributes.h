@@ -140,4 +140,12 @@ namespace moho
   static_assert(offsetof(UnitAttributes, unknown_006B) == 0x6B, "UnitAttributes::unknown_006B offset must be 0x6B");
   static_assert(offsetof(UnitAttributes, unknown_006C) == 0x6C, "UnitAttributes::unknown_006C offset must be 0x6C");
   static_assert(sizeof(UnitAttributes) == 0x70, "UnitAttributes size must be 0x70");
+
+  /**
+   * Address: 0x0055C210 (FUN_0055C210, preregister_UnitAttributesTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `UnitAttributes`.
+   */
+  [[nodiscard]] gpg::RType* preregister_UnitAttributesTypeInfo();
 } // namespace moho

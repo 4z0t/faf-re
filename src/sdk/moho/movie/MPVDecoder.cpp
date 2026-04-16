@@ -1479,6 +1479,39 @@ extern "C" int MPVVLC_IsVlcSizErr()
 }
 
 /**
+ * Address: 0x00AE78E0 (FUN_00AE78E0, _MPV_IsConformable)
+ *
+ * What it does:
+ * Locates the sequence-header delimiter, then checks follow-up delimiter class
+ * to decide whether this chunk is conformable for the MPV decode path.
+ */
+extern "C" int MPV_IsConformable(const std::uint8_t* const bitstreamCursor, const int scanLengthBytes)
+{
+  std::uint8_t* const sequenceHeader = MPV_SearchDelim(bitstreamCursor, scanLengthBytes, 0x40);
+  if (sequenceHeader == nullptr) {
+    return 0;
+  }
+
+  if (MPVM2V_IsSetup() != 0) {
+    return 1;
+  }
+
+  const std::uint8_t* const probeStart = sequenceHeader + 4;
+  const int remainingBytes = scanLengthBytes - static_cast<int>(probeStart - bitstreamCursor);
+  if (remainingBytes <= 0) {
+    return 0;
+  }
+
+  const std::uint8_t* const nextDelimiter = MPV_SearchDelim(probeStart, remainingBytes, -1);
+  if (nextDelimiter == nullptr) {
+    return 0;
+  }
+
+  const int delimiterType = MPV_CheckDelim(nextDelimiter);
+  return (static_cast<unsigned int>((~delimiterType) & 0x10) >> 4);
+}
+
+/**
  * Address: 0x00AE79E0 (FUN_00AE79E0, _mpvlib_ChkFatal)
  *
  * What it does:
@@ -2341,6 +2374,31 @@ extern "C" int MPVCDEC_Init()
 extern "C" int MPVUMC_Init()
 {
   return M2VAPRD_Init();
+}
+
+/**
+ * Address: 0x00AF7CF0 (FUN_00AF7CF0, _UTY_MemcpyDword)
+ *
+ * What it does:
+ * Copies `dwordCount` 32-bit lanes from `source` to `destination` and returns
+ * the destination pointer.
+ */
+extern "C" std::int32_t* UTY_MemcpyDword(
+  void* const destination,
+  const void* const source,
+  const unsigned int dwordCount
+)
+{
+  auto* const destinationWords = static_cast<std::uint32_t*>(destination);
+  const auto* const sourceWords = static_cast<const std::uint32_t*>(source);
+  if (destinationWords == nullptr || sourceWords == nullptr || dwordCount == 0u) {
+    return reinterpret_cast<std::int32_t*>(destinationWords);
+  }
+
+  for (unsigned int wordIndex = 0; wordIndex < dwordCount; ++wordIndex) {
+    destinationWords[wordIndex] = sourceWords[wordIndex];
+  }
+  return reinterpret_cast<std::int32_t*>(destinationWords);
 }
 
 /**

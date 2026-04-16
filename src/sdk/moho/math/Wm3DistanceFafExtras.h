@@ -11,6 +11,8 @@
 #include "Wm3Line3.h"
 #include "Wm3Segment3.h"
 #include "Wm3Sphere3.h"
+#include "Wm3TInteger.h"
+#include "Wm3TRational.h"
 #include "Wm3Vector2.h"
 #include "Wm3Vector3.h"
 
@@ -39,6 +41,82 @@ namespace Wm3
    * Preserves one legacy TRational query callback lane as an explicit no-op.
    */
   void QueryRationalNoOpCallbackC(void* self) noexcept;
+
+  /**
+   * Address: 0x00A78870 (FUN_00A78870, Wm3::Query2TIntegerf::Det3 helper lane)
+   *
+   * What it does:
+   * Evaluates the 3x3 determinant used by the integer circumcircle query lane
+   * in `Query2TIntegerf`.
+   */
+  [[nodiscard]] TInteger<4> Query2TIntegerfDet3(
+    const TInteger<4>& x0,
+    const TInteger<4>& y0,
+    const TInteger<4>& z0,
+    const TInteger<4>& x1,
+    const TInteger<4>& y1,
+    const TInteger<4>& z1,
+    const TInteger<4>& x2,
+    const TInteger<4>& y2,
+    const TInteger<4>& z2
+  );
+
+  /**
+   * Address: 0x00A78A20 (FUN_00A78A20, Wm3::Query2TIntegerd::Det3 helper lane)
+   *
+   * What it does:
+   * Evaluates the 3x3 determinant used by the integer circumcircle query lane
+   * in `Query2TIntegerd`.
+   */
+  [[nodiscard]] TInteger<4> Query2TIntegerdDet3(
+    const TInteger<4>& x0,
+    const TInteger<4>& y0,
+    const TInteger<4>& z0,
+    const TInteger<4>& x1,
+    const TInteger<4>& y1,
+    const TInteger<4>& z1,
+    const TInteger<4>& x2,
+    const TInteger<4>& y2,
+    const TInteger<4>& z2
+  );
+
+  /**
+   * Address: 0x00A7B5C0 (FUN_00A7B5C0, Wm3::Query2TRationalf::Det3 helper lane)
+   *
+   * What it does:
+   * Evaluates the 3x3 determinant used by the rational circumcircle query lane
+   * in `Query2TRationalf`.
+   */
+  [[nodiscard]] TRational<16> Query2TRationalfDet3(
+    const TRational<16>& x0,
+    const TRational<16>& y0,
+    const TRational<16>& z0,
+    const TRational<16>& x1,
+    const TRational<16>& y1,
+    const TRational<16>& z1,
+    const TRational<16>& x2,
+    const TRational<16>& y2,
+    const TRational<16>& z2
+  );
+
+  /**
+   * Address: 0x00A7B7B0 (FUN_00A7B7B0, Wm3::Query2TRationald::Det3 helper lane)
+   *
+   * What it does:
+   * Evaluates the 3x3 determinant used by the rational circumcircle query lane
+   * in `Query2TRationald`.
+   */
+  [[nodiscard]] TRational<32> Query2TRationaldDet3(
+    const TRational<32>& x0,
+    const TRational<32>& y0,
+    const TRational<32>& z0,
+    const TRational<32>& x1,
+    const TRational<32>& y1,
+    const TRational<32>& z1,
+    const TRational<32>& x2,
+    const TRational<32>& y2,
+    const TRational<32>& z2
+  );
 
   /**
    * Address: 0x00A45C00 (FUN_00A45C00, Wm3::DistVector3Box3f::GetSquared)

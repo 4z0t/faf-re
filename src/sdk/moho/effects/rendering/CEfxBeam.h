@@ -26,10 +26,11 @@ namespace moho
     CEfxBeam();
 
     /**
-     * Address: 0x00655B80 (FUN_00655B80, Moho::CEfxBeam::dtr)
+     * Address: 0x00655D80 (FUN_00655D80, non-deleting destructor body)
+     * Thunk entry: 0x00655B80 (FUN_00655B80, Moho::CEfxBeam::dtr)
      *
      * What it does:
-     * Releases CEfxBeam-owned intrusive and reflected member state.
+     * Releases beam texture lanes and detaches endpoint weak-link ownership.
      */
     ~CEfxBeam() override;
 

@@ -67,10 +67,12 @@ namespace moho
     gpg::RRef GetDerivedObjectRef() override;
 
     /**
-     * Address: 0x00776570 (FUN_00776570)
+     * Address: 0x00776570 (FUN_00776570, deleting dtor thunk)
+     * Address: 0x00776600 (FUN_00776600, non-deleting dtor core)
      *
      * What it does:
-     * Unlinks this shield from Sim shield-list, then runs base entity teardown.
+     * Unlinks this shield from Sim shield-list and decrements the shield
+     * instance-stat lane before base entity teardown.
      */
     ~Shield() override;
 

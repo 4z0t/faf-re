@@ -4,8 +4,10 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <new>
+#include <stdexcept>
 #include <typeinfo>
 
 #include "gpg/core/algorithms/MD5.h"
@@ -91,6 +93,8 @@ namespace gpg
      * Formats inherited vector lexical text with current `InfluenceGrid` count.
      */
     [[nodiscard]] msvc8::string GetLexical(const gpg::RRef& ref) const override;
+
+    void Init() override;
   };
 
   class RVectorType_SThreat final : public gpg::RType
@@ -108,6 +112,8 @@ namespace gpg
      * Formats inherited vector lexical text with current `SThreat` count.
      */
     [[nodiscard]] msvc8::string GetLexical(const gpg::RRef& ref) const override;
+
+    void Init() override;
   };
 } // namespace gpg
 
@@ -115,6 +121,70 @@ namespace
 {
   using UIntIntMap = std::map<std::uint32_t, int>;
   using UIntInfluenceMapEntryMap = std::map<std::uint32_t, moho::InfluenceMapEntry>;
+  using InfluenceGridVector = msvc8::vector<moho::InfluenceGrid>;
+  using SThreatVector = msvc8::vector<moho::SThreat>;
+  using InfluenceEntrySet = msvc8::set<moho::InfluenceMapEntry, moho::InfluenceMapEntryLess>;
+  using InfluenceMapCellSet = msvc8::set<moho::InfluenceMapCellIndex, moho::InfluenceMapCellIndexLess>;
+  using InfluenceEntryIterator = InfluenceEntrySet::iterator;
+  using InfluenceMapCellIterator = InfluenceMapCellSet::iterator;
+
+  void DestroyInfluenceEntryRange(
+    InfluenceEntrySet& entries,
+    InfluenceEntryIterator first,
+    InfluenceEntryIterator last
+  ) noexcept;
+
+  /**
+   * Address: 0x0071B860 (FUN_0071B860)
+   *
+   * What it does:
+   * Adjusts one `vector<InfluenceGrid>` length to `requestedCount` and uses
+   * one caller-provided fill lane for growth.
+   */
+  [[maybe_unused]] std::size_t ResizeInfluenceGridVectorWithFill(
+    InfluenceGridVector& storage,
+    const std::size_t requestedCount,
+    const moho::InfluenceGrid& fillValue
+  )
+  {
+    (void)fillValue;
+
+    const std::size_t currentCount = storage.size();
+    if (currentCount < requestedCount) {
+      storage.resize(requestedCount);
+      return requestedCount;
+    }
+
+    if (requestedCount < currentCount) {
+      storage.resize(requestedCount);
+    }
+
+    return requestedCount;
+  }
+
+  /**
+   * Address: 0x00719790 (FUN_00719790)
+   *
+   * What it does:
+   * Destroys one `InfluenceGrid::entries` tree payload before the set object's
+   * own storage release runs at scope teardown.
+   */
+  void ClearInfluenceGridEntryTree(InfluenceEntrySet& entries) noexcept
+  {
+    DestroyInfluenceEntryRange(entries, entries.begin(), entries.end());
+  }
+
+  /**
+   * Address: 0x00719F20 (FUN_00719F20)
+   *
+   * What it does:
+   * Clears one `vector<InfluenceGrid>` payload before the vector member
+   * releases its backing storage during destruction.
+   */
+  void ClearInfluenceGridVectorStorage(InfluenceGridVector& storage) noexcept
+  {
+    storage.clear();
+  }
 
   struct LegacyMapRuntimeView
   {
@@ -334,6 +404,24 @@ namespace
     return type;
   }
 
+  [[nodiscard]] gpg::RType* CachedInfluenceMapEntryMapType()
+  {
+    static gpg::RType* type = nullptr;
+    if (!type) {
+      type = gpg::LookupRType(typeid(UIntInfluenceMapEntryMap));
+    }
+    return type;
+  }
+
+  [[nodiscard]] gpg::RType* CachedSThreatVectorType()
+  {
+    static gpg::RType* type = nullptr;
+    if (!type) {
+      type = gpg::LookupRType(typeid(msvc8::vector<moho::SThreat>));
+    }
+    return type;
+  }
+
   void cleanup_InfluenceGridVectorTypeName()
   {
     gInfluenceGridVectorTypeName.clear();
@@ -477,6 +565,544 @@ namespace
       archive->Write(valueType, &(it->second), owner);
     }
   }
+
+  /**
+   * Address: 0x0071CF30 (FUN_0071CF30, deserialize_InfluenceGrid_record)
+   *
+   * What it does:
+   * Deserializes one `InfluenceGrid` payload in archive field order:
+   * `entries`, `threats`, aggregate threat, and decay lanes.
+   */
+  [[maybe_unused]] void DeserializeInfluenceGridRecord(
+    gpg::ReadArchive* const archive,
+    moho::InfluenceGrid* const grid,
+    gpg::RRef* const ownerRef
+  )
+  {
+    if (archive == nullptr || grid == nullptr) {
+      return;
+    }
+
+    const gpg::RRef owner = ownerRef ? *ownerRef : gpg::RRef{};
+
+    gpg::RType* const entryMapType = CachedInfluenceMapEntryMapType();
+    GPG_ASSERT(entryMapType != nullptr);
+    if (!entryMapType) {
+      return;
+    }
+    archive->Read(entryMapType, &grid->entries, owner);
+
+    gpg::RType* const threatVectorType = CachedSThreatVectorType();
+    GPG_ASSERT(threatVectorType != nullptr);
+    if (!threatVectorType) {
+      return;
+    }
+    archive->Read(threatVectorType, &grid->threats, owner);
+
+    gpg::RType* const threatType = CachedSThreatType();
+    GPG_ASSERT(threatType != nullptr);
+    if (!threatType) {
+      return;
+    }
+    archive->Read(threatType, &grid->threat, owner);
+    archive->Read(threatType, &grid->decay, owner);
+  }
+
+  /**
+   * Address: 0x0071D010 (FUN_0071D010, serialize_InfluenceGrid_record)
+   *
+   * What it does:
+   * Serializes one `InfluenceGrid` payload in archive field order:
+   * `entries`, `threats`, aggregate threat, and decay lanes.
+   */
+  [[maybe_unused]] void SerializeInfluenceGridRecord(
+    gpg::WriteArchive* const archive,
+    const moho::InfluenceGrid* const grid,
+    gpg::RRef* const ownerRef
+  )
+  {
+    if (archive == nullptr || grid == nullptr) {
+      return;
+    }
+
+    const gpg::RRef owner = ownerRef ? *ownerRef : gpg::RRef{};
+
+    gpg::RType* const entryMapType = CachedInfluenceMapEntryMapType();
+    GPG_ASSERT(entryMapType != nullptr);
+    if (!entryMapType) {
+      return;
+    }
+    archive->Write(entryMapType, grid, owner);
+
+    gpg::RType* const threatVectorType = CachedSThreatVectorType();
+    GPG_ASSERT(threatVectorType != nullptr);
+    if (!threatVectorType) {
+      return;
+    }
+    archive->Write(threatVectorType, &grid->threats, owner);
+
+    gpg::RType* const threatType = CachedSThreatType();
+    GPG_ASSERT(threatType != nullptr);
+    if (!threatType) {
+      return;
+    }
+    archive->Write(threatType, &grid->threat, owner);
+    archive->Write(threatType, &grid->decay, owner);
+  }
+
+  /**
+   * Address: 0x0071CB20 (FUN_0071CB20, deserialize_InfluenceMapEntry_record)
+   *
+   * What it does:
+   * Deserializes one `InfluenceMapEntry` payload in archive field order:
+   * `EntId`, `SimArmy*`, `Vector3f` position, `RUnitBlueprint*`, `ELayer`,
+   * detail flag, threat magnitude/decay, and decay tick count.
+   */
+  void DeserializeInfluenceMapEntryRecord(
+    gpg::ReadArchive* const archive,
+    const int objectPtr,
+    const int,
+    gpg::RRef* const ownerRef
+  )
+  {
+    auto* const entry = PointerFromArchiveInt<moho::InfluenceMapEntry>(objectPtr);
+    if (archive == nullptr || entry == nullptr) {
+      return;
+    }
+
+    const gpg::RRef owner = ownerRef ? *ownerRef : gpg::RRef{};
+
+    static gpg::RType* entIdType = nullptr;
+    if (entIdType == nullptr) {
+      entIdType = gpg::LookupRType(typeid(moho::EntId));
+    }
+    archive->Read(entIdType, &entry->entityId, owner);
+
+    moho::SimArmy* sourceArmy = nullptr;
+    archive->ReadPointer_SimArmy(&sourceArmy, &owner);
+    entry->sourceArmy = reinterpret_cast<moho::CArmyImpl*>(sourceArmy);
+
+    static gpg::RType* vector3fType = nullptr;
+    if (vector3fType == nullptr) {
+      vector3fType = gpg::LookupRType(typeid(Wm3::Vector3f));
+    }
+    archive->Read(vector3fType, &entry->lastPosition, owner);
+
+    moho::RUnitBlueprint* sourceBlueprint = nullptr;
+    archive->ReadPointer_RUnitBlueprint(&sourceBlueprint, &owner);
+    entry->sourceBlueprint = sourceBlueprint;
+
+    static gpg::RType* layerType = nullptr;
+    if (layerType == nullptr) {
+      layerType = gpg::LookupRType(typeid(moho::ELayer));
+    }
+    archive->Read(layerType, &entry->sourceLayer, owner);
+
+    bool isDetailed = false;
+    archive->ReadBool(&isDetailed);
+    entry->isDetailed = isDetailed ? 1u : 0u;
+
+    archive->ReadFloat(&entry->threatStrength);
+    archive->ReadFloat(&entry->threatDecay);
+    archive->ReadInt(&entry->decayTicks);
+  }
+
+  /**
+   * Address: 0x0071CC30 (FUN_0071CC30, serialize_InfluenceMapEntry_record)
+   *
+   * What it does:
+   * Serializes one `InfluenceMapEntry` payload in archive field order using
+   * unowned pointer lanes for `SimArmy*` and `RUnitBlueprint*`.
+   */
+  void SerializeInfluenceMapEntryRecord(
+    gpg::WriteArchive* const archive,
+    const int objectPtr,
+    const int,
+    gpg::RRef* const ownerRef
+  )
+  {
+    const auto* const entry = ConstPointerFromArchiveInt<moho::InfluenceMapEntry>(objectPtr);
+    if (archive == nullptr || entry == nullptr) {
+      return;
+    }
+
+    const gpg::RRef owner = ownerRef ? *ownerRef : gpg::RRef{};
+
+    static gpg::RType* entIdType = nullptr;
+    if (entIdType == nullptr) {
+      entIdType = gpg::LookupRType(typeid(moho::EntId));
+    }
+    archive->Write(entIdType, &entry->entityId, owner);
+
+    gpg::RRef armyRef{};
+    (void)gpg::RRef_SimArmy(&armyRef, reinterpret_cast<moho::SimArmy*>(entry->sourceArmy));
+    gpg::WriteRawPointer(archive, armyRef, gpg::TrackedPointerState::Unowned, owner);
+
+    static gpg::RType* vector3fType = nullptr;
+    if (vector3fType == nullptr) {
+      vector3fType = gpg::LookupRType(typeid(Wm3::Vector3f));
+    }
+    archive->Write(vector3fType, &entry->lastPosition, owner);
+
+    gpg::RRef blueprintRef{};
+    (void)gpg::RRef_RUnitBlueprint(&blueprintRef, const_cast<moho::RUnitBlueprint*>(entry->sourceBlueprint));
+    gpg::WriteRawPointer(archive, blueprintRef, gpg::TrackedPointerState::Unowned, owner);
+
+    static gpg::RType* layerType = nullptr;
+    if (layerType == nullptr) {
+      layerType = gpg::LookupRType(typeid(moho::ELayer));
+    }
+    archive->Write(layerType, &entry->sourceLayer, owner);
+
+    archive->WriteBool(entry->isDetailed != 0u);
+    archive->WriteFloat(entry->threatStrength);
+    archive->WriteFloat(entry->threatDecay);
+    archive->WriteInt(entry->decayTicks);
+  }
+
+  /**
+   * Address: 0x0071BE10 (FUN_0071BE10, sub_71BE10)
+   *
+   * What it does:
+   * Advances one `InfluenceGrid::entries` iterator to its in-order successor.
+   */
+  void AdvanceInfluenceEntryIterator(InfluenceEntryIterator& it, const InfluenceEntryIterator end) noexcept
+  {
+    if (it != end) {
+      ++it;
+    }
+  }
+
+  /**
+   * Address: 0x00717EF0 (FUN_00717EF0, sub_717EF0)
+   *
+   * What it does:
+   * Erases one `InfluenceGrid::entries` node and returns the successor iterator.
+   */
+  [[nodiscard]] InfluenceEntryIterator EraseInfluenceEntryAndAdvance(
+    moho::InfluenceGrid& grid,
+    const InfluenceEntryIterator current
+  )
+  {
+    if (current == grid.entries.end()) {
+      throw std::out_of_range("invalid map/set<T> iterator");
+    }
+
+    InfluenceEntryIterator next = current;
+    AdvanceInfluenceEntryIterator(next, grid.entries.end());
+    grid.entries.erase(current);
+    return next;
+  }
+
+  /**
+   * Address: 0x0071C280 (FUN_0071C280, sub_71C280)
+   *
+   * What it does:
+   * Destroys one ordered range of `InfluenceGrid::entries` nodes.
+   */
+  void DestroyInfluenceEntryRange(
+    InfluenceEntrySet& entries,
+    InfluenceEntryIterator first,
+    const InfluenceEntryIterator last
+  ) noexcept
+  {
+    while (first != last) {
+      const InfluenceEntryIterator eraseIt = first;
+      AdvanceInfluenceEntryIterator(first, last);
+      entries.erase(eraseIt);
+    }
+  }
+
+  /**
+   * Address: 0x0071C590 (FUN_0071C590, sub_71C590)
+   *
+   * What it does:
+   * Advances one `CInfluenceMap::mBlipCells` iterator to its in-order successor.
+   */
+  void AdvanceBlipCellIterator(InfluenceMapCellIterator& it, const InfluenceMapCellIterator end) noexcept
+  {
+    if (it != end) {
+      ++it;
+    }
+  }
+
+  /**
+   * Address: 0x0071B420 (FUN_0071B420, sub_71B420)
+   *
+   * What it does:
+   * Erases one `mBlipCells` iterator range and returns the first non-erased
+   * successor.
+   */
+  [[nodiscard]] InfluenceMapCellIterator EraseBlipCellRange(
+    InfluenceMapCellSet& blipCells,
+    InfluenceMapCellIterator first,
+    const InfluenceMapCellIterator last
+  ) noexcept
+  {
+    if (first == blipCells.begin() && last == blipCells.end()) {
+      blipCells.clear();
+      return blipCells.begin();
+    }
+
+    while (first != last) {
+      const InfluenceMapCellIterator eraseIt = first;
+      AdvanceBlipCellIterator(first, last);
+      blipCells.erase(eraseIt);
+    }
+
+    return first;
+  }
+
+  /**
+   * Address: 0x0071D7B0 (FUN_0071D7B0, sub_71D7B0)
+   *
+   * What it does:
+   * Allocates legacy red-black-tree node storage for blip-cell set lanes with
+   * VC8-style overflow guard semantics (`0x18` bytes per node).
+   */
+  [[maybe_unused]] void* AllocateBlipCellNodeBlock(const unsigned int count)
+  {
+    constexpr unsigned int kNodeBytes = 0x18u;
+    if (count != 0u && (std::numeric_limits<unsigned int>::max() / count) < kNodeBytes) {
+      throw std::bad_alloc{};
+    }
+
+    return ::operator new(static_cast<std::size_t>(count) * static_cast<std::size_t>(kNodeBytes));
+  }
+
+  /**
+   * Address: 0x0071A330 (FUN_0071A330, sub_71A330)
+   *
+   * What it does:
+   * Loads one reflected `vector<InfluenceGrid>` payload from archive lanes.
+   */
+  [[maybe_unused]] void LoadInfluenceGridVectorArchive(
+    gpg::ReadArchive* const archive,
+    const int objectPtr,
+    const int,
+    gpg::RRef* const ownerRef
+  )
+  {
+    auto* const vectorObject = PointerFromArchiveInt<InfluenceGridVector>(objectPtr);
+    GPG_ASSERT(archive != nullptr);
+    GPG_ASSERT(vectorObject != nullptr);
+    if (!archive || !vectorObject) {
+      return;
+    }
+
+    unsigned int count = 0;
+    archive->ReadUInt(&count);
+
+    vectorObject->clear();
+    if (count == 0u) {
+      return;
+    }
+
+    vectorObject->resize(count);
+
+    gpg::RType* const valueType = CachedInfluenceGridType();
+    GPG_ASSERT(valueType != nullptr);
+    if (!valueType) {
+      vectorObject->clear();
+      return;
+    }
+
+    const gpg::RRef owner = ownerRef ? *ownerRef : gpg::RRef{};
+    for (unsigned int i = 0; i < count; ++i) {
+      archive->Read(valueType, &(*vectorObject)[static_cast<std::size_t>(i)], owner);
+    }
+  }
+
+  /**
+   * Address: 0x0071A4A0 (FUN_0071A4A0)
+   *
+   * What it does:
+   * Serializes one reflected `vector<InfluenceGrid>` payload by writing count
+   * and then each `InfluenceGrid` element lane.
+   */
+  [[maybe_unused]] void SaveInfluenceGridVectorArchive(
+    gpg::WriteArchive* const archive,
+    const int objectPtr,
+    const int,
+    gpg::RRef* const ownerRef
+  )
+  {
+    const auto* const vectorObject = ConstPointerFromArchiveInt<InfluenceGridVector>(objectPtr);
+    GPG_ASSERT(archive != nullptr);
+    if (!archive) {
+      return;
+    }
+
+    const unsigned int count = vectorObject != nullptr ? static_cast<unsigned int>(vectorObject->size()) : 0u;
+    archive->WriteUInt(count);
+    if (count == 0u || vectorObject == nullptr) {
+      return;
+    }
+
+    gpg::RType* const valueType = CachedInfluenceGridType();
+    GPG_ASSERT(valueType != nullptr);
+    if (!valueType) {
+      return;
+    }
+
+    const gpg::RRef owner = ownerRef ? *ownerRef : gpg::RRef{};
+    for (unsigned int i = 0; i < count; ++i) {
+      archive->Write(valueType, const_cast<moho::InfluenceGrid*>(&(*vectorObject)[static_cast<std::size_t>(i)]), owner);
+    }
+  }
+
+  /**
+   * Address: 0x0071A830 (FUN_0071A830)
+   *
+   * What it does:
+   * Serializes one reflected `vector<SThreat>` payload by writing count and
+   * then each threat-element lane.
+   */
+  [[maybe_unused]] void SaveSThreatVectorArchive(
+    gpg::WriteArchive* const archive,
+    const int objectPtr,
+    const int,
+    gpg::RRef* const ownerRef
+  )
+  {
+    const auto* const vectorObject = ConstPointerFromArchiveInt<SThreatVector>(objectPtr);
+    GPG_ASSERT(archive != nullptr);
+    if (!archive) {
+      return;
+    }
+
+    const unsigned int count = vectorObject != nullptr ? static_cast<unsigned int>(vectorObject->size()) : 0u;
+    archive->WriteUInt(count);
+    if (count == 0u || vectorObject == nullptr) {
+      return;
+    }
+
+    gpg::RType* const valueType = CachedSThreatType();
+    GPG_ASSERT(valueType != nullptr);
+    if (!valueType) {
+      return;
+    }
+
+    const gpg::RRef owner = ownerRef ? *ownerRef : gpg::RRef{};
+    for (unsigned int i = 0; i < count; ++i) {
+      archive->Write(valueType, const_cast<moho::SThreat*>(&(*vectorObject)[static_cast<std::size_t>(i)]), owner);
+    }
+  }
+
+  /**
+   * Address: 0x0071AEC0 (FUN_0071AEC0)
+   *
+   * What it does:
+   * Resizes one `vector<SThreat>` with fill semantics, trimming or appending
+   * zeroed threat lanes as needed.
+   */
+  void ResizeSThreatVectorWithFill(
+    SThreatVector& storage,
+    const std::size_t requestedCount,
+    const moho::SThreat& fillValue
+  )
+  {
+    const std::size_t currentCount = storage.size();
+    if (currentCount < requestedCount) {
+      storage.resize(requestedCount, fillValue);
+      return;
+    }
+
+    if (requestedCount < currentCount) {
+      storage.resize(requestedCount);
+    }
+  }
+
+  /**
+   * Address: 0x0071C6C0 (FUN_0071C6C0, sub_71C6C0)
+   *
+   * What it does:
+   * Clones one `InfluenceGrid::entries` ordered-set tree into destination
+   * storage, preserving ordered contents and node count.
+   */
+  void CopyInfluenceEntryTreeStorage(InfluenceEntrySet& destination, const InfluenceEntrySet& source)
+  {
+    if (&destination == &source) {
+      return;
+    }
+
+    destination.clear();
+    for (InfluenceEntrySet::const_iterator it = source.begin(); it != source.end(); ++it) {
+      destination.insert(*it);
+    }
+  }
+
+  /**
+   * Address: 0x0071AA60 (FUN_0071AA60, sub_71AA60)
+   *
+   * What it does:
+   * Rebuilds one `InfluenceGrid::entries` tree from a source grid by copying
+   * each stored `InfluenceMapEntry` into the destination set.
+   */
+  void CopyInfluenceGridEntries(const moho::InfluenceGrid& source, moho::InfluenceGrid& destination)
+  {
+    if (&source == &destination) {
+      return;
+    }
+
+    new (&destination.entries) decltype(destination.entries)();
+    CopyInfluenceEntryTreeStorage(destination.entries, source.entries);
+  }
+
+  /**
+   * Address: 0x007186F0 (FUN_007186F0, sub_7186F0)
+   *
+   * What it does:
+   * Finds the exact `InfluenceMapEntry` for one entity id using the ordered
+   * set lookup lane.
+   */
+  template <class TEntries>
+  [[nodiscard]] auto FindInfluenceMapEntry(TEntries& entries, const std::uint32_t entityId)
+  {
+    moho::InfluenceMapEntry key{};
+    key.entityId = entityId;
+
+    auto it = entries.lower_bound(key);
+    if (it == entries.end() || it->entityId != entityId) {
+      return entries.end();
+    }
+
+    return it;
+  }
+
+  /**
+   * Address: 0x00719C00 (FUN_00719C00, sub_719C00)
+   *
+   * What it does:
+   * Releases the entries tree for one `InfluenceGrid`.
+   */
+  void DestroyInfluenceGridEntries(moho::InfluenceGrid& grid) noexcept
+  {
+    ClearInfluenceGridEntryTree(grid.entries);
+  }
+
+  /**
+   * Address: 0x0071C4A0 (FUN_0071C4A0, sub_71C4A0)
+   *
+   * What it does:
+   * Initializes the legacy blip-cell set into the empty-tree state used by
+   * the constructor lane.
+   */
+  void InitializeBlipCellSet(InfluenceMapCellSet& blipCells) noexcept
+  {
+    (void)EraseBlipCellRange(blipCells, blipCells.begin(), blipCells.end());
+  }
+
+  /**
+   * Address: 0x00715C30 (FUN_00715C30, sub_715C30)
+   *
+   * What it does:
+   * Releases the legacy blip-cell set from the destructor lane.
+   */
+  void ReleaseBlipCellSet(InfluenceMapCellSet& blipCells) noexcept
+  {
+    (void)EraseBlipCellRange(blipCells, blipCells.begin(), blipCells.end());
+  }
 } // namespace
 
 /**
@@ -577,6 +1203,33 @@ void gpg::RMapType_uint_InfluenceMapEntry::Init()
 }
 
 /**
+ * Address: 0x0071D980 (FUN_0071D980, preregister_RMapType_uint_int)
+ *
+ * What it does:
+ * Constructs/preregisters RTTI metadata for `std::map<std::uint32_t,int>`.
+ */
+[[nodiscard]] gpg::RType* preregister_RMapType_uint_int()
+{
+  static gpg::RMapType_uint_int typeInfo;
+  gpg::PreRegisterRType(typeid(UIntIntMap), &typeInfo);
+  return &typeInfo;
+}
+
+/**
+ * Address: 0x0071DA50 (FUN_0071DA50, preregister_RMapType_uint_InfluenceMapEntry)
+ *
+ * What it does:
+ * Constructs/preregisters RTTI metadata for
+ * `std::map<std::uint32_t,moho::InfluenceMapEntry>`.
+ */
+[[nodiscard]] gpg::RType* preregister_RMapType_uint_InfluenceMapEntry()
+{
+  static gpg::RMapType_uint_InfluenceMapEntry typeInfo;
+  gpg::PreRegisterRType(typeid(UIntInfluenceMapEntryMap), &typeInfo);
+  return &typeInfo;
+}
+
+/**
  * Address: 0x00718DE0 (FUN_00718DE0, gpg::RVectorType_InfluenceGrid::GetName)
  *
  * What it does:
@@ -613,6 +1266,14 @@ msvc8::string gpg::RVectorType_InfluenceGrid::GetLexical(const gpg::RRef& ref) c
   );
 }
 
+void gpg::RVectorType_InfluenceGrid::Init()
+{
+  size_ = 0x0C;
+  version_ = 1;
+  serLoadFunc_ = &LoadInfluenceGridVectorArchive;
+  serSaveFunc_ = &SaveInfluenceGridVectorArchive;
+}
+
 /**
  * Address: 0x00719150 (FUN_00719150, gpg::RVectorType_SThreat::GetName)
  *
@@ -644,6 +1305,13 @@ msvc8::string gpg::RVectorType_SThreat::GetLexical(const gpg::RRef& ref) const
 {
   const msvc8::string base = gpg::RType::GetLexical(ref);
   return gpg::STR_Printf("%s, size=%d", base.c_str(), static_cast<int>(CountLegacyVectorElements<moho::SThreat>(ref.mObj)));
+}
+
+void gpg::RVectorType_SThreat::Init()
+{
+  size_ = 0x0C;
+  version_ = 1;
+  serSaveFunc_ = &SaveSThreatVectorArchive;
 }
 
 namespace moho
@@ -961,7 +1629,7 @@ namespace moho
   InfluenceGrid::~InfluenceGrid()
   {
     threats.clear();
-    entries.clear();
+    DestroyInfluenceGridEntries(*this);
   }
 
   /**
@@ -980,6 +1648,69 @@ namespace moho
   }
 
   /**
+   * Address: 0x0071EAA0 (FUN_0071EAA0, fill_InfluenceGrid_range)
+   *
+   * What it does:
+   * Assigns one shared `InfluenceGrid` value across `[destinationBegin,
+   * destinationEnd)` by cloning entries, per-army threats, and aggregate/decay
+   * threat lanes into each destination element.
+   */
+  [[maybe_unused]] static void FillInfluenceGridRange(
+    InfluenceGrid* const destinationBegin,
+    InfluenceGrid* const destinationEnd,
+    const InfluenceGrid& fillValue
+  )
+  {
+    for (InfluenceGrid* cursor = destinationBegin; cursor != destinationEnd; ++cursor) {
+      if (cursor != &fillValue) {
+        CopyInfluenceGridEntries(fillValue, *cursor);
+        cursor->threats.clear();
+        for (const SThreat* it = fillValue.threats.begin(); it != fillValue.threats.end(); ++it) {
+          cursor->threats.push_back(*it);
+        }
+      }
+
+      cursor->threat = fillValue.threat;
+      cursor->decay = fillValue.decay;
+    }
+  }
+
+  /**
+   * Address: 0x0071F5B0 (FUN_0071F5B0, copy_InfluenceGrid_range_backward)
+   *
+   * What it does:
+   * Copies one `InfluenceGrid` range backward from `[sourceBegin, sourceEnd)`
+   * into the destination range ending at `destinationEnd`, preserving overlap
+   * semantics used by legacy vector insert/shift lanes.
+   */
+  [[maybe_unused]] static InfluenceGrid* CopyInfluenceGridRangeBackward(
+    InfluenceGrid* const sourceEnd,
+    InfluenceGrid* const sourceBegin,
+    InfluenceGrid* const destinationEnd
+  )
+  {
+    InfluenceGrid* sourceCursor = sourceEnd;
+    InfluenceGrid* destinationCursor = destinationEnd;
+    while (sourceCursor != sourceBegin) {
+      --sourceCursor;
+      --destinationCursor;
+
+      if (destinationCursor != sourceCursor) {
+        CopyInfluenceGridEntries(*sourceCursor, *destinationCursor);
+        destinationCursor->threats.clear();
+        for (const SThreat* it = sourceCursor->threats.begin(); it != sourceCursor->threats.end(); ++it) {
+          destinationCursor->threats.push_back(*it);
+        }
+      }
+
+      destinationCursor->threat = sourceCursor->threat;
+      destinationCursor->decay = sourceCursor->decay;
+    }
+
+    return destinationCursor;
+  }
+
+  /**
    * Address: 0x0071E7B0 (FUN_0071E7B0, Moho::InfluenceGrid::ThreatDeconstruct)
    *
    * What it does:
@@ -992,11 +1723,7 @@ namespace moho
   {
     for (const InfluenceGrid* source = start; source != end; ++source, ++dest) {
       if (dest != source) {
-        new (&dest->entries) decltype(dest->entries)();
-        for (auto it = source->entries.begin(); it != source->entries.end(); ++it) {
-          (void)dest->entries.insert(*it);
-        }
-
+        CopyInfluenceGridEntries(*source, *dest);
         new (&dest->threats) decltype(dest->threats)();
         for (const SThreat* it = source->threats.begin(); it != source->threats.end(); ++it) {
           dest->threats.push_back(*it);
@@ -1006,6 +1733,118 @@ namespace moho
       dest->decay = source->decay;
     }
     return dest;
+  }
+
+  /**
+   * Address: 0x00720180 (FUN_00720180, copy_InfluenceGrid_range_with_rollback)
+   *
+   * What it does:
+   * Copy-constructs one contiguous `InfluenceGrid` range into destination
+   * storage and destroys already-constructed grids before rethrowing if a copy
+   * step throws.
+   */
+  [[maybe_unused]] static InfluenceGrid*
+  CopyInfluenceGridRangeWithRollback(const InfluenceGrid* start, const InfluenceGrid* end, InfluenceGrid* dest)
+  {
+    InfluenceGrid* cursor = dest;
+    try {
+      for (const InfluenceGrid* source = start; source != end; ++source, ++cursor) {
+        if (cursor != source) {
+          CopyInfluenceGridEntries(*source, *cursor);
+          new (&cursor->threats) decltype(cursor->threats)();
+          for (const SThreat* it = source->threats.begin(); it != source->threats.end(); ++it) {
+            cursor->threats.push_back(*it);
+          }
+        }
+        cursor->threat = source->threat;
+        cursor->decay = source->decay;
+      }
+      return cursor;
+    } catch (...) {
+      for (InfluenceGrid* destroyCursor = dest; destroyCursor != cursor; ++destroyCursor) {
+        destroyCursor->~InfluenceGrid();
+      }
+      throw;
+    }
+  }
+
+  /**
+   * Address: 0x0071E840 (FUN_0071E840, copy_InfluenceGrid_counted_range_with_rollback)
+   *
+   * What it does:
+   * Copy-constructs `count` contiguous `InfluenceGrid` elements from `source`
+   * into destination storage and destroys already-constructed lanes before
+   * rethrowing if a copy step throws.
+   */
+  [[maybe_unused]] static InfluenceGrid* CopyInfluenceGridCountedRangeWithRollback(
+    const std::uint32_t count,
+    InfluenceGrid* const destination,
+    const InfluenceGrid* const source
+  )
+  {
+    if (count == 0u) {
+      return destination;
+    }
+
+    if (destination == nullptr || source == nullptr) {
+      return destination;
+    }
+
+    return CopyInfluenceGridRangeWithRollback(source, source + count, destination);
+  }
+
+  /**
+   * Address: 0x0071FCA0 (FUN_0071FCA0, copy_InfluenceGrid_range_with_rollback_alt)
+   *
+   * What it does:
+   * Alternate guarded contiguous `InfluenceGrid` range-copy lane that copies
+   * `[sourceBegin, sourceEnd)` into destination storage and destroys already
+   * constructed grids before rethrowing on copy failure.
+   */
+  [[maybe_unused]] static InfluenceGrid* CopyInfluenceGridRangeWithRollbackAlt(
+    const InfluenceGrid* const sourceBegin,
+    const InfluenceGrid* const sourceEnd,
+    InfluenceGrid* const destinationBegin
+  )
+  {
+    InfluenceGrid* destinationCursor = destinationBegin;
+    try {
+      for (const InfluenceGrid* sourceCursor = sourceBegin;
+           sourceCursor != sourceEnd;
+           ++sourceCursor, ++destinationCursor) {
+        if (destinationCursor != nullptr) {
+          (void)CopyInfluenceGridRange(sourceCursor, sourceCursor + 1, destinationCursor);
+        }
+      }
+      return destinationCursor;
+    } catch (...) {
+      for (InfluenceGrid* destroyCursor = destinationBegin;
+           destroyCursor != destinationCursor;
+           ++destroyCursor) {
+        destroyCursor->~InfluenceGrid();
+      }
+      throw;
+    }
+  }
+
+  /**
+   * Address: 0x0071FD40 (FUN_0071FD40, copy_InfluenceGrid_counted_range)
+   *
+   * What it does:
+   * Copies `count` contiguous `InfluenceGrid` elements from `source` into
+   * `destination` using the recovered range-copy helper.
+   */
+  void CopyInfluenceGridCountedRange(
+    InfluenceGrid* const destination,
+    const InfluenceGrid* const source,
+    const int count
+  )
+  {
+    if (destination == nullptr || source == nullptr || count <= 0) {
+      return;
+    }
+
+    (void)CopyInfluenceGridRange(source, source + count, destination);
   }
 
   /**
@@ -1071,11 +1910,8 @@ namespace moho
 
   void InfluenceGrid::EnsureThreatSlots(const std::size_t armyCount)
   {
-    while (threats.size() < armyCount) {
-      SThreat slot{};
-      slot.Clear();
-      threats.push_back(slot);
-    }
+    const moho::SThreat fillValue{};
+    ResizeSThreatVectorWithFill(threats, armyCount, fillValue);
   }
 
   void InfluenceGrid::ClearPerArmyThreats()
@@ -1087,9 +1923,7 @@ namespace moho
 
   InfluenceMapEntry* InfluenceGrid::FindEntry(const std::uint32_t entityId)
   {
-    InfluenceMapEntry key{};
-    key.entityId = entityId;
-    const auto it = entries.find(key);
+    const auto it = FindInfluenceMapEntry(entries, entityId);
     if (it == entries.end()) {
       return nullptr;
     }
@@ -1099,9 +1933,7 @@ namespace moho
 
   const InfluenceMapEntry* InfluenceGrid::FindEntry(const std::uint32_t entityId) const
   {
-    InfluenceMapEntry key{};
-    key.entityId = entityId;
-    const auto it = entries.find(key);
+    const auto it = FindInfluenceMapEntry(entries, entityId);
     if (it == entries.end()) {
       return nullptr;
     }
@@ -1111,9 +1943,7 @@ namespace moho
 
   bool InfluenceGrid::RemoveEntry(const std::uint32_t entityId)
   {
-    InfluenceMapEntry key{};
-    key.entityId = entityId;
-    const auto it = entries.find(key);
+    const auto it = FindInfluenceMapEntry(entries, entityId);
     if (it == entries.end()) {
       return false;
     }
@@ -1134,7 +1964,7 @@ namespace moho
     , mBlipCells()
     , mMapEntries()
   {
-    mBlipCells.clear();
+    InitializeBlipCellSet(mBlipCells);
     mMapEntries.clear();
   }
 
@@ -1151,7 +1981,7 @@ namespace moho
     , mMapEntries()
   {
     mMapEntries.clear();
-    mBlipCells.clear();
+    InitializeBlipCellSet(mBlipCells);
 
     const STIMap* const mapData = sim ? sim->mMapData : nullptr;
     const CHeightField* const heightField = mapData ? mapData->mHeightField.get() : nullptr;
@@ -1179,8 +2009,8 @@ namespace moho
    */
   CInfluenceMap::~CInfluenceMap()
   {
-    mMapEntries.clear();
-    mBlipCells.clear();
+    ClearInfluenceGridVectorStorage(mMapEntries);
+    ReleaseBlipCellSet(mBlipCells);
   }
 
   /**
@@ -1349,6 +2179,32 @@ namespace moho
   }
 
   /**
+   * Address: 0x00718A40 (FUN_00718A40)
+   *
+   * What it does:
+   * Builds one Lua threat-sample row and appends it at the next array index in
+   * the caller-owned result table.
+   */
+  void AppendThreatSampleRow(
+    LuaPlus::LuaObject* const outObj,
+    std::int32_t& luaIndex,
+    LuaPlus::LuaState* const state,
+    const float worldX,
+    const float worldZ,
+    const float threat
+  )
+  {
+    LuaPlus::LuaObject point;
+    point.AssignNewTable(state, 0, 4);
+    point.SetNumber("x", worldX);
+    point.SetNumber("y", 0.0f);
+    point.SetNumber("z", worldZ);
+    point.SetNumber("threat", threat);
+    outObj->SetObject(luaIndex, point);
+    ++luaIndex;
+  }
+
+  /**
    * Address: 0x007171D0 (FUN_007171D0, ?GetThreatsAroundPosition@CInfluenceMap@Moho@@QAE?AVLuaObject@LuaPlus@@AAV42@ABV?$Vector3@M@Wm3@@HHW4EThreatType@2@H@Z)
    */
   LuaPlus::LuaObject* CInfluenceMap::GetThreatsAroundPosition(
@@ -1413,15 +2269,7 @@ namespace moho
 
         const float worldX = static_cast<float>((mGridSize / 2) + (x * mGridSize));
         const float worldZ = static_cast<float>((mGridSize / 2) + (z * mGridSize));
-
-        LuaPlus::LuaObject point;
-        point.AssignNewTable(state, 0, 4);
-        point.SetNumber("x", worldX);
-        point.SetNumber("y", 0.0f);
-        point.SetNumber("z", worldZ);
-        point.SetNumber("threat", threat);
-        outObj->SetObject(luaIndex, point);
-        ++luaIndex;
+        AppendThreatSampleRow(outObj, luaIndex, state, worldX, worldZ, threat);
 
         if (sim) {
           const float coords[3] = {worldX, 0.0f, worldZ};
@@ -1474,7 +2322,7 @@ namespace moho
         if (entry.threatStrength <= 0.0f) {
           const float threatStrengthChecksum = entry.threatStrength;
           RemoveBlipCell(entry.entityId);
-          it = cell->entries.erase(it);
+          it = EraseInfluenceEntryAndAdvance(*cell, it);
           if (sim) {
             sim->mContext.Update(&threatStrengthChecksum, sizeof(threatStrengthChecksum));
           }
@@ -1616,6 +2464,13 @@ namespace moho
     }
   }
 
+  /**
+   * Address: 0x00715D10 (FUN_00715D10, Moho::CInfluenceMap::InsertEntry)
+   *
+   * What it does:
+   * Builds one per-blip influence entry at `position`, inserts/updates it in
+   * the owning cell lane, and stores the blip-to-cell lookup mapping.
+   */
   void CInfluenceMap::InsertEntry(
     const std::uint32_t blipId, const Wm3::Vec3f& position, const RUnitBlueprint* const sourceBlueprint
   )

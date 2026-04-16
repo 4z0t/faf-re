@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
+#include <map>
 #include <new>
+#include <stdexcept>
 #include <typeinfo>
 #include <vector>
 
@@ -13,19 +15,234 @@
 #include "gpg/core/containers/WriteArchive.h"
 #include "gpg/core/reflection/Reflection.h"
 #include "gpg/core/reflection/SerializationError.h"
+#include "legacy/containers/Tree.h"
 #include "moho/ai/CAiFormationDBImpl.h"
+#include "moho/ai/EFormationdStatusTypeInfo.h"
 #include "moho/ai/IAiNavigator.h"
 #include "moho/command/SSTICommandIssueData.h"
+#include "moho/misc/Listener.h"
 #include "moho/resource/blueprints/RUnitBlueprint.h"
 #include "moho/sim/CArmyImpl.h"
 #include "moho/sim/Sim.h"
 #include "moho/sim/SOCellPos.h"
+#include "moho/unit/Broadcaster.h"
 #include "moho/unit/CUnitCommand.h"
 #include "moho/unit/CUnitCommandQueue.h"
 #include "moho/unit/core/Unit.h"
 
+namespace moho
+{
+  Wm3::Vector3f* MultQuadVec(Wm3::Vector3f* dest, const Wm3::Vector3f* vec, const Wm3::Quaternionf* quat);
+}
+
 namespace
 {
+  using FormationUnitOffsetMap = std::map<moho::EntId, moho::SUnitOffsetInfo>;
+  using FormationCoordMap = std::map<moho::EntId, moho::SCoordsVec2>;
+
+  [[nodiscard]] gpg::RType* CachedEntIdType();
+  [[nodiscard]] gpg::RType* CachedSUnitOffsetInfoType();
+  [[nodiscard]] gpg::RType* CachedSCoordsVec2Type();
+
+  [[nodiscard]] gpg::RType* CachedBroadcasterEFormationdStatusType()
+  {
+    static gpg::RType* type = nullptr;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::BroadcasterEventTag<moho::EFormationdStatus>));
+    }
+    return type;
+  }
+
+  /**
+   * Address: 0x00570D20 (FUN_00570D20)
+   *
+   * What it does:
+   * Registers `Broadcaster<EFormationdStatus>` as one reflected base lane for
+   * `IFormationInstance` at offset `+0x08`.
+   */
+  void AddBroadcasterEFormationdStatusBaseToIFormationInstanceType(gpg::RType* const typeInfo)
+  {
+    gpg::RType* const baseType = CachedBroadcasterEFormationdStatusType();
+    if (!baseType) {
+      return;
+    }
+
+    gpg::RField baseField{};
+    baseField.mName = baseType->GetName();
+    baseField.mType = baseType;
+    baseField.mOffset = 8;
+    baseField.v4 = 0;
+    baseField.mDesc = nullptr;
+    typeInfo->AddBase(baseField);
+  }
+
+  class SUnitOffsetInfoTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "SUnitOffsetInfo";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::SUnitOffsetInfo);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
+  class IFormationInstanceTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "IFormationInstance";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::IFormationInstance);
+      gpg::RType::Init();
+      AddBroadcasterEFormationdStatusBaseToIFormationInstanceType(this);
+      Finish();
+    }
+  };
+
+  class RMapType_EntId_SUnitOffsetInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "map<EntId,SUnitOffsetInfo>";
+    }
+
+    /**
+     * Address: 0x0056DC00 (FUN_0056DC00, gpg::RMapType_EntId_SUnitOffsetInfo::SerSave)
+     *
+     * What it does:
+     * Serializes one `std::map<EntId,SUnitOffsetInfo>` payload by writing key/value
+     * pairs with reflected EntId and SUnitOffsetInfo RTTI lanes.
+     */
+    static void SerSave(gpg::WriteArchive* const archive, const int objectPtr, const int, gpg::RRef* const ownerRef)
+    {
+      const auto* const mapObject = reinterpret_cast<const FormationUnitOffsetMap*>(
+        static_cast<std::uintptr_t>(static_cast<std::uint32_t>(objectPtr))
+      );
+      if (!archive || !mapObject) {
+        return;
+      }
+
+      archive->WriteUInt(static_cast<unsigned int>(mapObject->size()));
+
+      gpg::RType* const keyType = CachedEntIdType();
+      gpg::RType* const valueType = CachedSUnitOffsetInfoType();
+      GPG_ASSERT(keyType != nullptr);
+      GPG_ASSERT(valueType != nullptr);
+      if (!keyType || !valueType) {
+        return;
+      }
+
+      const gpg::RRef owner = ownerRef ? *ownerRef : gpg::RRef{};
+      for (const auto& [key, value] : *mapObject) {
+        archive->Write(keyType, &key, owner);
+        archive->Write(valueType, &value, owner);
+      }
+    }
+
+    void Init() override
+    {
+      size_ = 0x0C;
+      version_ = 1;
+      serSaveFunc_ = &RMapType_EntId_SUnitOffsetInfo::SerSave;
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
+  class RBroadcasterRType_EFormationdStatus final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "Broadcaster<EFormationdStatus>";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::BroadcasterEventTag<moho::EFormationdStatus>);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
+  class RListenerRType_EFormationdStatus final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "Listener<EFormationdStatus>";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::Listener<moho::EFormationdStatus>);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
+  class RMapType_EntId_SCoordsVec2 final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "map<EntId,SCoordsVec2>";
+    }
+
+    /**
+     * Address: 0x0056E220 (FUN_0056E220, gpg::RMapType_EntId_SCoordsVec2::SerSave)
+     *
+     * What it does:
+     * Serializes one `std::map<EntId,SCoordsVec2>` payload by writing key/value
+     * pairs with reflected EntId and SCoordsVec2 RTTI lanes.
+     */
+    static void SerSave(gpg::WriteArchive* const archive, const int objectPtr, const int, gpg::RRef* const ownerRef)
+    {
+      const auto* const mapObject = reinterpret_cast<const FormationCoordMap*>(
+        static_cast<std::uintptr_t>(static_cast<std::uint32_t>(objectPtr))
+      );
+      if (!archive || !mapObject) {
+        return;
+      }
+
+      archive->WriteUInt(static_cast<unsigned int>(mapObject->size()));
+
+      gpg::RType* const keyType = CachedEntIdType();
+      gpg::RType* const valueType = CachedSCoordsVec2Type();
+      GPG_ASSERT(keyType != nullptr);
+      GPG_ASSERT(valueType != nullptr);
+      if (!keyType || !valueType) {
+        return;
+      }
+
+      const gpg::RRef owner = ownerRef ? *ownerRef : gpg::RRef{};
+      for (const auto& [key, value] : *mapObject) {
+        archive->Write(keyType, &key, owner);
+        archive->Write(valueType, &value, owner);
+      }
+    }
+
+    void Init() override
+    {
+      size_ = 0x0C;
+      version_ = 1;
+      serSaveFunc_ = &RMapType_EntId_SCoordsVec2::SerSave;
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
   [[nodiscard]] gpg::RType* ResolveTypeByAnyName(const std::initializer_list<const char*> names)
   {
     for (const char* const name : names) {
@@ -64,6 +281,28 @@ namespace
       moho::WeakPtr<moho::IUnit>::sType = gpg::LookupRType(typeid(moho::WeakPtr<moho::IUnit>));
     }
     return moho::WeakPtr<moho::IUnit>::sType;
+  }
+
+  [[nodiscard]] gpg::RType* CachedEntIdType()
+  {
+    static gpg::RType* type = nullptr;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::EntId));
+    }
+    return type;
+  }
+
+  [[nodiscard]] gpg::RType* CachedSUnitOffsetInfoType()
+  {
+    gpg::RType* type = moho::SUnitOffsetInfo::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::SUnitOffsetInfo));
+      if (!type) {
+        type = moho::preregister_SUnitOffsetInfoTypeInfo();
+      }
+      moho::SUnitOffsetInfo::sType = type;
+    }
+    return type;
   }
 
   [[nodiscard]] gpg::RType* CachedSCoordsVec2Type()
@@ -185,15 +424,21 @@ namespace
     return lhs.w == rhs.w && lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
   }
 
+  /**
+   * Address: 0x0056D8E0 (FUN_0056D8E0, sub_56D8E0)
+   *
+   * What it does:
+   * Destroys one coord-cache tree lane by recursively tearing down right
+   * branches and iterating through the left spine.
+   */
   void DestroyCoordCacheSubtree(moho::SFormationCoordCacheNode* node, const moho::SFormationCoordCacheNode* head)
   {
-    if (node == nullptr || node == head || node->isNil != 0u) {
-      return;
+    while (node != nullptr && node != head && node->isNil == 0u) {
+      moho::SFormationCoordCacheNode* const current = node;
+      DestroyCoordCacheSubtree(node->right, head);
+      node = node->left;
+      delete current;
     }
-
-    DestroyCoordCacheSubtree(node->left, head);
-    DestroyCoordCacheSubtree(node->right, head);
-    delete node;
   }
 
   void ResetCoordCacheMap(moho::SFormationCoordCacheMap& cache)
@@ -416,6 +661,276 @@ namespace
     map.size = 0u;
   }
 
+  /**
+   * Address: 0x0056CF50 (FUN_0056CF50, sub_56CF50)
+   *
+   * What it does:
+   * Walks one lane-map subtree to its left-most (minimum-key) node.
+   */
+  [[nodiscard]] moho::SFormationLaneUnitNode* LaneMapLeftmostNode(
+    moho::SFormationLaneUnitNode* node
+  ) noexcept
+  {
+    if (node == nullptr || node->isNil != 0u) {
+      return node;
+    }
+
+    moho::SFormationLaneUnitNode* child = node->left;
+    while (child != nullptr && child->isNil == 0u) {
+      node = child;
+      child = node->left;
+    }
+    return node;
+  }
+
+  /**
+   * Address: 0x0056CF30 (FUN_0056CF30, sub_56CF30)
+   *
+   * What it does:
+   * Walks one lane-map subtree to its right-most (maximum-key) node.
+   */
+  [[nodiscard]] moho::SFormationLaneUnitNode* LaneMapRightmostNode(
+    moho::SFormationLaneUnitNode* node
+  ) noexcept
+  {
+    if (node == nullptr || node->isNil != 0u) {
+      return node;
+    }
+
+    moho::SFormationLaneUnitNode* child = node->right;
+    while (child != nullptr && child->isNil == 0u) {
+      node = child;
+      child = node->right;
+    }
+    return node;
+  }
+
+  [[nodiscard]] moho::SFormationLaneUnitNode* LaneMapMinimumNode(
+    moho::SFormationLaneUnitNode* node,
+    const moho::SFormationLaneUnitNode* const head
+  ) noexcept
+  {
+    if (node == nullptr || node == head || node->isNil != 0u) {
+      return const_cast<moho::SFormationLaneUnitNode*>(head);
+    }
+
+    return LaneMapLeftmostNode(node);
+  }
+
+  [[nodiscard]] moho::SFormationLaneUnitNode* LaneMapMaximumNode(
+    moho::SFormationLaneUnitNode* node,
+    const moho::SFormationLaneUnitNode* const head
+  ) noexcept
+  {
+    if (node == nullptr || node == head || node->isNil != 0u) {
+      return const_cast<moho::SFormationLaneUnitNode*>(head);
+    }
+
+    return LaneMapRightmostNode(node);
+  }
+
+  void LaneMapTransplantNode(
+    moho::SFormationLaneUnitMap& map,
+    moho::SFormationLaneUnitNode* const from,
+    moho::SFormationLaneUnitNode* const to
+  ) noexcept
+  {
+    moho::SFormationLaneUnitNode* const head = map.head;
+    if (from->parent == head) {
+      head->parent = to != nullptr ? to : head;
+    } else if (from == from->parent->left) {
+      from->parent->left = to;
+    } else {
+      from->parent->right = to;
+    }
+
+    if (to != nullptr && to != head && to->isNil == 0u) {
+      to->parent = from->parent;
+    }
+  }
+
+  /**
+   * Address: 0x0056CEE0 (FUN_0056CEE0, sub_56CEE0)
+   *
+   * What it does:
+   * Performs a left rotation around `pivot` inside one lane-map tree.
+   */
+  [[maybe_unused]] void RotateLaneMapLeft(
+    moho::SFormationLaneUnitNode* const pivot,
+    moho::SFormationLaneUnitMap& map
+  ) noexcept
+  {
+    if (pivot == nullptr) {
+      return;
+    }
+
+    moho::SFormationLaneUnitNode* const promoted = pivot->right;
+    if (promoted == nullptr) {
+      return;
+    }
+
+    pivot->right = promoted->left;
+    if (pivot->right != nullptr && pivot->right->isNil == 0u) {
+      pivot->right->parent = pivot;
+    }
+
+    promoted->parent = pivot->parent;
+    moho::SFormationLaneUnitNode* const head = map.head;
+    if (head == nullptr) {
+      return;
+    }
+
+    if (pivot == head->parent) {
+      head->parent = promoted;
+    } else if (pivot == pivot->parent->left) {
+      pivot->parent->left = promoted;
+    } else {
+      pivot->parent->right = promoted;
+    }
+
+    promoted->left = pivot;
+    pivot->parent = promoted;
+  }
+
+  /**
+   * Address: 0x0056CF90 (FUN_0056CF90, sub_56CF90)
+   *
+   * What it does:
+   * Performs a right rotation around `pivot` inside one lane-map tree.
+   */
+  [[maybe_unused]] void RotateLaneMapRight(
+    moho::SFormationLaneUnitNode* const pivot,
+    moho::SFormationLaneUnitMap& map
+  ) noexcept
+  {
+    if (pivot == nullptr) {
+      return;
+    }
+
+    moho::SFormationLaneUnitNode* const promoted = pivot->left;
+    if (promoted == nullptr) {
+      return;
+    }
+
+    pivot->left = promoted->right;
+    if (pivot->left != nullptr && pivot->left->isNil == 0u) {
+      pivot->left->parent = pivot;
+    }
+
+    promoted->parent = pivot->parent;
+    moho::SFormationLaneUnitNode* const head = map.head;
+    if (head == nullptr) {
+      return;
+    }
+
+    if (pivot == head->parent) {
+      head->parent = promoted;
+    } else if (pivot == pivot->parent->right) {
+      pivot->parent->right = promoted;
+    } else {
+      pivot->parent->left = promoted;
+    }
+
+    promoted->right = pivot;
+    pivot->parent = promoted;
+  }
+
+  /**
+   * Address: 0x0056D090 (FUN_0056D090, sub_56D090)
+   *
+   * What it does:
+   * Advances one lane-map node cursor to its in-order successor.
+   */
+  [[nodiscard]] moho::SFormationLaneUnitNode* AdvanceLaneMapNodeCursor(
+    moho::SFormationLaneUnitNode*& nodeCursor
+  ) noexcept
+  {
+    moho::SFormationLaneUnitNode* result = nodeCursor;
+    if (result == nullptr || result->isNil != 0u) {
+      return result;
+    }
+
+    moho::SFormationLaneUnitNode* child = result->right;
+    if (child != nullptr && child->isNil == 0u) {
+      nodeCursor = LaneMapLeftmostNode(child);
+      return nodeCursor;
+    }
+
+    result = result->parent;
+    while (result != nullptr && result->isNil == 0u) {
+      if (nodeCursor != result->right) {
+        break;
+      }
+      nodeCursor = result;
+      result = result->parent;
+    }
+    nodeCursor = result;
+    return result;
+  }
+
+  [[nodiscard]] moho::SFormationLaneUnitNode* NextLaneMapNodeInOrder(
+    moho::SFormationLaneUnitNode* const node,
+    moho::SFormationLaneUnitNode* const head
+  ) noexcept;
+
+  /**
+   * Address: 0x0056AC60 (FUN_0056AC60, sub_56AC60)
+   *
+   * What it does:
+   * Erases one validated lane-map iterator, repairs the tree links, and
+   * returns the in-order successor so callers can continue traversal.
+   */
+  [[nodiscard]] moho::SFormationLaneUnitNode* EraseLaneMapNodeAndAdvance(
+    moho::SFormationLaneUnitMap& map,
+    moho::SFormationLaneUnitNode* const node
+  )
+  {
+    moho::SFormationLaneUnitNode* const head = map.head;
+    if (head == nullptr || node == nullptr || node == head || node->isNil != 0u) {
+      throw std::out_of_range("invalid map/set<T> iterator");
+    }
+
+    moho::SFormationLaneUnitNode* const successor = NextLaneMapNodeInOrder(node, head);
+
+    if (node->left == nullptr || node->left == head || node->left->isNil != 0u) {
+      LaneMapTransplantNode(map, node, node->right);
+    } else if (node->right == nullptr || node->right == head || node->right->isNil != 0u) {
+      LaneMapTransplantNode(map, node, node->left);
+    } else {
+      moho::SFormationLaneUnitNode* const replacement = LaneMapMinimumNode(node->right, head);
+      if (replacement->parent != node) {
+        LaneMapTransplantNode(map, replacement, replacement->right);
+        replacement->right = node->right;
+        if (replacement->right != nullptr && replacement->right != head && replacement->right->isNil == 0u) {
+          replacement->right->parent = replacement;
+        }
+      }
+
+      LaneMapTransplantNode(map, node, replacement);
+      replacement->left = node->left;
+      if (replacement->left != nullptr && replacement->left != head && replacement->left->isNil == 0u) {
+        replacement->left->parent = replacement;
+      }
+    }
+
+    UnlinkWeakWordNode(node->linkedUnitOwnerWord, node->linkedUnitNextWord);
+    delete node;
+    if (map.size > 0u) {
+      --map.size;
+    }
+
+    if (map.size == 0u) {
+      head->parent = head;
+      head->left = head;
+      head->right = head;
+    } else {
+      head->left = LaneMapMinimumNode(head->parent, head);
+      head->right = LaneMapMaximumNode(head->parent, head);
+    }
+
+    return successor;
+  }
+
   void DestroyLaneMapStorage(moho::SFormationLaneUnitMap& map)
   {
     if (map.head == nullptr) {
@@ -582,18 +1097,27 @@ namespace
       return;
     }
 
-    std::vector<moho::SFormationLaneUnitNode> keptNodes;
-    keptNodes.reserve(map.size > 0u ? map.size - 1u : 0u);
-    CollectLaneMapNodes(head->parent, head, keptNodes);
-
-    ResetLaneMap(map);
-
-    for (const moho::SFormationLaneUnitNode& node : keptNodes) {
-      if (node.unitEntityId == unitEntityId) {
-        continue;
-      }
-      (void)InsertLaneMapNode(map, node);
+    if (moho::SFormationLaneUnitNode* const node = LaneMapFindNode(map, unitEntityId); node != nullptr) {
+      (void)EraseLaneMapNodeAndAdvance(map, node);
     }
+  }
+
+  /**
+   * Address: 0x00570300 (FUN_00570300)
+   *
+   * What it does:
+   * Allocates one `SFormationCoordCacheNode`, clears link lanes, and seeds
+   * the marker bytes used by the coord-cache map-head initialization path.
+   */
+  [[nodiscard]] moho::SFormationCoordCacheNode* AllocateFormationCoordCacheHeadNode()
+  {
+    auto* const node = new moho::SFormationCoordCacheNode{};
+    node->left = nullptr;
+    node->parent = nullptr;
+    node->right = nullptr;
+    node->color = 1u;
+    node->isNil = 0u;
+    return node;
   }
 
   void EnsureCoordCacheHead(moho::SFormationCoordCacheMap& cache)
@@ -602,7 +1126,7 @@ namespace
       return;
     }
 
-    auto* const head = new moho::SFormationCoordCacheNode{};
+    auto* const head = AllocateFormationCoordCacheHeadNode();
     head->left = head;
     head->parent = head;
     head->right = head;
@@ -611,31 +1135,343 @@ namespace
     cache.size = 0u;
   }
 
-  [[nodiscard]] moho::SFormationCoordCacheNode* CoordCacheFindNode(
+  /**
+   * Address: 0x0056B7B0 (FUN_0056B7B0, sub_56B7B0)
+   *
+   * What it does:
+   * Finds the first coord-cache node whose key is not less than
+   * `unitEntityId`.
+   */
+  [[nodiscard]] moho::SFormationCoordCacheNode* CoordCacheLowerBoundNode(
     const moho::SFormationCoordCacheMap& cache,
     const std::uint32_t unitEntityId
-  )
+  ) noexcept
   {
-    const moho::SFormationCoordCacheNode* const head = cache.head;
-    if (!head) {
+    moho::SFormationCoordCacheNode* const head = cache.head;
+    if (head == nullptr) {
       return nullptr;
     }
 
-    moho::SFormationCoordCacheNode* node = head->parent;
-    while (node && node != head && node->isNil == 0u) {
-      if (unitEntityId < node->unitEntityId) {
-        node = node->left;
-      } else if (node->unitEntityId < unitEntityId) {
-        node = node->right;
+    return msvc8::lower_bound_node<
+      moho::SFormationCoordCacheNode,
+      &moho::SFormationCoordCacheNode::isNil
+    >(head, unitEntityId, [](const moho::SFormationCoordCacheNode& node, const std::uint32_t key) noexcept {
+      return node.unitEntityId < key;
+    });
+  }
+
+  [[nodiscard]] bool IsCoordCacheSentinel(
+    const moho::SFormationCoordCacheNode* const node,
+    const moho::SFormationCoordCacheNode* const head
+  ) noexcept
+  {
+    return node == nullptr || node == head || node->isNil != 0u;
+  }
+
+  [[nodiscard]] moho::SFormationCoordCacheNode* CoordCacheLeftmostNode(
+    moho::SFormationCoordCacheNode* node,
+    const moho::SFormationCoordCacheNode* const head
+  ) noexcept
+  {
+    while (!IsCoordCacheSentinel(node, head) && !IsCoordCacheSentinel(node->left, head)) {
+      node = node->left;
+    }
+    return node;
+  }
+
+  [[nodiscard]] moho::SFormationCoordCacheNode* CoordCacheRightmostNode(
+    moho::SFormationCoordCacheNode* node,
+    const moho::SFormationCoordCacheNode* const head
+  ) noexcept
+  {
+    while (!IsCoordCacheSentinel(node, head) && !IsCoordCacheSentinel(node->right, head)) {
+      node = node->right;
+    }
+    return node;
+  }
+
+  [[nodiscard]] moho::SFormationCoordCacheNode* CoordCachePredecessor(
+    moho::SFormationCoordCacheNode* node,
+    moho::SFormationCoordCacheNode* const head
+  ) noexcept
+  {
+    if (node == nullptr || head == nullptr) {
+      return head;
+    }
+    if (node == head) {
+      return head->right;
+    }
+    if (!IsCoordCacheSentinel(node->left, head)) {
+      return CoordCacheRightmostNode(node->left, head);
+    }
+
+    moho::SFormationCoordCacheNode* parent = node->parent;
+    while (!IsCoordCacheSentinel(parent, head) && node == parent->left) {
+      node = parent;
+      parent = parent->parent;
+    }
+    return parent ? parent : head;
+  }
+
+  [[nodiscard]] moho::SFormationCoordCacheNode* CoordCacheSuccessor(
+    moho::SFormationCoordCacheNode* node,
+    moho::SFormationCoordCacheNode* const head
+  ) noexcept
+  {
+    if (node == nullptr || head == nullptr) {
+      return head;
+    }
+    if (node == head) {
+      return head->left;
+    }
+    if (!IsCoordCacheSentinel(node->right, head)) {
+      return CoordCacheLeftmostNode(node->right, head);
+    }
+
+    moho::SFormationCoordCacheNode* parent = node->parent;
+    while (!IsCoordCacheSentinel(parent, head) && node == parent->right) {
+      node = parent;
+      parent = parent->parent;
+    }
+    return parent ? parent : head;
+  }
+
+  [[nodiscard]] moho::SFormationCoordCacheNode* AllocateCoordCacheNode(
+    moho::SFormationCoordCacheNode* const head,
+    const std::uint32_t unitEntityId,
+    const moho::SCoordsVec2& position
+  )
+  {
+    auto* const inserted = new moho::SFormationCoordCacheNode{};
+    inserted->left = head;
+    inserted->parent = head;
+    inserted->right = head;
+    inserted->unitEntityId = unitEntityId;
+    inserted->position = position;
+    inserted->color = 0u;
+    inserted->isNil = 0u;
+    return inserted;
+  }
+
+  void LinkCoordCacheNode(
+    moho::SFormationCoordCacheMap& cache,
+    moho::SFormationCoordCacheNode* const parent,
+    moho::SFormationCoordCacheNode* const inserted,
+    const bool insertLeft
+  ) noexcept
+  {
+    moho::SFormationCoordCacheNode* const head = cache.head;
+    if (head == nullptr || inserted == nullptr) {
+      return;
+    }
+
+    inserted->parent = parent;
+    if (parent == head) {
+      head->parent = inserted;
+      head->left = inserted;
+      head->right = inserted;
+      ++cache.size;
+      return;
+    }
+
+    if (insertLeft) {
+      parent->left = inserted;
+      if (head->left == head || head->left == parent || inserted->unitEntityId < head->left->unitEntityId) {
+        head->left = inserted;
+      }
+    } else {
+      parent->right = inserted;
+      if (head->right == head || head->right == parent || head->right->unitEntityId < inserted->unitEntityId) {
+        head->right = inserted;
+      }
+    }
+    ++cache.size;
+  }
+
+  [[nodiscard]] moho::SFormationCoordCacheNode* CoordCacheInsertBySearch(
+    moho::SFormationCoordCacheMap& cache,
+    const std::uint32_t unitEntityId,
+    const moho::SCoordsVec2& position
+  )
+  {
+    moho::SFormationCoordCacheNode* const head = cache.head;
+    if (head == nullptr) {
+      return nullptr;
+    }
+
+    moho::SFormationCoordCacheNode* parent = head;
+    moho::SFormationCoordCacheNode* cursor = head->parent;
+    bool insertLeft = true;
+    while (!IsCoordCacheSentinel(cursor, head)) {
+      parent = cursor;
+      if (unitEntityId < cursor->unitEntityId) {
+        insertLeft = true;
+        cursor = cursor->left;
       } else {
-        return node;
+        insertLeft = false;
+        cursor = cursor->right;
       }
     }
 
-    return nullptr;
+    moho::SFormationCoordCacheNode* const inserted = AllocateCoordCacheNode(head, unitEntityId, position);
+    LinkCoordCacheNode(cache, parent, inserted, insertLeft);
+    return inserted;
   }
 
-  moho::SFormationCoordCacheNode* CoordCacheInsertOrAssign(
+  [[nodiscard]] moho::SFormationCoordCacheNode* CoordCacheInsertBeforeHint(
+    moho::SFormationCoordCacheMap& cache,
+    moho::SFormationCoordCacheNode* hint,
+    const std::uint32_t unitEntityId,
+    const moho::SCoordsVec2& position
+  )
+  {
+    moho::SFormationCoordCacheNode* const head = cache.head;
+    if (head == nullptr) {
+      return nullptr;
+    }
+
+    if (hint == nullptr) {
+      hint = head;
+    }
+
+    moho::SFormationCoordCacheNode* parent = head;
+    bool insertLeft = true;
+    if (hint == head) {
+      parent = head->right;
+      insertLeft = false;
+      if (IsCoordCacheSentinel(parent, head)) {
+        parent = head;
+        insertLeft = true;
+      }
+    } else if (IsCoordCacheSentinel(hint->left, head)) {
+      parent = hint;
+      insertLeft = true;
+    } else {
+      parent = CoordCacheRightmostNode(hint->left, head);
+      insertLeft = false;
+    }
+
+    moho::SFormationCoordCacheNode* const inserted = AllocateCoordCacheNode(head, unitEntityId, position);
+    LinkCoordCacheNode(cache, parent, inserted, insertLeft);
+    return inserted;
+  }
+
+  [[nodiscard]] moho::SFormationCoordCacheNode* CoordCacheInsertAfterHint(
+    moho::SFormationCoordCacheMap& cache,
+    moho::SFormationCoordCacheNode* hint,
+    const std::uint32_t unitEntityId,
+    const moho::SCoordsVec2& position
+  )
+  {
+    moho::SFormationCoordCacheNode* const head = cache.head;
+    if (head == nullptr) {
+      return nullptr;
+    }
+
+    if (hint == nullptr || hint == head) {
+      return CoordCacheInsertBySearch(cache, unitEntityId, position);
+    }
+
+    moho::SFormationCoordCacheNode* parent = head;
+    bool insertLeft = false;
+    if (IsCoordCacheSentinel(hint->right, head)) {
+      parent = hint;
+      insertLeft = false;
+    } else {
+      parent = CoordCacheLeftmostNode(hint->right, head);
+      insertLeft = true;
+    }
+
+    moho::SFormationCoordCacheNode* const inserted = AllocateCoordCacheNode(head, unitEntityId, position);
+    LinkCoordCacheNode(cache, parent, inserted, insertLeft);
+    return inserted;
+  }
+
+  /**
+   * Address: 0x0056D790 (FUN_0056D790, sub_56D790)
+   *
+   * What it does:
+   * Uses one coord-cache insertion hint to resolve an existing node by key or
+   * inserts a new node with `position` when the key is missing.
+   */
+  [[nodiscard]] moho::SFormationCoordCacheNode* ResolveCoordCacheNodeWithHint(
+    moho::SFormationCoordCacheMap& cache,
+    const std::uint32_t unitEntityId,
+    const moho::SCoordsVec2& position,
+    moho::SFormationCoordCacheNode* hint
+  )
+  {
+    moho::SFormationCoordCacheNode* const head = cache.head;
+    if (head == nullptr) {
+      return nullptr;
+    }
+
+    if (cache.size == 0u) {
+      return CoordCacheInsertBySearch(cache, unitEntityId, position);
+    }
+
+    if (hint == nullptr) {
+      hint = head;
+    }
+
+    if (hint == head->left) {
+      if (!IsCoordCacheSentinel(hint, head) && unitEntityId < hint->unitEntityId) {
+        return CoordCacheInsertBeforeHint(cache, hint, unitEntityId, position);
+      }
+    } else if (hint == head) {
+      moho::SFormationCoordCacheNode* const rightMost = head->right;
+      if (!IsCoordCacheSentinel(rightMost, head) && rightMost->unitEntityId < unitEntityId) {
+        return CoordCacheInsertAfterHint(cache, rightMost, unitEntityId, position);
+      }
+    } else if (unitEntityId < hint->unitEntityId) {
+      moho::SFormationCoordCacheNode* const predecessor = CoordCachePredecessor(hint, head);
+      if (!IsCoordCacheSentinel(predecessor, head) && predecessor->unitEntityId < unitEntityId) {
+        if (IsCoordCacheSentinel(predecessor->right, head)) {
+          return CoordCacheInsertBeforeHint(cache, hint, unitEntityId, position);
+        }
+        return CoordCacheInsertAfterHint(cache, predecessor, unitEntityId, position);
+      }
+    } else if (hint->unitEntityId < unitEntityId) {
+      moho::SFormationCoordCacheNode* const successor = CoordCacheSuccessor(hint, head);
+      if (successor == head || unitEntityId < successor->unitEntityId) {
+        if (IsCoordCacheSentinel(hint->right, head)) {
+          return CoordCacheInsertBeforeHint(cache, successor, unitEntityId, position);
+        }
+        return CoordCacheInsertAfterHint(cache, hint, unitEntityId, position);
+      }
+    } else {
+      return hint;
+    }
+
+    moho::SFormationCoordCacheNode* const node = CoordCacheLowerBoundNode(cache, unitEntityId);
+    if (node != nullptr && node != head && node->isNil == 0u && node->unitEntityId == unitEntityId) {
+      return node;
+    }
+    return CoordCacheInsertBySearch(cache, unitEntityId, position);
+  }
+
+  [[nodiscard]] moho::SFormationCoordCacheNode* CoordCacheFindNode(
+    const moho::SFormationCoordCacheMap& cache,
+    const std::uint32_t unitEntityId
+  ) noexcept
+  {
+    moho::SFormationCoordCacheNode* const node = CoordCacheLowerBoundNode(cache, unitEntityId);
+    if (node == nullptr || node == cache.head || node->isNil != 0u || node->unitEntityId != unitEntityId) {
+      return nullptr;
+    }
+
+    return node;
+  }
+
+  /**
+   * Address: 0x0056B6C0 (FUN_0056B6C0, sub_56B6C0)
+   *
+   * What it does:
+   * Looks up the cache slot for `unitEntityId` in the coord-cache tree and
+   * either returns the existing position reference or inserts a new node and
+   * returns the new position reference.
+   */
+  [[nodiscard]] moho::SCoordsVec2* CoordCacheInsertOrAssign(
     moho::SFormationCoordCacheMap& cache,
     const std::uint32_t unitEntityId,
     const moho::SCoordsVec2& position
@@ -643,54 +1479,27 @@ namespace
   {
     EnsureCoordCacheHead(cache);
     moho::SFormationCoordCacheNode* const head = cache.head;
-
-    moho::SFormationCoordCacheNode* parent = head;
-    moho::SFormationCoordCacheNode* node = head->parent;
-    bool insertLeft = true;
-
-    while (node && node != head && node->isNil == 0u) {
-      parent = node;
-      if (unitEntityId < node->unitEntityId) {
-        insertLeft = true;
-        node = node->left;
-      } else if (node->unitEntityId < unitEntityId) {
-        insertLeft = false;
-        node = node->right;
-      } else {
-        node->position = position;
-        return node;
-      }
+    moho::SFormationCoordCacheNode* const lowerBound = CoordCacheLowerBoundNode(cache, unitEntityId);
+    if (lowerBound != nullptr && lowerBound != head && lowerBound->isNil == 0u && lowerBound->unitEntityId == unitEntityId) {
+      lowerBound->position = position;
+      return &lowerBound->position;
     }
 
-    auto* const inserted = new moho::SFormationCoordCacheNode{};
-    inserted->left = head;
-    inserted->parent = parent;
-    inserted->right = head;
-    inserted->unitEntityId = unitEntityId;
-    inserted->position = position;
-    inserted->color = 0u;
-    inserted->isNil = 0u;
-
-    if (parent == head) {
-      head->parent = inserted;
-      head->left = inserted;
-      head->right = inserted;
-    } else if (insertLeft) {
-      parent->left = inserted;
-      if (head->left == head || unitEntityId < head->left->unitEntityId) {
-        head->left = inserted;
-      }
-    } else {
-      parent->right = inserted;
-      if (head->right == head || head->right->unitEntityId < unitEntityId) {
-        head->right = inserted;
-      }
+    moho::SFormationCoordCacheNode* const resolved =
+      ResolveCoordCacheNodeWithHint(cache, unitEntityId, position, lowerBound);
+    if (resolved == nullptr) {
+      return nullptr;
     }
-
-    ++cache.size;
-    return inserted;
+    resolved->position = position;
+    return &resolved->position;
   }
 
+  /**
+   * Address: 0x005688C0 (FUN_005688C0, sub_5688C0)
+   *
+   * What it does:
+   * Returns true when two formation lane rectangles overlap on both axes.
+   */
   [[nodiscard]] bool LaneEntriesOverlap(
     const moho::SFormationLaneEntry& lhs,
     const moho::SFormationLaneEntry& rhs
@@ -705,6 +1514,26 @@ namespace
     const bool overlapZ = (lhs.overlapRadiusZ - lhs.overlapAnchorZ) <= (rhs.overlapAnchorZ + rhs.overlapRadiusZ)
       && (rhs.overlapRadiusZ - rhs.overlapAnchorZ) <= (lhs.overlapAnchorZ + lhs.overlapRadiusZ);
     return overlapZ;
+  }
+
+  /**
+   * Address: 0x005725A0 (FUN_005725A0, sub_5725A0)
+   *
+   * What it does:
+   * Rebuilds a linked-unit reference lane from a compacted list of surviving
+   * units while preserving intrusive owner-chain wiring for each entry.
+   */
+  void ResetLinkedUnitRefsFromUnits(
+    moho::CAiFormationInstance& formation,
+    const std::vector<moho::Unit*>& keptUnits
+  )
+  {
+    formation.mUnits.ResetStorageToInline();
+    for (moho::Unit* const keptUnit : keptUnits) {
+      moho::SFormationLinkedUnitRef linked{};
+      formation.mUnits.push_back(linked);
+      RelinkLinkedRef(formation.mUnits.back(), keptUnit);
+    }
   }
 
   struct FormationUpdateListenerNode
@@ -777,24 +1606,12 @@ namespace
       return head;
     }
 
-    moho::SFormationLaneUnitNode* current = node;
-    if (current->right == nullptr || current->right->isNil != 0u) {
-      moho::SFormationLaneUnitNode* parent = current->parent;
-      while (parent != nullptr && parent != head && parent->isNil == 0u) {
-        if (current != parent->right) {
-          break;
-        }
-        current = parent;
-        parent = parent->parent;
-      }
-      return parent ? parent : head;
+    moho::SFormationLaneUnitNode* cursor = node;
+    (void)AdvanceLaneMapNodeCursor(cursor);
+    if (cursor == nullptr || cursor->isNil != 0u) {
+      return head;
     }
-
-    current = current->right;
-    while (current->left != nullptr && current->left->isNil == 0u) {
-      current = current->left;
-    }
-    return current;
+    return cursor;
   }
 
   /**
@@ -1075,6 +1892,88 @@ namespace
 
 namespace moho
 {
+  /**
+   * Address: 0x005661C0 (FUN_005661C0, preregister_SUnitOffsetInfoTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SUnitOffsetInfo`.
+   */
+  gpg::RType* preregister_SUnitOffsetInfoTypeInfo()
+  {
+    static SUnitOffsetInfoTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SUnitOffsetInfo), &typeInfo);
+    SUnitOffsetInfo::sType = &typeInfo;
+    return &typeInfo;
+  }
+
+  /**
+   * Address: 0x005665B0 (FUN_005665B0, preregister_IFormationInstanceTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `IFormationInstance`.
+   */
+  gpg::RType* preregister_IFormationInstanceTypeInfo()
+  {
+    static IFormationInstanceTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(IFormationInstance), &typeInfo);
+    IFormationInstance::sType = &typeInfo;
+    return &typeInfo;
+  }
+
+  /**
+   * Address: 0x00571A70 (FUN_00571A70, preregister_RMapType_EntId_SUnitOffsetInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for
+   * `std::map<EntId,SUnitOffsetInfo>`.
+   */
+  gpg::RType* preregister_RMapType_EntId_SUnitOffsetInfo()
+  {
+    static RMapType_EntId_SUnitOffsetInfo typeInfo;
+    gpg::PreRegisterRType(typeid(FormationUnitOffsetMap), &typeInfo);
+    return &typeInfo;
+  }
+
+  /**
+   * Address: 0x00571AD0 (FUN_00571AD0, preregister_RBroadcasterRType_EFormationdStatus)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for
+   * `Broadcaster<EFormationdStatus>`.
+   */
+  gpg::RType* preregister_RBroadcasterRType_EFormationdStatus()
+  {
+    static RBroadcasterRType_EFormationdStatus typeInfo;
+    gpg::PreRegisterRType(typeid(BroadcasterEventTag<EFormationdStatus>), &typeInfo);
+    return &typeInfo;
+  }
+
+  /**
+   * Address: 0x00571B30 (FUN_00571B30, preregister_RListenerRType_EFormationdStatus)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `Listener<EFormationdStatus>`.
+   */
+  gpg::RType* preregister_RListenerRType_EFormationdStatus()
+  {
+    static RListenerRType_EFormationdStatus typeInfo;
+    gpg::PreRegisterRType(typeid(Listener<EFormationdStatus>), &typeInfo);
+    return &typeInfo;
+  }
+
+  /**
+   * Address: 0x00571CE0 (FUN_00571CE0, preregister_RMapType_EntId_SCoordsVec2)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `std::map<EntId,SCoordsVec2>`.
+   */
+  gpg::RType* preregister_RMapType_EntId_SCoordsVec2()
+  {
+    static RMapType_EntId_SCoordsVec2 typeInfo;
+    gpg::PreRegisterRType(typeid(FormationCoordMap), &typeInfo);
+    return &typeInfo;
+  }
+
   /**
    * Address: 0x00569CA0 (FUN_00569CA0, Moho::CFormationInstance::CalcFormationSpeed)
    *
@@ -1463,6 +2362,42 @@ namespace moho
   }
 
   /**
+   * Address: 0x00566A30 (FUN_00566A30, Moho::CAiFormationInstance::ComputeRunScriptOffset)
+   *
+   * What it does:
+   * Scales one script-local formation offset by update scale, rotates by
+   * current orientation when non-zero, then applies slot-span scaling.
+   */
+  SCoordsVec2* CAiFormationInstance::ComputeRunScriptOffset(
+    const SCoordsVec2* const sourceOffset,
+    SCoordsVec2* const dest
+  ) const
+  {
+    if (!sourceOffset || !dest) {
+      return dest;
+    }
+
+    Wm3::Vec3f scaled{};
+    scaled.x = sourceOffset->x * mFormationUpdateScale;
+    scaled.y = 0.0f;
+    scaled.z = sourceOffset->z * mFormationUpdateScale;
+
+    float rotatedX = scaled.x;
+    float rotatedZ = scaled.z;
+    if (mOrientation != kZeroQuaternion) {
+      Wm3::Vec3f rotated{};
+      (void)MultQuadVec(&rotated, &scaled, &mOrientation);
+      rotatedX = rotated.x;
+      rotatedZ = rotated.z;
+    }
+
+    const float slotSpanScale = static_cast<float>(mMaxUnitSlotCount + 2);
+    dest->x = rotatedX * slotSpanScale;
+    dest->z = rotatedZ * slotSpanScale;
+    return dest;
+  }
+
+  /**
    * Address: 0x00569CB0 (FUN_00569CB0, Moho::CFormationInstance::GetFormationPosition)
    *
    * What it does:
@@ -1678,12 +2613,7 @@ namespace moho
       UnlinkLinkedRef(*it);
     }
 
-    mUnits.ResetStorageToInline();
-    for (Unit* const keptUnit : kept) {
-      SFormationLinkedUnitRef linked{};
-      mUnits.push_back(linked);
-      RelinkLinkedRef(mUnits.back(), keptUnit);
-    }
+    ResetLinkedUnitRefsFromUnits(*this, kept);
 
     if (alreadyPresent) {
       const RUnitBlueprint* const blueprint = unit->GetBlueprint();
@@ -1738,12 +2668,7 @@ namespace moho
       UnlinkLinkedRef(*it);
     }
 
-    mUnits.ResetStorageToInline();
-    for (Unit* const keptUnit : kept) {
-      SFormationLinkedUnitRef linked{};
-      mUnits.push_back(linked);
-      RelinkLinkedRef(mUnits.back(), keptUnit);
-    }
+    ResetLinkedUnitRefsFromUnits(*this, kept);
   }
 
   /**
@@ -1812,12 +2737,7 @@ namespace moho
       UnlinkLinkedRef(*it);
     }
 
-    mUnits.ResetStorageToInline();
-    for (Unit* const keptUnit : kept) {
-      SFormationLinkedUnitRef linked{};
-      mUnits.push_back(linked);
-      RelinkLinkedRef(mUnits.back(), keptUnit);
-    }
+    ResetLinkedUnitRefsFromUnits(*this, kept);
 
     return hasCheckForUnit;
   }

@@ -30,6 +30,7 @@ namespace moho
   struct SUnitConstructionParams;
   class CDecalBuffer;
   class CCommandDb;
+  class CUnitCommand;
   class CEntityDb;
   class CAiFormationDBImpl;
   class CSimConVarBase;
@@ -56,6 +57,46 @@ namespace moho
   struct SParticleBuffer;
   struct SEntitySetTemplateUnit;
   class CScrLuaInitForm;
+
+  /**
+   * Address: 0x007538C0 (FUN_007538C0, boost::shared_ptr_SParticleBuffer::shared_ptr_SParticleBuffer)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<SParticleBuffer>` from one raw particle-buffer
+   * pointer lane.
+   */
+  boost::shared_ptr<SParticleBuffer>* ConstructSharedParticleBufferFromRaw(
+    boost::shared_ptr<SParticleBuffer>* outBuffer,
+    SParticleBuffer* buffer
+  );
+
+  /**
+   * Address: 0x006F14D0 (FUN_006F14D0, Moho::UNIT_IssueFactoryCommand)
+   *
+   * What it does:
+   * Dispatches one factory command payload across selected factories and
+   * returns the shared command object when enqueue succeeds.
+   */
+  [[nodiscard]] CUnitCommand* IssueFactoryCommandToSelectedUnits(
+    Sim* sim,
+    const SEntitySetTemplateUnit& selectedUnits,
+    const SSTICommandIssueData& commandIssueData,
+    bool clearQueue
+  );
+
+  /**
+   * Address: 0x006F12C0 (FUN_006F12C0, UNIT_IssueCommand)
+   *
+   * What it does:
+   * Dispatches one command payload across selected units and returns the
+   * shared command object when queue insertion succeeds.
+   */
+  [[nodiscard]] CUnitCommand* IssueCommandToSelectedUnits(
+    Sim* sim,
+    SEntitySetTemplateUnit& selectedUnits,
+    const SSTICommandIssueData& commandIssueData,
+    bool clearQueue
+  );
 
   class Sim final : public ICommandSink
   {
@@ -85,6 +126,15 @@ namespace moho
     void VerifyChecksum(const gpg::MD5Digest&, CSeqNo) override;
 
     /**
+     * Address: 0x00748600 (FUN_00748600, ?GetBeatChecksum@Sim@Moho@@QBE_NVCSeqNo@2@AAUMD5Digest@gpg@@@Z)
+     *
+     * What it does:
+     * Copies one retained beat checksum out of the 128-entry rolling ring when
+     * the requested beat is still available.
+     */
+    bool GetBeatChecksum(gpg::MD5Digest* outChecksum, CSeqNo beat) const;
+
+    /**
      * Address: 0x00748960
      */
     void RequestPause() override;
@@ -111,7 +161,7 @@ namespace moho
     void CreateUnit(uint32_t, const RResId& blueprintId, const SCoordsVec2&, float) override;
 
     /**
-     * Address: 0x00748C00 (FUN_00748C00)
+      * Alias of FUN_00748C00 (non-canonical helper lane).
      *
      * gpg::StrArg, Wm3::Vector3<float> const &
      *
@@ -948,7 +998,7 @@ namespace moho
     void UpdateChecksum();
 
     /**
-     * Address: 0x00754C60 (FUN_00754C60, sub_754C60)
+      * Alias of FUN_00754C60 (non-canonical helper lane).
      *
      * What it does:
      * Core Sim load-serialization routine used by Sim serializer callback.

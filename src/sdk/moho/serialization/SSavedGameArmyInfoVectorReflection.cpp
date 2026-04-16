@@ -4,6 +4,7 @@
 
 #include "gpg/core/containers/String.h"
 #include "gpg/core/utils/Global.h"
+#include "legacy/containers/Vector.h"
 
 namespace
 {
@@ -11,6 +12,43 @@ namespace
   {
     static const gpg::RRef kNullOwner{nullptr, nullptr};
     return kNullOwner;
+  }
+
+  /**
+   * Address: 0x00882A90 (FUN_00882A90, sub_882A90)
+   *
+   * What it does:
+   * Appends one deserialized `SSavedGameArmyInfo` row to the destination
+   * vector, growing backing storage when needed.
+   */
+  void AppendSavedGameArmyInfo(
+    msvc8::vector<moho::SSavedGameArmyInfo>& destination,
+    const moho::SSavedGameArmyInfo& value
+  )
+  {
+    destination.push_back(value);
+  }
+
+  /**
+   * Address: 0x00882650 (FUN_00882650, sub_882650)
+   *
+   * What it does:
+   * Releases backing storage for one saved-game-army-info vector lane and
+   * resets begin/end/capacity pointers to null.
+   */
+  void ReleaseSavedGameArmyInfoVectorStorage(msvc8::vector<moho::SSavedGameArmyInfo>& storage)
+  {
+    auto& view = msvc8::AsVectorRuntimeView(storage);
+    if (view.begin != nullptr) {
+      for (moho::SSavedGameArmyInfo* item = view.begin; item != view.end; ++item) {
+        item->~SSavedGameArmyInfo();
+      }
+      ::operator delete(view.begin);
+    }
+
+    view.begin = nullptr;
+    view.end = nullptr;
+    view.capacityEnd = nullptr;
   }
 
   /**
@@ -33,11 +71,13 @@ namespace
     archive->ReadUInt(&count);
 
     msvc8::vector<moho::SSavedGameArmyInfo> loaded{};
-    loaded.resize(static_cast<std::size_t>(count));
+    loaded.reserve(static_cast<std::size_t>(count));
 
     gpg::RType* const elementType = moho::SSavedGameArmyInfo::StaticGetClass();
     for (unsigned int i = 0; i < count; ++i) {
-      archive->Read(elementType, &loaded[static_cast<std::size_t>(i)], NullOwnerRef());
+      moho::SSavedGameArmyInfo loadedItem{};
+      archive->Read(elementType, &loadedItem, NullOwnerRef());
+      AppendSavedGameArmyInfo(loaded, loadedItem);
     }
 
     *storage = std::move(loaded);
@@ -73,13 +113,26 @@ namespace
   void EnsureSavedGameArmyInfoVectorRegistered()
   {
     static const bool kRegistered = []() {
-      gpg::PreRegisterRType(typeid(msvc8::vector<moho::SSavedGameArmyInfo>), &gSavedGameArmyInfoVectorType);
+      (void)gpg::preregister_SSavedGameArmyInfoVectorTypeStartup();
       return true;
     }();
 
     (void)kRegistered;
   }
 } // namespace
+
+/**
+ * Address: 0x00883960 (FUN_00883960, preregister_SSavedGameArmyInfoVectorTypeStartup)
+ *
+ * What it does:
+ * Constructs/preregisters RTTI metadata for
+ * `msvc8::vector<moho::SSavedGameArmyInfo>`.
+ */
+gpg::RType* gpg::preregister_SSavedGameArmyInfoVectorTypeStartup()
+{
+  gpg::PreRegisterRType(typeid(msvc8::vector<moho::SSavedGameArmyInfo>), &gSavedGameArmyInfoVectorType);
+  return &gSavedGameArmyInfoVectorType;
+}
 
 gpg::RType* gpg::ResolveSavedGameArmyInfoVectorType()
 {

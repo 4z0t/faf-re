@@ -87,6 +87,16 @@ namespace moho
     [[nodiscard]] CollisionBeamEntity* IsCollisionBeam() override;
 
     /**
+     * Address: 0x00672C70 (FUN_00672C70, Moho::CollisionBeamEntity::GetLauncher)
+     * Mangled: ?GetLauncher@CollisionBeamEntity@Moho@@QBEPAVEntity@2@XZ
+     *
+     * What it does:
+     * Returns the launcher unit's `Entity` base pointer when launcher weak-link
+     * ownership resolves; otherwise returns `nullptr`.
+     */
+    [[nodiscard]] Entity* GetLauncher() const;
+
+    /**
      * Address: 0x00672CB0 (FUN_00672CB0, Moho::CollisionBeamEntity::GetBoneCount)
      * Mangled: ?GetBoneCount@CollisionBeamEntity@Moho@@UBEHXZ
      *
@@ -123,6 +133,14 @@ namespace moho
      * Toggles collision-check processing for the beam entity.
      */
     void EnableCollisionCheck(bool enabled);
+
+    /**
+     * Address: 0x006732C0 (FUN_006732C0, ?IsEnabled@CollisionBeamEntity@Moho@@QBE_NXZ)
+     *
+     * What it does:
+     * Returns whether collision-check processing is currently enabled.
+     */
+    [[nodiscard]] bool IsEnabled() const;
 
     /**
      * Address: 0x006732D0 (FUN_006732D0, Moho::CollisionBeamEntity::CheckCollision)

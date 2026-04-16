@@ -14,6 +14,22 @@
 
 namespace
 {
+  class SSTIUnitConstantDataTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "SSTIUnitConstantData";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::SSTIUnitConstantData);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
   moho::SSTIUnitConstantDataSerializer gSSTIUnitConstantDataSerializer;
 
   [[nodiscard]] gpg::RRef NullOwnerRef() noexcept
@@ -51,6 +67,22 @@ namespace
     if (statsRoot != nullptr) {
       outControl = new boost::detail::sp_counted_impl_p<moho::Stats<moho::StatItem>>(statsRoot);
     }
+  }
+
+  /**
+   * Address: 0x005CC860 (FUN_005CC860, destroy_Stats_StatItem_if_present)
+   *
+   * What it does:
+   * Runs one `Stats_StatItem` destructor and frees storage when the incoming
+   * pointer lane is non-null.
+   */
+  void DestroyStatsStatItemIfPresent(moho::Stats_StatItem* const statItem) noexcept
+  {
+    if (statItem == nullptr) {
+      return;
+    }
+
+    delete statItem;
   }
 
   void ReadStatsRootShared(
@@ -125,6 +157,20 @@ namespace
 namespace moho
 {
   gpg::RType* SSTIUnitConstantData::sType = nullptr;
+
+  /**
+   * Address: 0x0055C410 (FUN_0055C410, preregister_SSTIUnitConstantDataTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SSTIUnitConstantData`.
+   */
+  gpg::RType* preregister_SSTIUnitConstantDataTypeInfo()
+  {
+    static SSTIUnitConstantDataTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SSTIUnitConstantData), &typeInfo);
+    SSTIUnitConstantData::sType = &typeInfo;
+    return &typeInfo;
+  }
 
   /**
    * Address: 0x005BD720 (FUN_005BD720, ??0SSTIUnitConstantData@Moho@@QAE@@Z)
@@ -252,7 +298,7 @@ namespace moho
   {
     gpg::RType* type = SSTIUnitConstantData::sType;
     if (type == nullptr) {
-      type = gpg::LookupRType(typeid(SSTIUnitConstantData));
+      type = preregister_SSTIUnitConstantDataTypeInfo();
       SSTIUnitConstantData::sType = type;
     }
 
@@ -282,6 +328,7 @@ namespace moho
    */
   void register_SSTIUnitConstantDataSerializer()
   {
+    (void)preregister_SSTIUnitConstantDataTypeInfo();
     (void)InitializeSSTIUnitConstantDataSerializerSingleton();
     (void)std::atexit(&cleanup_SSTIUnitConstantDataSerializer_atexit);
   }

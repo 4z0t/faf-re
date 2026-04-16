@@ -194,6 +194,88 @@ namespace
 
     data->SerializeSaveBody(archive, nullptr);
   }
+
+  /**
+   * Address: 0x005632D0 (FUN_005632D0, copy_SSTIArmyVariableData_range_with_rollback)
+   *
+   * What it does:
+   * Copy-constructs one contiguous `SSTIArmyVariableData` range into
+   * destination storage and destroys already-constructed elements before
+   * rethrowing if a construction step throws.
+   */
+  [[maybe_unused]] moho::SSTIArmyVariableData* CopySSTIArmyVariableDataRangeWithRollback(
+    const moho::SSTIArmyVariableData* sourceBegin,
+    const moho::SSTIArmyVariableData* sourceEnd,
+    moho::SSTIArmyVariableData* destinationBegin
+  )
+  {
+    moho::SSTIArmyVariableData* destinationCursor = destinationBegin;
+    try {
+      for (const moho::SSTIArmyVariableData* sourceCursor = sourceBegin;
+           sourceCursor != sourceEnd;
+           ++sourceCursor, ++destinationCursor) {
+        if (destinationCursor != nullptr) {
+          ::new (destinationCursor) moho::SSTIArmyVariableData(*sourceCursor);
+        }
+      }
+      return destinationCursor;
+    } catch (...) {
+      for (moho::SSTIArmyVariableData* destroyCursor = destinationBegin;
+           destroyCursor != destinationCursor;
+           ++destroyCursor) {
+        destroyCursor->~SSTIArmyVariableData();
+      }
+      throw;
+    }
+  }
+
+  /**
+   * Address: 0x00757430 (FUN_00757430, copy_SSTIArmyVariableData_range_with_rollback_alt)
+   *
+   * What it does:
+   * Alternate call-convention lane for the same guarded contiguous
+   * `SSTIArmyVariableData` copy-construction routine.
+   */
+  [[maybe_unused]] moho::SSTIArmyVariableData* CopySSTIArmyVariableDataRangeWithRollbackAlt(
+    const moho::SSTIArmyVariableData* sourceBegin,
+    const moho::SSTIArmyVariableData* sourceEnd,
+    moho::SSTIArmyVariableData* destinationBegin
+  )
+  {
+    return CopySSTIArmyVariableDataRangeWithRollback(sourceBegin, sourceEnd, destinationBegin);
+  }
+
+  /**
+   * Address: 0x00754200 (FUN_00754200, fill_SSTIArmyVariableData_count_with_rollback)
+   *
+   * What it does:
+   * Copy-constructs `count` contiguous `SSTIArmyVariableData` objects from one
+   * source payload into destination storage and destroys already-constructed
+   * elements before rethrowing if construction fails.
+   */
+  [[maybe_unused]] moho::SSTIArmyVariableData* FillSSTIArmyVariableDataCountWithRollback(
+    const unsigned int count,
+    moho::SSTIArmyVariableData* destinationBegin,
+    const moho::SSTIArmyVariableData* source
+  )
+  {
+    moho::SSTIArmyVariableData* destinationCursor = destinationBegin;
+    try {
+      for (unsigned int i = 0; i < count; ++i, ++destinationCursor) {
+        if (destinationCursor != nullptr) {
+          ::new (destinationCursor) moho::SSTIArmyVariableData(*source);
+        }
+      }
+      return destinationCursor;
+    } catch (...) {
+      for (moho::SSTIArmyVariableData* destroyCursor = destinationBegin;
+           destroyCursor != destinationCursor;
+           ++destroyCursor) {
+        destroyCursor->~SSTIArmyVariableData();
+      }
+      throw;
+    }
+  }
 } // namespace
 
 namespace moho

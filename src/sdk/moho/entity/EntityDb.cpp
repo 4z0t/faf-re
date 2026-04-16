@@ -41,6 +41,17 @@ namespace moho
   static_assert(offsetof(CEntityDbIdPoolNode, color) == 0xCC8, "CEntityDbIdPoolNode::color offset must be 0xCC8");
   static_assert(offsetof(CEntityDbIdPoolNode, isNil) == 0xCC9, "CEntityDbIdPoolNode::isNil offset must be 0xCC9");
   static_assert(sizeof(CEntityDbIdPoolNode) == 0xCD0, "CEntityDbIdPoolNode size must be 0xCD0");
+
+  struct CEntityDbBoundedPropQueueNode
+  {
+    std::uint8_t mUnknown0000_0007[0x08]{};        // +0x00
+    CEntityDbBoundedPropQueueNode** mLinkBackRef;   // +0x08
+    CEntityDbBoundedPropQueueNode* mLinkNext;       // +0x0C
+    std::uint32_t mUnknown0010;                     // +0x10
+  };
+  static_assert(
+    sizeof(CEntityDbBoundedPropQueueNode) == 0x14, "CEntityDbBoundedPropQueueNode size must be 0x14"
+  );
 } // namespace moho
 
 namespace
@@ -248,6 +259,54 @@ namespace
 
     if (!queue.heap.empty()) {
       SiftBoundedPropDown(queue, 0u);
+    }
+
+    return removedProp;
+  }
+
+  [[nodiscard]] moho::Prop* RemoveBoundedPropByHandle(
+    BoundedPropQueueRuntime& queue,
+    const std::int32_t handleIndex
+  )
+  {
+    if (handleIndex < 0) {
+      return nullptr;
+    }
+
+    const std::size_t handle = static_cast<std::size_t>(handleIndex);
+    if (handle >= queue.handleToHeapIndex.size()) {
+      return nullptr;
+    }
+
+    const std::int32_t heapIndex = queue.handleToHeapIndex[handle];
+    if (heapIndex < 0) {
+      return nullptr;
+    }
+
+    const std::size_t removeIndex = static_cast<std::size_t>(heapIndex);
+    if (removeIndex >= queue.heap.size()) {
+      return nullptr;
+    }
+
+    const std::size_t lastIndex = queue.heap.size() - 1u;
+    SwapBoundedPropHeapEntries(queue, removeIndex, lastIndex);
+
+    std::unique_ptr<BoundedPropQueueEntry> removed = std::move(queue.heap.back());
+    queue.heap.pop_back();
+
+    moho::Prop* removedProp = nullptr;
+    if (removed) {
+      removedProp = removed->weakProp.GetObject();
+      if (removedProp != nullptr) {
+        removedProp->mHandleIndex = -1;
+      }
+      removed->weakProp.ResetFromObject(nullptr);
+      ReleaseBoundedPropHandle(queue, removed->handleIndex);
+    }
+
+    if (removeIndex < queue.heap.size()) {
+      SiftBoundedPropDown(queue, removeIndex);
+      SiftBoundedPropUp(queue, removeIndex);
     }
 
     return removedProp;
@@ -614,6 +673,20 @@ namespace
     return childOrParent;
   }
 
+  /**
+   * Address: 0x006878C0 (FUN_006878C0)
+   *
+   * What it does:
+   * Advances one id-pool map node cursor to the next in-order sentinel-tree
+   * node and mirrors the advanced node back to the caller cursor lane.
+   */
+  [[maybe_unused]] [[nodiscard]] moho::CEntityDbIdPoolNode*
+  AdvanceIdPoolNodeCursor(moho::CEntityDbIdPoolNode*& cursor) noexcept
+  {
+    cursor = NextNodeInSentinelTree(cursor);
+    return cursor;
+  }
+
   template <typename TNode>
   void ClearSentinelTreeNodes(TNode* const head) noexcept
   {
@@ -662,21 +735,88 @@ namespace
     return head;
   }
 
+  void ClearEntityListNodes(moho::CEntityDbListHead* const head) noexcept;
+
+  /**
+   * Address: 0x006868C0 (FUN_006868C0)
+   *
+   * What it does:
+   * Appends one bounded-prop queue record to contiguous storage, preserving
+   * the record payload and returning a pointer to the stored element.
+   */
+  [[nodiscard]] BoundedPropQueueEntry*
+  AppendBoundedPropQueueEntry(msvc8::vector<BoundedPropQueueEntry>& entries, const BoundedPropQueueEntry& entry)
+  {
+    entries.push_back(entry);
+    return &entries.back();
+  }
+
+  void DestroyBoundedPropQueueNodeRange(
+    moho::CEntityDbBoundedPropQueueNode* begin,
+    moho::CEntityDbBoundedPropQueueNode* const end
+  ) noexcept
+  {
+    while (begin != nullptr && begin != end) {
+      if (begin->mLinkBackRef != nullptr) {
+        moho::CEntityDbBoundedPropQueueNode** const backRef = begin->mLinkBackRef;
+        if (*backRef == begin) {
+          *backRef = begin->mLinkNext;
+        }
+      }
+
+      if (begin->mLinkNext != nullptr) {
+        begin->mLinkNext->mLinkBackRef = begin->mLinkBackRef;
+      }
+
+      begin->mLinkBackRef = nullptr;
+      begin->mLinkNext = nullptr;
+      ++begin;
+    }
+  }
+
+  /**
+   * Address: 0x00684360 (FUN_00684360)
+   *
+   * What it does:
+   * Releases the bounded-prop queue lanes, unlinks each intrusive queue node
+   * from its link chain, and clears the legacy buffer pointers.
+   */
   void ResetBoundedPropQueueLane(moho::CEntityDbBoundedPropQueueRuntime& queue) noexcept
   {
+    DestroyBoundedPropQueueNodeRange(queue.start, queue.end);
+    if (queue.start != nullptr) {
+      ::operator delete(queue.start);
+    }
+
     if (queue.storageBegin) {
-      // The binary runs an element-dtor walk before deleting storage; this lane
-      // remains unresolved because gameplay-side bounded props live in
-      // `gRuntimeBoundedProps` in the current recovered implementation.
       ::operator delete(queue.storageBegin);
     }
 
+    queue.start = nullptr;
+    queue.end = nullptr;
+    queue.capacity = nullptr;
     queue.storageBegin = nullptr;
     queue.storageCurrent = nullptr;
     queue.storageEnd = nullptr;
-    queue.start = 0u;
-    queue.end = 0u;
-    queue.capacity = 0u;
+  }
+
+  /**
+   * Address: 0x00684310 (FUN_00684310)
+   *
+   * What it does:
+   * Destroys the entity-list sentinel head, releases each tracked node, and
+   * clears the cached head/size lanes.
+   */
+  void DestroyEntityListRuntime(moho::CEntityDbEntityListRuntime& entityList) noexcept
+  {
+    if (!entityList.head) {
+      return;
+    }
+
+    ClearEntityListNodes(entityList.head);
+    ::operator delete(entityList.head);
+    entityList.head = nullptr;
+    entityList.size = 0u;
   }
 
   void ClearEntityListNodes(moho::CEntityDbListHead* const head) noexcept
@@ -1169,9 +1309,9 @@ namespace moho
     mEntityList.head = AllocateEntityListHeadNode();
     mEntityList.size = 0u;
 
-    mBoundedProps.start = 0u;
-    mBoundedProps.end = 0u;
-    mBoundedProps.capacity = 0u;
+    mBoundedProps.start = nullptr;
+    mBoundedProps.end = nullptr;
+    mBoundedProps.capacity = nullptr;
     mBoundedProps.storageBegin = nullptr;
     mBoundedProps.storageCurrent = nullptr;
     mBoundedProps.storageEnd = nullptr;
@@ -1185,10 +1325,7 @@ namespace moho
   {
     ResetBoundedPropQueueLane(mBoundedProps);
 
-    ClearEntityListNodes(mEntityList.head);
-    ::operator delete(mEntityList.head);
-    mEntityList.head = nullptr;
-    mEntityList.size = 0u;
+    DestroyEntityListRuntime(mEntityList);
 
     if (mRegisteredEntitySets.next && mRegisteredEntitySets.prev) {
       mRegisteredEntitySets.prev->next = mRegisteredEntitySets.next;
@@ -1333,7 +1470,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x005C87A0 callsite shape (Moho::CUnitIterAllArmies payload)
+    * Alias of FUN_005C87A0 (non-canonical helper lane).
    */
   Unit* CEntityDb::UnitFromAllUnitsNode(const CEntityDbAllUnitsNode* const node) noexcept
   {
@@ -1421,6 +1558,24 @@ namespace moho
     }
 
     return PushBoundedPropEntry(queue, prop, prop->mPriorityInfo.mPriority, prop->mPriorityInfo.mBoundedTick);
+  }
+
+  /**
+   * Address: 0x00684CE0 (FUN_00684CE0, ?RemoveBoundedProp@EntityDB@Moho@@QAEXW4Handle@?$PriorityQueue@USPropPriorityInfo@Moho@@V?$WeakPtr@VProp@Moho@@@2@@gpg@@@Z)
+   * Mangled: ?RemoveBoundedProp@EntityDB@Moho@@QAEXW4Handle@?$PriorityQueue@USPropPriorityInfo@Moho@@V?$WeakPtr@VProp@Moho@@@2@@gpg@@@Z
+   *
+   * What it does:
+   * Resolves one bounded-prop queue handle to its heap entry and removes it
+   * from runtime bounded-prop storage.
+   */
+  void CEntityDb::RemoveBoundedProp(const std::int32_t handle)
+  {
+    auto it = gRuntimeBoundedProps.find(this);
+    if (it == gRuntimeBoundedProps.end()) {
+      return;
+    }
+
+    (void)RemoveBoundedPropByHandle(it->second, handle);
   }
 
   msvc8::list<Entity*>& CEntityDb::Entities() noexcept

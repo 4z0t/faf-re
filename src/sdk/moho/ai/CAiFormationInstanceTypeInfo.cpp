@@ -94,7 +94,14 @@ namespace
     return out;
   }
 
-  void AddCFormationInstanceBase(gpg::RType* const typeInfo)
+  /**
+   * Address: 0x0059DB00 (FUN_0059DB00)
+   *
+   * What it does:
+   * Registers `CFormationInstance` as one reflected base lane for
+   * `CAiFormationInstance` at offset `+0x00`.
+   */
+  void AddCFormationInstanceBaseToCAiFormationInstanceType(gpg::RType* const typeInfo)
   {
     gpg::RType* const baseType = CachedCFormationInstanceType();
     if (!baseType) {
@@ -165,7 +172,7 @@ void CAiFormationInstanceTypeInfo::Init()
   dtrFunc_ = &CAiFormationInstanceTypeInfo::Destruct;
 
   gpg::RType::Init();
-  AddCFormationInstanceBase(this);
+  AddCFormationInstanceBaseToCAiFormationInstanceType(this);
   Finish();
 }
 

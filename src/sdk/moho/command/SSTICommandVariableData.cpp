@@ -1,6 +1,9 @@
 #include "moho/command/SSTICommandVariableData.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
+#include <new>
 #include <typeinfo>
 
 #include "gpg/core/utils/Global.h"
@@ -8,12 +11,44 @@
 
 namespace
 {
+  class SSTICommandVariableDataTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "SSTICommandVariableData";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::SSTICommandVariableData);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
   moho::SSTICommandVariableDataSerializer gSSTICommandVariableDataSerializer{};
 
   gpg::RType* gEntIdVectorType = nullptr;
   gpg::RType* gUnitCommandType = nullptr;
   gpg::RType* gTargetType = nullptr;
   gpg::RType* gCellVectorType = nullptr;
+
+  struct SSTICommandVariableDataSlotRuntime
+  {
+    std::uint32_t mHeaderWord0 = 0;                  // +0x00
+    std::uint32_t mHeaderWord1 = 0;                  // +0x04
+    moho::SSTICommandVariableData mVariableData{};   // +0x08
+  };
+
+  static_assert(
+    offsetof(SSTICommandVariableDataSlotRuntime, mVariableData) == 0x08,
+    "SSTICommandVariableDataSlotRuntime::mVariableData offset must be 0x08"
+  );
+  static_assert(
+    sizeof(SSTICommandVariableDataSlotRuntime) >= (sizeof(moho::SSTICommandVariableData) + 0x08),
+    "SSTICommandVariableDataSlotRuntime must include 8-byte slot header plus variable payload"
+  );
 
   template <typename THelper>
   [[nodiscard]] gpg::SerHelperBase* HelperSelfNode(THelper& helper) noexcept
@@ -80,6 +115,105 @@ namespace
     (void)UnlinkHelperNode(gSSTICommandVariableDataSerializer);
   }
 
+  [[nodiscard]] SSTICommandVariableDataSlotRuntime* CopySSTICommandVariableDataSlotRangeWithRollback(
+    const SSTICommandVariableDataSlotRuntime* sourceBegin,
+    const SSTICommandVariableDataSlotRuntime* sourceEnd,
+    SSTICommandVariableDataSlotRuntime* destinationBegin
+  )
+  {
+    SSTICommandVariableDataSlotRuntime* destinationCursor = destinationBegin;
+    try {
+      for (const SSTICommandVariableDataSlotRuntime* sourceCursor = sourceBegin;
+           sourceCursor != sourceEnd;
+           ++sourceCursor, ++destinationCursor) {
+        if (destinationCursor != nullptr) {
+          destinationCursor->mHeaderWord0 = sourceCursor->mHeaderWord0;
+          ::new (&destinationCursor->mVariableData) moho::SSTICommandVariableData(sourceCursor->mVariableData);
+        }
+      }
+      return destinationCursor;
+    } catch (...) {
+      for (SSTICommandVariableDataSlotRuntime* destroyCursor = destinationBegin;
+           destroyCursor != destinationCursor;
+           ++destroyCursor) {
+        destroyCursor->mVariableData.~SSTICommandVariableData();
+      }
+      throw;
+    }
+  }
+
+  /**
+   * Address: 0x005634F0 (FUN_005634F0, copy_SSTICommandVariableData_slot_range_with_rollback)
+   *
+   * What it does:
+   * Copy-constructs one contiguous slot range (`header + SSTICommandVariableData`)
+   * into destination storage and destroys already-constructed payload lanes
+   * before rethrowing if a construction step throws.
+   */
+  [[maybe_unused]] SSTICommandVariableDataSlotRuntime* CopySSTICommandVariableDataSlotRangeWithRollbackLegacy(
+    const SSTICommandVariableDataSlotRuntime* sourceBegin,
+    const SSTICommandVariableDataSlotRuntime* sourceEnd,
+    SSTICommandVariableDataSlotRuntime* destinationBegin
+  )
+  {
+    return CopySSTICommandVariableDataSlotRangeWithRollback(sourceBegin, sourceEnd, destinationBegin);
+  }
+
+  /**
+   * Address: 0x006ED830 (FUN_006ED830, copy_SSTICommandVariableData_slot_range_with_rollback_alt)
+   *
+   * What it does:
+   * Alternate call-convention lane for the same guarded slot-range copy helper.
+   */
+  [[maybe_unused]] SSTICommandVariableDataSlotRuntime* CopySSTICommandVariableDataSlotRangeWithRollbackLegacyAlt(
+    const SSTICommandVariableDataSlotRuntime* sourceBegin,
+    const SSTICommandVariableDataSlotRuntime* sourceEnd,
+    SSTICommandVariableDataSlotRuntime* destinationBegin
+  )
+  {
+    return CopySSTICommandVariableDataSlotRangeWithRollback(sourceBegin, sourceEnd, destinationBegin);
+  }
+
+  /**
+   * Address: 0x006EC460 (FUN_006EC460, copy_SSTICommandVariableData_slot_range_with_rollback_counted)
+   *
+   * What it does:
+   * Copy-constructs one counted slot range (`header + SSTICommandVariableData`)
+   * into destination storage and destroys already-constructed payload lanes
+   * before rethrowing if a copy step throws.
+   */
+  [[maybe_unused]] SSTICommandVariableDataSlotRuntime* CopySSTICommandVariableDataSlotRangeWithRollbackCounted(
+    const std::uint32_t count,
+    SSTICommandVariableDataSlotRuntime* const destinationBegin,
+    const SSTICommandVariableDataSlotRuntime* const sourceBegin
+  )
+  {
+    if (count == 0u) {
+      return destinationBegin;
+    }
+
+    if (destinationBegin == nullptr || sourceBegin == nullptr) {
+      return destinationBegin;
+    }
+
+    SSTICommandVariableDataSlotRuntime* destinationCursor = destinationBegin;
+    try {
+      for (std::uint32_t i = 0; i < count; ++i, ++destinationCursor) {
+        const SSTICommandVariableDataSlotRuntime* const sourceCursor = sourceBegin + i;
+        destinationCursor->mHeaderWord0 = sourceCursor->mHeaderWord0;
+        ::new (&destinationCursor->mVariableData) moho::SSTICommandVariableData(sourceCursor->mVariableData);
+      }
+      return destinationCursor;
+    } catch (...) {
+      for (SSTICommandVariableDataSlotRuntime* destroyCursor = destinationBegin;
+           destroyCursor != destinationCursor;
+           ++destroyCursor) {
+        destroyCursor->mVariableData.~SSTICommandVariableData();
+      }
+      throw;
+    }
+  }
+
   void register_SSTICommandVariableDataSerializer()
   {
     InitializeHelperNode(gSSTICommandVariableDataSerializer);
@@ -93,6 +227,19 @@ namespace
 namespace moho
 {
   gpg::RType* SSTICommandVariableData::sType = nullptr;
+
+  /**
+   * Address: 0x005528C0 (FUN_005528C0, preregister_SSTICommandVariableDataTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SSTICommandVariableData`.
+   */
+  gpg::RType* preregister_SSTICommandVariableDataTypeInfo()
+  {
+    static SSTICommandVariableDataTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SSTICommandVariableData), &typeInfo);
+    return &typeInfo;
+  }
 
   /**
    * Address: 0x00552A00 (FUN_00552A00, Moho::SSTICommandVariableData::SSTICommandVariableData)
@@ -287,7 +434,7 @@ namespace moho
   {
     gpg::RType* type = SSTICommandVariableData::sType;
     if (type == nullptr) {
-      type = gpg::LookupRType(typeid(SSTICommandVariableData));
+      type = preregister_SSTICommandVariableDataTypeInfo();
       SSTICommandVariableData::sType = type;
     }
 
@@ -305,6 +452,7 @@ namespace
   {
     SSTICommandVariableDataSerializerBootstrap()
     {
+      (void)moho::preregister_SSTICommandVariableDataTypeInfo();
       register_SSTICommandVariableDataSerializer();
     }
   };

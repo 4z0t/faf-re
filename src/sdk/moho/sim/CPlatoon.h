@@ -20,6 +20,7 @@ namespace gpg
 {
   class RRef;
   class RType;
+  class SerConstructResult;
 } // namespace gpg
 
 namespace moho
@@ -52,6 +53,15 @@ namespace moho
     static CPlatoon* Create(Sim* sim, CArmyImpl* army, const char* platoonName, const char* aiPlan);
 
     /**
+     * Address: 0x00724BA0 (FUN_00724BA0, Moho::CPlatoon::CPlatoon)
+     *
+     * What it does:
+     * Constructs one serializer-facing platoon object with zeroed runtime
+     * lanes and no `OnCreate` script dispatch.
+     */
+    CPlatoon();
+
+    /**
      * Address: 0x00724CC0 (FUN_00724CC0, Moho::CPlatoon::CPlatoon)
      *
      * What it does:
@@ -59,6 +69,15 @@ namespace moho
      * lanes, and dispatches script `OnCreate(plan)`.
      */
     CPlatoon(Sim* sim, CArmyImpl* army, const char* platoonName, const char* aiPlan);
+
+    /**
+     * Address: 0x0072A0D0 (FUN_0072A0D0, sub_72A0D0)
+     *
+     * What it does:
+     * Allocates one default platoon object and publishes it through serializer
+     * construct-result lanes as an unowned reflected reference.
+     */
+    static void ConstructForSerializer(gpg::SerConstructResult* result);
 
     /**
      * Address: 0x00724EB0 (FUN_00724EB0, Moho::CPlatoon::~CPlatoon)
@@ -105,6 +124,25 @@ namespace moho
      * containing the provided unit; otherwise returns `SQUADCLASS_Unassigned`.
      */
     ESquadClass GetSquadClass(const Unit* unit) const;
+
+    /**
+     * Address: 0x00725280 (FUN_00725280, sub_725280)
+     *
+     * What it does:
+     * Finds the first squad lane matching `squadClass` and appends all units
+     * from `units` into that squad's unit set, then invalidates cached Lua
+     * unit-list state.
+     */
+    void AppendUnitsToSquad(ESquadClass squadClass, const SEntitySetTemplateUnit& units);
+
+    /**
+     * Address: 0x007252D0 (FUN_007252D0, sub_7252D0)
+     *
+     * What it does:
+     * Builds a one-unit temporary set for `unit`, appends it into the first
+     * matching `squadClass` lane, and invalidates cached Lua unit-list state.
+     */
+    void AppendUnitToSquad(ESquadClass squadClass, Unit* unit);
 
     /**
      * Address: 0x00725630 (FUN_00725630, Moho::CPlatoon::GetSquad)
@@ -179,6 +217,30 @@ namespace moho
      * `OnDestroy/OnCreate` script callbacks when the plan actually changes.
      */
     void SwitchAIPlan(const char* planName);
+
+    /**
+     * Address: 0x0072B720 (FUN_0072B720, Moho::CPlatoon::GetArmy)
+     *
+     * What it does:
+     * Returns this platoon's owning army lane.
+     */
+    [[nodiscard]] IArmy* GetArmy() const;
+
+    /**
+     * Address: 0x0072B7A0 (FUN_0072B7A0, Moho::CPlatoon::GetLifetimeStat1)
+     *
+     * What it does:
+     * Returns the first integer lifetime-stat lane.
+     */
+    [[nodiscard]] std::int32_t GetLifetimeStat1() const;
+
+    /**
+     * Address: 0x0072B7B0 (FUN_0072B7B0, Moho::CPlatoon::GetLifetimeStat2)
+     *
+     * What it does:
+     * Returns the second integer lifetime-stat lane.
+     */
+    [[nodiscard]] std::int32_t GetLifetimeStat2() const;
 
     /**
      * Address: 0x0072B730 (FUN_0072B730, Moho::CPlatoon::SetPlatoonFormationOverride)

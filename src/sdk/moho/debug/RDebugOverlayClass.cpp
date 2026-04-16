@@ -145,9 +145,18 @@ namespace moho
   }
 
   /**
-   * Address: 0x0064C4D0 (FUN_0064C4D0, scalar deleting body)
+   * Address: 0x0064C400 (FUN_0064C400, non-deleting destructor body)
+   * Thunk entry: 0x0064C4D0 (FUN_0064C4D0, scalar deleting destructor)
    */
-  RDebugOverlayClass::~RDebugOverlayClass() = default;
+  RDebugOverlayClass::~RDebugOverlayClass()
+  {
+    mOverlayDescription.assign_owned("");
+    mOverlayToken.assign_owned("");
+    mOverlayClassLink.ListUnlink();
+    mOverlayClassLink.ListResetLinks();
+    fields_ = {};
+    bases_ = {};
+  }
 
   /**
    * Address: 0x00651920 (FUN_00651920)

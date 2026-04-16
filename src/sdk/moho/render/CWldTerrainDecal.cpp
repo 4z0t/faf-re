@@ -365,6 +365,101 @@ namespace moho
   }
 
   /**
+   * Address: 0x0089D310 (FUN_0089D310, ?SetHandle@CWldTerrainDecal@Moho@@QAEXH@Z)
+   * Mangled: ?SetHandle@CWldTerrainDecal@Moho@@QAEXH@Z
+   *
+   * What it does:
+   * Stores one runtime handle lane used by decal registration systems.
+   */
+  void CWldTerrainDecal::SetHandle(const int handle)
+  {
+    mRuntimeHandle = handle;
+  }
+
+  /**
+   * Address: 0x0089D320 (FUN_0089D320, ?SetScale@CWldTerrainDecal@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z)
+   * Mangled: ?SetScale@CWldTerrainDecal@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z
+   *
+   * What it does:
+   * Stores scale lanes and tail-calls `Update` via the vtable slot.
+   */
+  void CWldTerrainDecal::SetScale(const Wm3::Vec3f& scale)
+  {
+    mScale = scale;
+    Update();
+  }
+
+  /**
+   * Address: 0x0089D340 (FUN_0089D340, ?SetPosition@CWldTerrainDecal@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z)
+   * Mangled: ?SetPosition@CWldTerrainDecal@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z
+   *
+   * What it does:
+   * Stores world-position lanes and tail-calls `Update` via the vtable slot.
+   */
+  void CWldTerrainDecal::SetPosition(const Wm3::Vec3f& position)
+  {
+    mPosition = position;
+    Update();
+  }
+
+  /**
+   * Address: 0x0089D360 (FUN_0089D360, ?SetOrientation@CWldTerrainDecal@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z)
+   * Mangled: ?SetOrientation@CWldTerrainDecal@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z
+   *
+   * What it does:
+   * Stores orientation lanes and tail-calls `Update` via the vtable slot.
+   */
+  void CWldTerrainDecal::SetOrientation(const Wm3::Vec3f& orientation)
+  {
+    mOrientation = orientation;
+    Update();
+  }
+
+  /**
+   * Address: 0x0089D380 (FUN_0089D380, ?SetParameters@CWldTerrainDecal@Moho@@QAEXABV?$Vector3@M@Wm3@@00@Z)
+   * Mangled: ?SetParameters@CWldTerrainDecal@Moho@@QAEXABV?$Vector3@M@Wm3@@00@Z
+   *
+   * What it does:
+   * Stores all transform lanes (scale/position/orientation) and tail-calls `Update`.
+   */
+  void CWldTerrainDecal::SetParameters(
+    const Wm3::Vec3f& orientation,
+    const Wm3::Vec3f& position,
+    const Wm3::Vec3f& scale
+  )
+  {
+    mScale = scale;
+    mPosition = position;
+    mOrientation = orientation;
+    Update();
+  }
+
+  /**
+   * Address: 0x0089D3E0 (FUN_0089D3E0, ?SetNearCutoffLOD@CWldTerrainDecal@Moho@@QAEXM@Z)
+   * Mangled: ?SetNearCutoffLOD@CWldTerrainDecal@Moho@@QAEXM@Z
+   *
+   * What it does:
+   * Clears near-cutoff fade to zero (argument is ignored by binary behavior).
+   */
+  void CWldTerrainDecal::SetNearCutoffLOD(const float nearCutoffLod)
+  {
+    (void)nearCutoffLod;
+    mNearCutoff = 0.0f;
+  }
+
+  /**
+   * Address: 0x0089D3F0 (FUN_0089D3F0, ?SetRemoveTick@CWldTerrainDecal@Moho@@QAEXH@Z)
+   * Mangled: ?SetRemoveTick@CWldTerrainDecal@Moho@@QAEXH@Z
+   *
+   * What it does:
+   * Stores one absolute remove-tick lane for lifetime scheduling.
+   */
+  void CWldTerrainDecal::SetRemoveTick(const int removeTick)
+  {
+    mRemoveTick = removeTick;
+  }
+
+  /**
    * Address: 0x0089DB50 (FUN_0089DB50, Moho::CWldTerrainDecal::GetTexture)
    *
    * What it does:
@@ -405,6 +500,29 @@ namespace moho
       (mPosition.z + (corner.y * (mScale.z * cosAngle)))
       + (corner.x * (mScale.x * sinAngle));
     return out;
+  }
+
+  /**
+   * Address: 0x0089D490 (FUN_0089D490, ?IsInside@CWldTerrainDecal@Moho@@QBE_NABV?$Vector2@M@Wm3@@@Z)
+   * Mangled: ?IsInside@CWldTerrainDecal@Moho@@QBE_NABV?$Vector2@M@Wm3@@@Z
+   *
+   * What it does:
+   * Applies inverse decal translation + yaw rotation + scale to a world-space
+   * XZ point and returns true when the mapped UV lies in `[0, 1)` on both axes.
+   */
+  bool CWldTerrainDecal::IsInside(const Wm3::Vec2f& worldXZ) const
+  {
+    const float inverseYaw = -mOrientation.y;
+    const float cosine = static_cast<float>(std::cos(inverseYaw));
+    const float sine = static_cast<float>(std::sin(inverseYaw));
+
+    const float normalizedX = (worldXZ.x - mPosition.x) * (1.0f / mScale.x);
+    const float normalizedZ = (worldXZ.y - mPosition.z) * (1.0f / mScale.z);
+
+    const float transformedV = (normalizedZ * cosine) + (normalizedX * sine);
+    const float transformedU = (normalizedX * cosine) - (normalizedZ * sine);
+
+    return transformedU >= 0.0f && transformedU < 1.0f && transformedV >= 0.0f && transformedV < 1.0f;
   }
 
   /**
@@ -538,6 +656,96 @@ namespace moho
   }
 
   /**
+   * Address: 0x0089DBB0 (FUN_0089DBB0, ?GetTextureMatrix@CWldTerrainDecal@Moho@@QBE?AUVMatrix4@2@HM@Z)
+   * Mangled: ?GetTextureMatrix@CWldTerrainDecal@Moho@@QBE?AUVMatrix4@2@HM@Z
+   *
+   * What it does:
+   * Returns the cached texture projection matrix.
+   */
+  VMatrix4 CWldTerrainDecal::GetTextureMatrix(const int slot, const float lod) const
+  {
+    (void)slot;
+    (void)lod;
+    return mTexMatrix;
+  }
+
+  /**
+   * Address: 0x0089DBD0 (FUN_0089DBD0, ?GetTangentMatrix@CWldTerrainDecal@Moho@@QBE?AUVMatrix4@2@HM@Z)
+   * Mangled: ?GetTangentMatrix@CWldTerrainDecal@Moho@@QBE?AUVMatrix4@2@HM@Z
+   *
+   * What it does:
+   * Returns the cached tangent matrix.
+   */
+  VMatrix4 CWldTerrainDecal::GetTangentMatrix(const int slot, const float lod) const
+  {
+    (void)slot;
+    (void)lod;
+    return mTangentMatrix;
+  }
+
+  /**
+   * Address: 0x0089DBF0 (FUN_0089DBF0, ?GetExtents@CWldTerrainDecal@Moho@@QBEXHMPAV?$Vector2@M@Wm3@@0@Z)
+   * Mangled: ?GetExtents@CWldTerrainDecal@Moho@@QBEXHMPAV?$Vector2@M@Wm3@@0@Z
+   *
+   * What it does:
+   * Writes current projected min/max extents in XZ space.
+   */
+  void CWldTerrainDecal::GetExtents(
+    const int slot,
+    const float lod,
+    Wm3::Vec2f* const minOut,
+    Wm3::Vec2f* const maxOut
+  ) const
+  {
+    (void)slot;
+    (void)lod;
+    minOut->x = mBoundsMinX;
+    minOut->y = mBoundsMinZ;
+    maxOut->x = mBoundsMaxX;
+    maxOut->y = mBoundsMaxZ;
+  }
+
+  /**
+   * Address: 0x0089DC20 (FUN_0089DC20, ?GetCurrentAlpha@CWldTerrainDecal@Moho@@QBEMHM@Z)
+   * Mangled: ?GetCurrentAlpha@CWldTerrainDecal@Moho@@QBEMHM@Z
+   *
+   * What it does:
+   * Returns the current alpha lane.
+   */
+  float CWldTerrainDecal::GetCurrentAlpha(const int slot, const float lod) const
+  {
+    (void)slot;
+    (void)lod;
+    return mCurrentAlpha;
+  }
+
+  /**
+   * Address: 0x0089DC30 (FUN_0089DC30, ?AdjustAlpha@CWldTerrainDecal@Moho@@QAEMMM@Z)
+   * Mangled: ?AdjustAlpha@CWldTerrainDecal@Moho@@QAEMMM@Z
+   *
+   * What it does:
+   * Adds/subtracts one delta from current alpha and clamps to the binary branch outcome.
+   */
+  float CWldTerrainDecal::AdjustAlpha(const float delta, const float lod)
+  {
+    (void)lod;
+
+    const float originalAlpha = mCurrentAlpha;
+    float upperCandidate = originalAlpha + delta;
+    const float lowerCandidate = originalAlpha - delta;
+
+    if (upperCandidate > 0.0f) {
+      upperCandidate = 0.0f;
+    }
+    if (lowerCandidate > upperCandidate) {
+      upperCandidate = lowerCandidate;
+    }
+
+    mCurrentAlpha = upperCandidate;
+    return upperCandidate;
+  }
+
+  /**
    * Address: 0x0089D3C0 (FUN_0089D3C0, Moho::CWldTerrainDecal::SetCutoffLOD)
    *
    * What it does:
@@ -596,3 +804,4 @@ namespace moho
     mCachedFlatResult = 0;
   }
 } // namespace moho
+

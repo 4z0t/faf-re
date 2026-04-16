@@ -19,6 +19,14 @@ namespace moho
   {
   public:
     /**
+     * Address: 0x00563980 (FUN_00563980, Moho::EEconResourceTypeInfo::EEconResourceTypeInfo)
+     *
+     * What it does:
+     * Preregisters the enum type descriptor for `EEconResource` with the reflection registry.
+     */
+    EEconResourceTypeInfo();
+
+    /**
      * Address: 0x00563A40 (FUN_00563A40, Moho::EEconResourceTypeInfo::dtr)
      */
     ~EEconResourceTypeInfo() override;
@@ -42,4 +50,3 @@ namespace moho
 
   static_assert(sizeof(EEconResourceTypeInfo) == 0x78, "EEconResourceTypeInfo size must be 0x78");
 } // namespace moho
-

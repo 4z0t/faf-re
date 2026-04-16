@@ -41,7 +41,12 @@ int gpg::STR_Utf8Len(
   return i;
 }
 
-// 0x00938040
+/**
+ * Address: 0x00938040 (FUN_00938040, gpg::STR_NextUtf8Char)
+ *
+ * What it does:
+ * Advances to the next UTF-8 codepoint boundary, stopping at NUL.
+ */
 const char* gpg::STR_NextUtf8Char(
   const char* str
 )
@@ -374,7 +379,13 @@ int gpg::STR_GetNextWordStartIndex(
   return index;
 }
 
-// 0x00938190
+/**
+ * Address: 0x00938190 (FUN_00938190, gpg::STR_EndsWith)
+ *
+ * What it does:
+ * Returns whether `str` has suffix `end`, requiring `str` to be strictly
+ * longer than `end`.
+ */
 bool gpg::STR_EndsWith(
   const StrArg str,
   const StrArg end

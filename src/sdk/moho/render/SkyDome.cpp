@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "gpg/core/containers/CheckedArrayAllocationLanes.h"
 #include "gpg/gal/Device.hpp"
 #include "gpg/gal/IndexBufferContext.hpp"
 #include "gpg/gal/VertexBufferContext.hpp"
@@ -43,6 +44,33 @@ namespace
     0, 1, 2,
     2, 1, 3,
   };
+
+  /**
+   * Address: 0x0081A590 (FUN_0081A590)
+   *
+   * What it does:
+   * Allocates one decal-upload node and initializes link lanes plus the
+   * 0x28-byte packed decal-vertex payload.
+   */
+  [[maybe_unused]] [[nodiscard]] moho::SkyDomeDecalUploadNode* AllocateSkyDomeDecalUploadNode(
+    moho::SkyDomeDecalUploadNode* const next,
+    moho::SkyDomeDecalUploadNode* const prev,
+    const void* const vertexData
+  )
+  {
+    auto* const node = static_cast<moho::SkyDomeDecalUploadNode*>(
+      gpg::core::legacy::AllocateChecked48ByteLane(1u)
+    );
+
+    node->mNext = next;
+    node->mPrev = prev;
+    if (vertexData != nullptr) {
+      std::memcpy(node->mVertexData, vertexData, sizeof(node->mVertexData));
+    } else {
+      std::memset(node->mVertexData, 0, sizeof(node->mVertexData));
+    }
+    return node;
+  }
 } // namespace
 
 namespace moho

@@ -59,6 +59,29 @@ namespace
     "c:\\work\\rts\\main\\code\\src\\libs\\gpgcore\\streams\\MemBufferStream.cpp";
 
   constexpr std::uint64_t kMaxStreamPosition = 0x7FFFFFFFULL;
+
+  using SharedByteDeleter = void(__cdecl*)(void*);
+
+  /**
+   * Address: 0x0094E2F0 (FUN_0094E2F0, boost::shared_ptr_char_P_void_P::shared_ptr_char_P_void_P)
+   *
+   * What it does:
+   * Constructs one `boost::shared_ptr<char>` from raw pointer + deleter,
+   * preserving `sp_enable_shared_from_this` setup done by Boost internals.
+   */
+  boost::shared_ptr<char>* ConstructSharedByteOwnerWithDeleter(
+    boost::shared_ptr<char>* const outOwner,
+    char* const pointer,
+    const SharedByteDeleter deleter
+  )
+  {
+    if (outOwner == nullptr) {
+      return nullptr;
+    }
+
+    *outOwner = boost::shared_ptr<char>(pointer, deleter);
+    return outOwner;
+  }
 } // namespace
 
 const char* MemBufferCharTypeInfo::GetName() const
@@ -114,7 +137,8 @@ MemBuffer<char> gpg::AllocMemBuffer(
     std::memset(buff, 0, size);
   }
 
-  boost::shared_ptr<char> ptr(buff, std::free);
+  boost::shared_ptr<char> ptr;
+  (void)ConstructSharedByteOwnerWithDeleter(&ptr, buff, static_cast<SharedByteDeleter>(&std::free));
   char* const end = (buff == nullptr) ? nullptr : (buff + size);
   return MemBuffer<char>(ptr, buff, end);
 }

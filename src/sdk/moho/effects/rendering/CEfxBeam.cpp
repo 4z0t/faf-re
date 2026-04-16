@@ -174,10 +174,13 @@ namespace moho
   {}
 
   /**
-   * Address: 0x00655B80 (FUN_00655B80, Moho::CEfxBeam::dtr)
+   * Address: 0x00655D80 (FUN_00655D80, non-deleting destructor body)
+   * Thunk entry: 0x00655B80 (FUN_00655B80, Moho::CEfxBeam::dtr)
    */
   CEfxBeam::~CEfxBeam()
   {
+    ResetCountedParticleTexturePtr(mBeam.mTexture1);
+    ResetCountedParticleTexturePtr(mBeam.mTexture2);
     mEnd.TargetWeakLink().UnlinkFromOwnerChain();
   }
 

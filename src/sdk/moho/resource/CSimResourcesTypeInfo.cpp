@@ -103,7 +103,7 @@ namespace moho
    */
   gpg::RRef CSimResourcesTypeInfo::NewRef()
   {
-    CSimResources* const object = new (std::nothrow) CSimResources();
+    CSimResources* const object = CSimResources::Create();
     return MakeCSimResourcesRef(object);
   }
 

@@ -31,6 +31,16 @@ namespace lua
     lua_Error(lua_State* lua_state, int errcode, const char* err);
 
     /**
+     * Address: 0x009137B0 (FUN_009137B0, lua_Error::lua_Error)
+     * Mangled: ??0lua_Error@@QAE@@Z
+     *
+     * What it does:
+     * Copy-constructs one Lua error payload, preserving the source runtime
+     * error text plus `L` and `code` lanes.
+     */
+    lua_Error(const lua_Error& error);
+
+    /**
      * Address: 0x009132A0 (FUN_009132A0, lua_RuntimeError::dtr)
      *
      * What it does:
@@ -56,6 +66,16 @@ class lua_MemError : public lua::lua_Error
 {
 public:
   /**
+   * Address: 0x0091A380 (FUN_0091A380, lua_MemError::lua_MemError)
+   * Mangled: ??0lua_MemError@@QAE@@Z
+   *
+   * What it does:
+   * Copy-constructs one memory-error lane from an existing Lua error payload
+   * and installs the derived `lua_MemError` vtable.
+   */
+  lua_MemError(const lua::lua_Error& error);
+
+  /**
    * Address: 0x0091A1F0 (FUN_0091A1F0)
    * Mangled: lua_MemError::dtr
    *
@@ -67,6 +87,48 @@ public:
 };
 
 static_assert(sizeof(lua_MemError) == 0x30, "lua_MemError size must be 0x30");
+
+/**
+ * VFTABLE: `lua_RuntimeError::`vftable''
+ *
+ * Runtime-error exception lane used by Lua protected-call failure paths.
+ */
+class lua_RuntimeError : public lua::lua_Error
+{
+public:
+  /**
+   * Address: 0x009137E0 (FUN_009137E0, lua_RuntimeError::lua_RuntimeError)
+   * Mangled: ??0lua_RuntimeError@@QAE@@Z
+   *
+   * What it does:
+   * Copy-constructs one runtime-error lane from an existing Lua error payload
+   * and installs the derived `lua_RuntimeError` vtable.
+   */
+  lua_RuntimeError(const lua::lua_Error& error);
+};
+
+static_assert(sizeof(lua_RuntimeError) == 0x30, "lua_RuntimeError size must be 0x30");
+
+/**
+ * VFTABLE: `lua_ErrorError::`vftable''
+ *
+ * Secondary error lane used when Lua error handling itself faults.
+ */
+class lua_ErrorError : public lua::lua_Error
+{
+public:
+  /**
+   * Address: 0x00914780 (FUN_00914780, lua_ErrorError::lua_ErrorError)
+   * Mangled: ??0lua_ErrorError@@QAE@@Z
+   *
+   * What it does:
+   * Copy-constructs one error-error lane from an existing Lua error payload
+   * and installs the derived `lua_ErrorError` vtable.
+   */
+  lua_ErrorError(const lua::lua_Error& error);
+};
+
+static_assert(sizeof(lua_ErrorError) == 0x30, "lua_ErrorError size must be 0x30");
 
 /**
  * VFTABLE: `lua_SyntaxError::`vftable''

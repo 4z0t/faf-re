@@ -25,6 +25,26 @@ namespace
     return cached;
   }
 
+  /**
+   * Address: 0x00547E00 (FUN_00547E00)
+   *
+   * What it does:
+   * Ensures one `msvc8::vector<moho::ResourceDeposit>` can hold at least the
+   * requested number of elements before reflected load fills it.
+   */
+  void EnsureResourceDepositLoadCapacity(ResourceDepositVector& storage, const std::size_t requiredCount)
+  {
+    if (requiredCount > 0x0CCCCCCCu) {
+      throw std::bad_alloc{};
+    }
+
+    if (requiredCount <= storage.capacity()) {
+      return;
+    }
+
+    storage.reserve(requiredCount);
+  }
+
   [[nodiscard]] gpg::RVectorType_ResourceDeposit& AcquireResourceDepositVectorType()
   {
     if (!gResourceDepositVectorTypeConstructed) {
@@ -132,7 +152,7 @@ void gpg::RVectorType_ResourceDeposit::SerLoad(
   archive->ReadUInt(&count);
 
   ResourceDepositVector loaded{};
-  loaded.reserve(static_cast<std::size_t>(count));
+  EnsureResourceDepositLoadCapacity(loaded, static_cast<std::size_t>(count));
 
   gpg::RType* const elementType = CachedResourceDepositType();
   if (!elementType) {
@@ -228,6 +248,13 @@ void gpg::RVectorType_ResourceDeposit::SetCount(void* const obj, const int count
   storage->resize(static_cast<std::size_t>(count));
 }
 
+/**
+ * Address: 0x00548C70 (FUN_00548C70, preregister_VectorResourceDepositType)
+ *
+ * What it does:
+ * Constructs/preregisters RTTI metadata for
+ * `msvc8::vector<moho::ResourceDeposit>`.
+ */
 gpg::RType* moho::preregister_VectorResourceDepositType()
 {
   auto* const typeInfo = &AcquireResourceDepositVectorType();

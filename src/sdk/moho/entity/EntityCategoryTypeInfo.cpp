@@ -11,6 +11,18 @@ using namespace moho;
 
 namespace
 {
+  /**
+   * Address: 0x00556450 (FUN_00556450)
+   *
+   * What it does:
+   * Completes startup preregistration for `EntityCategoryTypeInfo` by
+   * publishing RTTI for `EntityCategory`.
+   */
+  void preregister_EntityCategoryTypeInfoCtorLane(gpg::RType* const typeInfo)
+  {
+    gpg::PreRegisterRType(typeid(moho::EntityCategory), typeInfo);
+  }
+
   [[nodiscard]] gpg::RType* CachedEntityCategorySetType()
   {
     gpg::RType* type = moho::EntityCategorySet::sType;
@@ -76,7 +88,7 @@ namespace
 EntityCategoryTypeInfo::EntityCategoryTypeInfo()
   : gpg::RType()
 {
-  gpg::PreRegisterRType(typeid(EntityCategory), this);
+  preregister_EntityCategoryTypeInfoCtorLane(this);
 }
 
 EntityCategoryTypeInfo::~EntityCategoryTypeInfo() = default;

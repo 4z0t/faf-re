@@ -131,6 +131,15 @@ namespace moho
     RProjectileBlueprint(RRuleGameRules* owner, const RResId& resId);
 
     /**
+     * Address: 0x0051B840 (FUN_0051B840, Moho::RProjectileBlueprint::dtr)
+     *
+     * What it does:
+     * Runs non-deleting teardown for projectile-specific string lanes, then
+     * delegates to `REntityBlueprint` destruction.
+     */
+    ~RProjectileBlueprint();
+
+    /**
      * Address: 0x0051B580 (FUN_0051B580)
      * Mangled: ?GetClass@RProjectileBlueprint@Moho@@UBEPAVRType@gpg@@XZ
      *

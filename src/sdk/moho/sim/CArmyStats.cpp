@@ -1056,6 +1056,47 @@ namespace moho
   }
 
   /**
+   * Address: 0x00593220 (FUN_00593220, func_SetUnitStat)
+   */
+  std::int32_t CArmyStats::SetUnitStat(const char* const statPath, const std::int32_t* const value)
+  {
+    CArmyStatItem* const item = GetItem(statPath);
+    item->SynchronizeAsInt();
+
+    volatile std::int32_t* const counter = &item->mPrimaryValueBits;
+    for (;;) {
+      const std::int32_t observed = AtomicCompareExchangeI32(counter, 0, 0);
+      const std::int32_t result = AtomicCompareExchangeI32(counter, *value, observed);
+      if (result == observed) {
+        return result;
+      }
+    }
+  }
+
+  /**
+   * Address: 0x005931E0 (FUN_005931E0, Moho::CArmyStats::SetIntStatAtomic)
+   *
+   * What it does:
+   * Resolves one stat item by path, marks it as an integer lane, and then
+   * repeatedly compares and swaps the stored counter until the replace
+   * succeeds, returning the previous counter value.
+   */
+  std::int32_t CArmyStats::SetIntStatAtomic(const char* const statPath, const std::int32_t* const value)
+  {
+    CArmyStatItem* const item = GetItem(statPath);
+    item->SynchronizeAsInt();
+
+    volatile std::int32_t* const counter = &item->mPrimaryValueBits;
+    for (;;) {
+      const std::int32_t observed = AtomicCompareExchangeI32(counter, 0, 0);
+      const std::int32_t previous = AtomicCompareExchangeI32(counter, *value, observed);
+      if (previous == observed) {
+        return previous;
+      }
+    }
+  }
+
+  /**
    * Address: 0x005932C0 (FUN_005932C0, sub_5932C0)
    */
   std::int32_t CArmyStats::SetUnitStatGreaterOf(const char* const statPath, const std::int32_t* const candidate)
@@ -1258,6 +1299,13 @@ namespace moho
     item->SetValue(value);
   }
 
+  /**
+   * Address: 0x0070DDC0 (FUN_0070DDC0, CArmyStats name-index tree cleanup)
+   *
+   * What it does:
+   * Destroys all name-index nodes, frees the sentinel head, and resets the
+   * name-index runtime lane.
+   */
   void CArmyStats::DestroyNameIndexTree()
   {
     ArmyNameIndexNode* const head = mNameIndex.head;
@@ -1271,6 +1319,13 @@ namespace moho
     mNameIndex.size = 0;
   }
 
+  /**
+   * Address: 0x007015C0 (FUN_007015C0, CArmyStats auxiliary trigger-list cleanup)
+   *
+   * What it does:
+   * Destroys all trigger-list nodes, frees the sentinel head, and resets the
+   * auxiliary trigger runtime lane.
+   */
   void CArmyStats::DestroyAuxList()
   {
     ArmyTriggerNode* const head = mAuxHead;

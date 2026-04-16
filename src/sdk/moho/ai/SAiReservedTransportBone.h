@@ -63,4 +63,22 @@ namespace moho
   static_assert(offsetof(SAiReservedTransportBone, attachBoneIndex) == 0x04, "SAiReservedTransportBone::attachBoneIndex offset must be 0x04");
   static_assert(offsetof(SAiReservedTransportBone, reservedUnit) == 0x08, "SAiReservedTransportBone::reservedUnit offset must be 0x08");
   static_assert(offsetof(SAiReservedTransportBone, reservedBones) == 0x10, "SAiReservedTransportBone::reservedBones offset must be 0x10");
+
+  /**
+   * Address: 0x005EA550 (FUN_005EA550, std::vector_SAiReservedTransportBone::reset_storage)
+   *
+   * What it does:
+   * Destroys one `vector<SAiReservedTransportBone>` payload, frees the backing
+   * heap block, and clears the vector storage lanes to empty.
+   */
+  void ResetReservedTransportBoneVectorStorage(msvc8::vector<SAiReservedTransportBone>& storage);
+
+  /**
+   * Address: 0x005EE360 (FUN_005EE360, destroy_SAiReservedTransportBone_range)
+   *
+   * What it does:
+   * Destroys one half-open SAiReservedTransportBone range by freeing each
+   * reserved-bone vector heap block and unlinking each weak-unit node.
+   */
+  [[nodiscard]] void* DestroyReservedTransportBoneRange(SAiReservedTransportBone* begin, SAiReservedTransportBone* end);
 } // namespace moho

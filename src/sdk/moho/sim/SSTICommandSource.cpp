@@ -1,6 +1,7 @@
 #include "moho/sim/SSTICommandSource.h"
 
 #include <cstring>
+#include <new>
 #include <string_view>
 
 namespace moho
@@ -87,6 +88,80 @@ void CopyAssignSSTICommandSourceRange(
   } catch (...) {
     for (SSTICommandSource* it = begin; it != cursor; ++it) {
       it->~SSTICommandSource();
+    }
+    throw;
+  }
+}
+
+/**
+ * Address: 0x007CECC0 (FUN_007CECC0)
+ *
+ * What it does:
+ * Copy-assigns one half-open source range into destination lanes with
+ * EH rollback that destroys already-written destination entries before
+ * rethrowing.
+ */
+SSTICommandSource* CopyAssignSSTICommandSourceHalfOpenRange(
+  const SSTICommandSource* const sourceBegin,
+  const SSTICommandSource* const sourceEnd,
+  SSTICommandSource* const destinationBegin
+)
+{
+  SSTICommandSource* destinationCursor = destinationBegin;
+  try {
+    for (const SSTICommandSource* sourceCursor = sourceBegin;
+         sourceCursor != sourceEnd;
+         ++sourceCursor, ++destinationCursor) {
+      *destinationCursor = *sourceCursor;
+    }
+
+    return destinationCursor;
+  } catch (...) {
+    for (SSTICommandSource* rollbackCursor = destinationBegin;
+         rollbackCursor != destinationCursor;
+         ++rollbackCursor) {
+      rollbackCursor->~SSTICommandSource();
+    }
+    throw;
+  }
+}
+
+/**
+ * Address: 0x007BED70 (FUN_007BED70, copy_SSTICommandSource_range_with_rollback)
+ *
+ * What it does:
+ * Copy-constructs one half-open `SSTICommandSource` range into destination
+ * storage and destroys already-constructed entries before rethrowing if a
+ * copy step throws.
+ */
+[[maybe_unused]] SSTICommandSource* CopySSTICommandSourceRangeWithRollback(
+  const SSTICommandSource* const sourceBegin,
+  const SSTICommandSource* const sourceEnd,
+  SSTICommandSource* const destinationBegin
+)
+{
+  if (sourceBegin == sourceEnd) {
+    return destinationBegin;
+  }
+
+  if (sourceBegin == nullptr || sourceEnd == nullptr || destinationBegin == nullptr) {
+    return destinationBegin;
+  }
+
+  SSTICommandSource* destinationCursor = destinationBegin;
+  try {
+    for (const SSTICommandSource* sourceCursor = sourceBegin;
+         sourceCursor != sourceEnd;
+         ++sourceCursor, ++destinationCursor) {
+      ::new (destinationCursor) SSTICommandSource();
+      *destinationCursor = *sourceCursor;
+    }
+    return destinationCursor;
+  } catch (...) {
+    for (SSTICommandSource* destroyCursor = destinationBegin;
+         destroyCursor != destinationCursor;
+         ++destroyCursor) {
+      destroyCursor->~SSTICommandSource();
     }
     throw;
   }

@@ -133,6 +133,14 @@ moho::IUIManager* moho::UI_GetManager()
 moho::UICommandModeData::UICommandModeData() = default;
 
 /**
+ * Address: 0x0081F700 (FUN_0081F700, ??1UICommandModeData@Moho@@QAE@XZ)
+ *
+ * What it does:
+ * Releases one payload Lua object and one command-mode text lane.
+ */
+moho::UICommandModeData::~UICommandModeData() = default;
+
+/**
  * Address: 0x0083D140 (FUN_0083D140, ?UI_StartFrontEnd@Moho@@YA_NXZ)
  *
  * What it does:

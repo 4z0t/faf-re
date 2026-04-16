@@ -8,6 +8,7 @@
 #include <boost/ptr_container/exception.hpp>
 #include <boost/thread/condition.hpp>
 #include <boost/thread/thread.hpp>
+#include <boost/thread/tss.hpp>
 
 /**
  * Address: 0x00AC6070 (FUN_00AC6070, tss_cleanup_implemented)
@@ -76,6 +77,31 @@ namespace boost
     }
   }
 #endif
+
+  /**
+   * Address: 0x00935E30 (FUN_00935E30)
+   *
+   * What it does:
+   * Clears one current-thread TSS payload lane and then destroys one
+   * `boost::detail::tss` descriptor, preserving destructor-unwind semantics.
+   */
+  void ResetCurrentThreadValueAndDestroyTss(detail::tss* const tssSlot)
+  {
+    struct ScopedTssDestroy
+    {
+      detail::tss* slot;
+      ~ScopedTssDestroy()
+      {
+        slot->~tss();
+      }
+    } destroyGuard{ tssSlot };
+
+    void* const currentValue = tssSlot->get();
+    if (currentValue != nullptr) {
+      tssSlot->set(nullptr);
+      tssSlot->cleanup(currentValue);
+    }
+  }
 
   namespace
   {
@@ -197,6 +223,271 @@ namespace boost
   ) noexcept
   {
     return AssignSharedPairRetainCore(outPair, sourcePair);
+  }
+
+  /**
+   * Address: 0x00740270 (FUN_00740270)
+   *
+   * What it does:
+   * Releases one shared control block and disposes/destroys the control block
+   * on the final strong and weak transitions.
+   */
+  void ReleaseSharedCount(detail::sp_counted_base* const control) noexcept
+  {
+    if (control != nullptr) {
+      control->release();
+    }
+  }
+
+  /**
+   * Address: 0x00857630 (FUN_00857630)
+   *
+   * What it does:
+   * Releases one half-open range of shared-pair slots by releasing each
+   * control block referenced from the pair lanes.
+   */
+  SharedCountPair* ReleaseSharedCountRange(
+    SharedCountPair* const begin,
+    SharedCountPair* const end
+  ) noexcept
+  {
+    SharedCountPair* cursor = begin;
+    while (cursor != end) {
+      ReleaseSharedCount(cursor->pi);
+      ++cursor;
+    }
+
+    return cursor;
+  }
+
+  /**
+   * Address: 0x004DE370 (FUN_004DE370)
+   *
+   * What it does:
+   * Copy-assigns one shared-pair half-open range `[sourceBegin, sourceEnd)`
+   * into already-constructed destination lanes, retaining incoming control
+   * blocks and releasing previously bound controls per slot.
+   */
+  SharedCountPair* CopyAssignSharedPairRangeRetain(
+    SharedCountPair* destination,
+    const SharedCountPair* sourceBegin,
+    const SharedCountPair* const sourceEnd
+  ) noexcept
+  {
+    while (sourceBegin != sourceEnd) {
+      destination->px = sourceBegin->px;
+
+      detail::sp_counted_base* const incomingControl = sourceBegin->pi;
+      if (incomingControl != destination->pi) {
+        if (incomingControl != nullptr) {
+          incomingControl->add_ref_copy();
+        }
+        if (destination->pi != nullptr) {
+          destination->pi->release();
+        }
+        destination->pi = incomingControl;
+      }
+
+      ++sourceBegin;
+      ++destination;
+    }
+
+    return destination;
+  }
+
+  /**
+   * Address: 0x004DE570 (FUN_004DE570)
+   *
+   * What it does:
+   * Fill-assigns one shared-pair value over one already-constructed
+   * destination range `[destinationBegin, destinationEnd)`, retaining incoming
+   * controls and releasing previously bound controls per slot.
+   */
+  SharedCountPair* FillAssignSharedPairRangeRetain(
+    SharedCountPair* destinationBegin,
+    SharedCountPair* const destinationEnd,
+    const SharedCountPair& value
+  ) noexcept
+  {
+    SharedCountPair* cursor = destinationBegin;
+    while (cursor != destinationEnd) {
+      cursor->px = value.px;
+
+      detail::sp_counted_base* const incomingControl = value.pi;
+      if (incomingControl != cursor->pi) {
+        if (incomingControl != nullptr) {
+          incomingControl->add_ref_copy();
+        }
+        if (cursor->pi != nullptr) {
+          cursor->pi->release();
+        }
+        cursor->pi = incomingControl;
+      }
+
+      ++cursor;
+    }
+
+    return cursor;
+  }
+
+  /**
+   * Address: 0x004DE830 (FUN_004DE830)
+   *
+   * What it does:
+   * Copy-assigns one shared-pair range backward from `[sourceBegin, sourceEnd)`
+   * into destination lanes ending at `destinationEnd`, preserving overlap-safe
+   * copy-backward semantics while retaining/releasing control blocks.
+   */
+  SharedCountPair* CopyAssignSharedPairRangeBackwardRetain(
+    SharedCountPair* destinationEnd,
+    const SharedCountPair* const sourceBegin,
+    const SharedCountPair* sourceEnd
+  ) noexcept
+  {
+    while (sourceEnd != sourceBegin) {
+      --sourceEnd;
+      --destinationEnd;
+
+      destinationEnd->px = sourceEnd->px;
+
+      detail::sp_counted_base* const incomingControl = sourceEnd->pi;
+      if (incomingControl != destinationEnd->pi) {
+        if (incomingControl != nullptr) {
+          incomingControl->add_ref_copy();
+        }
+        if (destinationEnd->pi != nullptr) {
+          destinationEnd->pi->release();
+        }
+        destinationEnd->pi = incomingControl;
+      }
+    }
+
+    return destinationEnd;
+  }
+
+  /**
+   * Address: 0x004DEA20 (FUN_004DEA20)
+   * Address: 0x007846C0 (FUN_007846C0)
+   *
+   * What it does:
+   * Uninitialized-copies one shared-pair range `[sourceBegin, sourceEnd)` into
+   * destination lanes starting at `destinationBegin`, retaining the copied
+   * control blocks and returning one-past the final destination slot.
+   */
+  SharedCountPair* UninitializedCopySharedPairRangeRetain(
+    SharedCountPair* destinationBegin,
+    const SharedCountPair* sourceBegin,
+    const SharedCountPair* const sourceEnd
+  ) noexcept
+  {
+    SharedCountPair* destination = destinationBegin;
+    while (sourceBegin != sourceEnd) {
+      if (destination != nullptr) {
+        destination->px = sourceBegin->px;
+        destination->pi = sourceBegin->pi;
+        if (destination->pi != nullptr) {
+          destination->pi->add_ref_copy();
+        }
+      }
+
+      ++sourceBegin;
+      ++destination;
+    }
+
+    return destination;
+  }
+
+  /**
+   * Address: 0x007568D0 (FUN_007568D0)
+   *
+   * What it does:
+   * Uninitialized-copies one 12-byte `(lane0,lane1,pi)` range
+   * `[sourceBegin, sourceEnd)` into destination lanes and retains each copied
+   * shared control lane.
+   */
+  SharedControlTriplet* UninitializedCopySharedControlTripletRangeRetain(
+    SharedControlTriplet* destinationBegin,
+    const SharedControlTriplet* sourceBegin,
+    const SharedControlTriplet* const sourceEnd
+  ) noexcept
+  {
+    SharedControlTriplet* destination = destinationBegin;
+    while (sourceBegin != sourceEnd) {
+      if (destination != nullptr) {
+        destination->lane0 = sourceBegin->lane0;
+        destination->lane1 = sourceBegin->lane1;
+        destination->pi = sourceBegin->pi;
+        if (destination->pi != nullptr) {
+          destination->pi->add_ref_copy();
+        }
+      }
+
+      ++sourceBegin;
+      ++destination;
+    }
+
+    return destination;
+  }
+
+  /**
+   * Address: 0x004DDDC0 (FUN_004DDDC0)
+   *
+   * What it does:
+   * Alias lane of `CopyAssignSharedPairRangeRetain`.
+   */
+  SharedCountPair* CopyAssignSharedPairRangeRetainAlias(
+    SharedCountPair* destination,
+    const SharedCountPair* sourceBegin,
+    const SharedCountPair* const sourceEnd
+  ) noexcept
+  {
+    return CopyAssignSharedPairRangeRetain(destination, sourceBegin, sourceEnd);
+  }
+
+  /**
+   * Address: 0x004DDF70 (FUN_004DDF70)
+   *
+   * What it does:
+   * Wrapper lane of `UninitializedCopySharedPairRangeRetain` used by vector
+   * insertion paths to shift one shared-pair tail into uninitialized storage.
+   */
+  SharedCountPair* UninitializedCopySharedPairRangeRetainAlias(
+    SharedCountPair* destinationBegin,
+    const SharedCountPair* sourceBegin,
+    const SharedCountPair* const sourceEnd
+  ) noexcept
+  {
+    return UninitializedCopySharedPairRangeRetain(destinationBegin, sourceBegin, sourceEnd);
+  }
+
+  /**
+   * Address: 0x004DDFA0 (FUN_004DDFA0)
+   *
+   * What it does:
+   * Alias lane of `FillAssignSharedPairRangeRetain`.
+   */
+  SharedCountPair* FillAssignSharedPairRangeRetainAlias(
+    SharedCountPair* destinationBegin,
+    SharedCountPair* const destinationEnd,
+    const SharedCountPair& value
+  ) noexcept
+  {
+    return FillAssignSharedPairRangeRetain(destinationBegin, destinationEnd, value);
+  }
+
+  /**
+   * Address: 0x004DDFB0 (FUN_004DDFB0)
+   *
+   * What it does:
+   * Alias lane of `CopyAssignSharedPairRangeBackwardRetain`.
+   */
+  SharedCountPair* CopyAssignSharedPairRangeBackwardRetainAlias(
+    SharedCountPair* destinationEnd,
+    const SharedCountPair* const sourceBegin,
+    const SharedCountPair* sourceEnd
+  ) noexcept
+  {
+    return CopyAssignSharedPairRangeBackwardRetain(destinationEnd, sourceBegin, sourceEnd);
   }
 
   /**
@@ -486,5 +777,518 @@ namespace boost
       ::operator delete(static_cast<void*>(exceptionObject));
     }
     return exceptionObject;
+  }
+  namespace
+  {
+    [[nodiscard]] void* SpCountedImplGetDeleterNullResult(boost::detail::sp_typeinfo const&) noexcept
+    {
+      return nullptr;
+    }
+  } // namespace
+  /**
+   * Address: 0x004DE780 (FUN_004DE780, boost::detail::sp_counted_impl_p<Moho::AudioEngine>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullAudioEngine(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x0053A260 (FUN_0053A260, boost::detail::sp_counted_impl_p<Moho::RScmResource>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullRScmResource(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x0053B3F0 (FUN_0053B3F0, boost::detail::sp_counted_impl_p<Moho::RScaResource>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullRScaResource(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x00545370 (FUN_00545370, boost::detail::sp_counted_impl_p<Moho::LaunchInfoNew>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullLaunchInfoNew(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x005791E0 (FUN_005791E0, boost::detail::sp_counted_impl_p<Moho::CHeightField>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullCHeightField(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x005CD5B0 (FUN_005CD5B0, boost::detail::sp_counted_impl_p<Moho::CIntelGrid>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullCIntelGrid(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x0063E7A0 (FUN_0063E7A0, boost::detail::sp_counted_impl_p<Moho::CAniPose>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullCAniPose(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x00755FD0 (FUN_00755FD0, boost::detail::sp_counted_impl_p<Moho::ISimResources>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullISimResources(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x00756020 (FUN_00756020, boost::detail::sp_counted_impl_p<Moho::CDebugCanvas>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullCDebugCanvas(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x00756070 (FUN_00756070, boost::detail::sp_counted_impl_p<Moho::SParticleBuffer>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullSParticleBuffer(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x00765760 (FUN_00765760, boost::detail::sp_counted_impl_p<Moho::PathPreviewFinder>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullPathPreviewFinder(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x007BDC50 (FUN_007BDC50, boost::detail::sp_counted_impl_p<Moho::CGpgNetInterface>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullCGpgNetInterface(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x007E6580 (FUN_007E6580, boost::detail::sp_counted_impl_p<Moho::MeshMaterial>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullMeshMaterial(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x007E65D0 (FUN_007E65D0, boost::detail::sp_counted_impl_p<Moho::Mesh>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullMesh(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x007E69A0 (FUN_007E69A0, boost::detail::sp_counted_impl_p<Moho::MeshBatch>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullMeshBatch(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x007FBE70 (FUN_007FBE70, boost::detail::sp_counted_impl_p<Moho::IRenTerrain>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullIRenTerrain(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x007FC190 (FUN_007FC190, boost::detail::sp_counted_impl_p<Moho::CD3DTextureBatcher>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullCD3DTextureBatcher(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x007FC1E0 (FUN_007FC1E0, boost::detail::sp_counted_impl_p<Moho::CD3DPrimBatcher>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullCD3DPrimBatcher(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x007FF6E0 (FUN_007FF6E0, boost::detail::sp_counted_impl_p<Moho::ID3DVertexSheet>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullID3DVertexSheet(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x008142D0 (FUN_008142D0, boost::detail::sp_counted_impl_p<Moho::ShoreCell>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullShoreCell(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x00832A30 (FUN_00832A30, boost::detail::sp_counted_impl_p<Moho::MeshInstance>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullMeshInstance(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x00884F20 (FUN_00884F20, boost::detail::sp_counted_impl_p<Moho::LaunchInfoLoad>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullLaunchInfoLoad(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x0089B8A0 (FUN_0089B8A0, boost::detail::sp_counted_impl_p<Moho::SSessionSaveData>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullSSessionSaveData(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x0089BCB0 (FUN_0089BCB0, boost::detail::sp_counted_impl_p<Moho::UICommandGraph>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullUICommandGraph(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x008E89B0 (FUN_008E89B0, boost::detail::sp_counted_impl_p<gpg::gal::TextureD3D9>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullTextureD3D9(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x008E89E0 (FUN_008E89E0, boost::detail::sp_counted_impl_p<gpg::gal::RenderTargetD3D9>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullRenderTargetD3D9(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x008E8A40 (FUN_008E8A40, boost::detail::sp_counted_impl_p<gpg::gal::DepthStencilTargetD3D9>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullDepthStencilTargetD3D9(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x008E8A70 (FUN_008E8A70, boost::detail::sp_counted_impl_p<gpg::gal::VertexFormatD3D9>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullVertexFormatD3D9(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x008E8AA0 (FUN_008E8AA0, boost::detail::sp_counted_impl_p<gpg::gal::VertexBufferD3D9>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullVertexBufferD3D9(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x008E8AD0 (FUN_008E8AD0, boost::detail::sp_counted_impl_p<gpg::gal::IndexBufferD3D9>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullIndexBufferD3D9(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x008E8B00 (FUN_008E8B00, boost::detail::sp_counted_impl_p<gpg::gal::EffectD3D9>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullEffectD3D9(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x008E8DA0 (FUN_008E8DA0, boost::detail::sp_counted_impl_p<gpg::gal::PipelineStateD3D9>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullPipelineStateD3D9(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x008F8FE0 (FUN_008F8FE0, boost::detail::sp_counted_impl_p<gpg::gal::EffectD3D10>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullEffectD3D10(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x008F9040 (FUN_008F9040, boost::detail::sp_counted_impl_p<gpg::gal::RenderTargetD3D10>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullRenderTargetD3D10(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x008F93A0 (FUN_008F93A0, boost::detail::sp_counted_impl_p<gpg::gal::PipelineStateD3D10>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullPipelineStateD3D10(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x00923720 (FUN_00923720, boost::detail::sp_counted_impl_p<std::basic_stringstream<char, std::char_traits<char>, std::allocator<char>>>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullStdStringstreamChar(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x00931ED0 (FUN_00931ED0, boost::detail::sp_counted_impl_p<gpg::HaStar::ClusterCache::Impl>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullClusterCacheImpl(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x00941680 (FUN_00941680, boost::detail::sp_counted_impl_p<gpg::gal::EffectTechniqueD3D9>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullEffectTechniqueD3D9(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
+  }
+
+  /**
+   * Address: 0x009416B0 (FUN_009416B0, boost::detail::sp_counted_impl_p<gpg::gal::EffectVariableD3D9>::get_deleter)
+   *
+   * What it does:
+   * Returns the null deleter-query lane for this `sp_counted_impl_p<T>` specialization.
+   */
+  void* SpCountedImplPGetDeleterNullEffectVariableD3D9(
+    detail::sp_typeinfo const& requestedType
+  ) noexcept
+  {
+    return SpCountedImplGetDeleterNullResult(requestedType);
   }
 } // namespace boost

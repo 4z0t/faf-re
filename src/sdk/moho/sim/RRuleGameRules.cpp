@@ -13,6 +13,7 @@
 
 #include "../resource/RResId.h"
 #include "gpg/core/algorithms/MD5.h"
+#include "gpg/core/containers/CheckedArrayAllocationLanes.h"
 #include "gpg/core/time/Timer.h"
 #include "gpg/core/utils/Logging.h"
 #include "legacy/containers/Tree.h"
@@ -57,6 +58,103 @@ namespace moho
     };
 
     static_assert(sizeof(LuaReloadRequestNode) == 0x2C, "LuaReloadRequestNode size must be 0x2C");
+
+    struct BlueprintMapHeadNodeRuntimeView
+    {
+      std::uint32_t parent = 0;      // +0x00
+      std::uint32_t left = 0;        // +0x04
+      std::uint32_t right = 0;       // +0x08
+      std::uint8_t reserved0C[0x20]{}; // +0x0C
+      std::uint8_t color = 0;        // +0x2C
+      std::uint8_t isNil = 0;        // +0x2D
+      std::uint8_t reserved2E[0x2]{}; // +0x2E
+    };
+    static_assert(
+      offsetof(BlueprintMapHeadNodeRuntimeView, color) == 0x2C,
+      "BlueprintMapHeadNodeRuntimeView::color offset must be 0x2C"
+    );
+    static_assert(
+      offsetof(BlueprintMapHeadNodeRuntimeView, isNil) == 0x2D,
+      "BlueprintMapHeadNodeRuntimeView::isNil offset must be 0x2D"
+    );
+    static_assert(sizeof(BlueprintMapHeadNodeRuntimeView) == 0x30, "BlueprintMapHeadNodeRuntimeView size must be 0x30");
+
+    [[nodiscard]] BlueprintMapHeadNodeRuntimeView* AllocateBlueprintMapHeadNodeRuntime()
+    {
+      auto* const node = static_cast<BlueprintMapHeadNodeRuntimeView*>(gpg::core::legacy::AllocateChecked48ByteLane(1u));
+      if (node != nullptr) {
+        node->parent = 0;
+      }
+      if (node != reinterpret_cast<BlueprintMapHeadNodeRuntimeView*>(-4)) {
+        node->left = 0;
+      }
+      if (node != reinterpret_cast<BlueprintMapHeadNodeRuntimeView*>(-8)) {
+        node->right = 0;
+      }
+      node->color = 1;
+      node->isNil = 0;
+      return node;
+    }
+
+    /**
+     * Address: 0x0052FAE0 (FUN_0052FAE0)
+     *
+     * What it does:
+     * Allocates and zero-seeds one projectile-blueprint map head node with the
+     * legacy tree color/isNil defaults.
+     */
+    [[maybe_unused]] [[nodiscard]] RRuleGameRulesBlueprintNode* AllocateProjectileBlueprintMapHeadNode()
+    {
+      return reinterpret_cast<RRuleGameRulesBlueprintNode*>(AllocateBlueprintMapHeadNodeRuntime());
+    }
+
+    /**
+     * Address: 0x0052FE80 (FUN_0052FE80)
+     *
+     * What it does:
+     * Allocates and zero-seeds one prop-blueprint map head node with the
+     * legacy tree color/isNil defaults.
+     */
+    [[maybe_unused]] [[nodiscard]] RRuleGameRulesBlueprintNode* AllocatePropBlueprintMapHeadNode()
+    {
+      return reinterpret_cast<RRuleGameRulesBlueprintNode*>(AllocateBlueprintMapHeadNodeRuntime());
+    }
+
+    /**
+     * Address: 0x00530220 (FUN_00530220)
+     *
+     * What it does:
+     * Allocates and zero-seeds one mesh-blueprint map head node with the
+     * legacy tree color/isNil defaults.
+     */
+    [[maybe_unused]] [[nodiscard]] RRuleGameRulesBlueprintNode* AllocateMeshBlueprintMapHeadNode()
+    {
+      return reinterpret_cast<RRuleGameRulesBlueprintNode*>(AllocateBlueprintMapHeadNodeRuntime());
+    }
+
+    /**
+     * Address: 0x005305D0 (FUN_005305D0)
+     *
+     * What it does:
+     * Allocates and zero-seeds one emitter-blueprint map head node with the
+     * legacy tree color/isNil defaults.
+     */
+    [[maybe_unused]] [[nodiscard]] RRuleGameRulesBlueprintNode* AllocateEmitterBlueprintMapHeadNode()
+    {
+      return reinterpret_cast<RRuleGameRulesBlueprintNode*>(AllocateBlueprintMapHeadNodeRuntime());
+    }
+
+    /**
+     * Address: 0x00530980 (FUN_00530980)
+     *
+     * What it does:
+     * Allocates and zero-seeds one beam-blueprint map head node with the
+     * legacy tree color/isNil defaults.
+     */
+    [[maybe_unused]] [[nodiscard]] RRuleGameRulesBlueprintNode* AllocateBeamBlueprintMapHeadNode()
+    {
+      return reinterpret_cast<RRuleGameRulesBlueprintNode*>(AllocateBlueprintMapHeadNodeRuntime());
+    }
 
     [[nodiscard]] std::string BuildInstanceCounterStatPathLocal(const char* const rawTypeName)
     {
@@ -122,6 +220,45 @@ namespace moho
       return (CompareBlueprintIds(lookupId, candidate->mBlueprintId) < 0) ? map.mHead : candidate;
     }
 
+    /**
+     * Address: 0x0052C260 (FUN_0052C260)
+     *
+     * What it does:
+     * Resolves one mesh-blueprint map node from a lowered blueprint id key,
+     * returning the map sentinel head when no exact key match exists.
+     */
+    [[nodiscard]] RRuleGameRulesBlueprintNode*
+    FindMeshBlueprintNodeByBlueprintId(const RRuleGameRulesBlueprintMap& map, const msvc8::string& lookupId) noexcept
+    {
+      return FindBlueprintNodeByMapSubscript(map, lookupId);
+    }
+
+    /**
+     * Address: 0x0052C340 (FUN_0052C340)
+     *
+     * What it does:
+     * Resolves one emitter-blueprint map node from a lowered blueprint id key,
+     * returning the map sentinel head when no exact key match exists.
+     */
+    [[nodiscard]] RRuleGameRulesBlueprintNode*
+    FindEmitterBlueprintNodeByBlueprintId(const RRuleGameRulesBlueprintMap& map, const msvc8::string& lookupId) noexcept
+    {
+      return FindBlueprintNodeByMapSubscript(map, lookupId);
+    }
+
+    /**
+     * Address: 0x0052C500 (FUN_0052C500)
+     *
+     * What it does:
+     * Resolves one trail-blueprint map node from a lowered blueprint id key,
+     * returning the map sentinel head when no exact key match exists.
+     */
+    [[nodiscard]] RRuleGameRulesBlueprintNode*
+    FindTrailBlueprintNodeByBlueprintId(const RRuleGameRulesBlueprintMap& map, const msvc8::string& lookupId) noexcept
+    {
+      return FindBlueprintNodeByMapSubscript(map, lookupId);
+    }
+
     template <typename TBlueprint>
     [[nodiscard]] TBlueprint*
     LookupBlueprintByResId(const RRuleGameRulesBlueprintMap& map, const RResId& resId) noexcept
@@ -182,6 +319,25 @@ namespace moho
       LuaPlus::LuaObject copied = CopyLuaObjectToState(sourceValue, targetRootState);
       LuaPlus::LuaObject globals = targetRootState->GetGlobals();
       globals.SetObject(globalName, copied);
+    }
+
+    /**
+     * Address: 0x0052F370 (FUN_0052F370)
+     *
+     * What it does:
+     * Allocates one non-sentinel Lua task-list node with null links/thread
+     * lanes and default ownership flags.
+     */
+    [[nodiscard]] LuaTaskListNode* CreateLuaTaskListNode()
+    {
+      auto* const node = new LuaTaskListNode{};
+      node->next = nullptr;
+      node->prev = nullptr;
+      node->taskThread = nullptr;
+      node->reserved0C = 0u;
+      node->isOwning = 1u;
+      node->isSentinel = 0u;
+      return node;
     }
 
     [[nodiscard]] LuaTaskListNode* CreateLuaTaskListSentinel()
@@ -745,7 +901,17 @@ namespace moho
    */
   RMeshBlueprint* RRuleGameRulesImpl::GetMeshBlueprint(const RResId& resId)
   {
-    return LookupBlueprintByResId<RMeshBlueprint>(mMeshBlueprints, resId);
+    if (resId.name.empty() || !mMeshBlueprints.mHead) {
+      return nullptr;
+    }
+
+    const msvc8::string lookupId(resId.name.view());
+    RRuleGameRulesBlueprintNode* const node = FindMeshBlueprintNodeByBlueprintId(mMeshBlueprints, lookupId);
+    if (!node || node == mMeshBlueprints.mHead) {
+      return nullptr;
+    }
+
+    return static_cast<RMeshBlueprint*>(node->mBlueprint);
   }
 
   /**
@@ -761,7 +927,17 @@ namespace moho
    */
   REmitterBlueprint* RRuleGameRulesImpl::GetEmitterBlueprint(const RResId& resId)
   {
-    return LookupBlueprintByResId<REmitterBlueprint>(mEmitterBlueprints, resId);
+    if (resId.name.empty() || !mEmitterBlueprints.mHead) {
+      return nullptr;
+    }
+
+    const msvc8::string lookupId(resId.name.view());
+    RRuleGameRulesBlueprintNode* const node = FindEmitterBlueprintNodeByBlueprintId(mEmitterBlueprints, lookupId);
+    if (!node || node == mEmitterBlueprints.mHead) {
+      return nullptr;
+    }
+
+    return static_cast<REmitterBlueprint*>(node->mBlueprint);
   }
 
   /**
@@ -777,7 +953,17 @@ namespace moho
    */
   RTrailBlueprint* RRuleGameRulesImpl::GetTrailBlueprint(const RResId& resId)
   {
-    return LookupBlueprintByResId<RTrailBlueprint>(mTrailBlueprints, resId);
+    if (resId.name.empty() || !mTrailBlueprints.mHead) {
+      return nullptr;
+    }
+
+    const msvc8::string lookupId(resId.name.view());
+    RRuleGameRulesBlueprintNode* const node = FindTrailBlueprintNodeByBlueprintId(mTrailBlueprints, lookupId);
+    if (!node || node == mTrailBlueprints.mHead) {
+      return nullptr;
+    }
+
+    return static_cast<RTrailBlueprint*>(node->mBlueprint);
   }
 
   /**
@@ -808,7 +994,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x0052B1E0 (FUN_0052B1E0)
+    * Alias of FUN_0052B1E0 (non-canonical helper lane).
    *
    * What it does:
    * Delegates category-name lookup to the shared resolver implementation.
@@ -820,7 +1006,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x0052B280 (FUN_0052B280)
+    * Alias of FUN_0052B280 (non-canonical helper lane).
    *
    * What it does:
    * Delegates category expression parsing to the shared resolver implementation.

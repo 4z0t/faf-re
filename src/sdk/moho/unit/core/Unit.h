@@ -29,6 +29,7 @@ namespace moho
 {
   enum EUnitState : std::int32_t;
   struct CEconRequest;
+  struct SEconValue;
   class CIntel;
   struct RUnitBlueprint;
   class ReconBlip;
@@ -441,11 +442,28 @@ namespace moho
     "UnitWeaponInfo::mUIMaxRangeVisualId offset must be 0x7C"
   );
 
+  /**
+   * Address: 0x0055C020 (FUN_0055C020, preregister_UnitWeaponInfoTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `UnitWeaponInfo`.
+   */
+  [[nodiscard]] gpg::RType* preregister_UnitWeaponInfoTypeInfo();
+
   using SSTIUnitWeaponInfoSnapshot = UnitWeaponInfo;
   static_assert(sizeof(SSTIUnitWeaponInfoSnapshot) == 0x98, "SSTIUnitWeaponInfoSnapshot size must be 0x98");
 
   using SSTIUnitWeaponInfoVector = gpg::fastvector_n<SSTIUnitWeaponInfoSnapshot, 1>;
   static_assert(sizeof(SSTIUnitWeaponInfoVector) == 0xA8, "SSTIUnitWeaponInfoVector size must be 0xA8");
+
+  /**
+   * Address: 0x005C3850 (FUN_005C3850, init_SSTIUnitWeaponInfoVector_inline)
+   *
+   * What it does:
+   * Rebinds one weapon-info fastvector to inline storage and applies the
+   * zero-count resize lane used by `SSTIUnitVariableData` construction.
+   */
+  SSTIUnitWeaponInfoVector* InitializeSSTIUnitWeaponInfoVector(SSTIUnitWeaponInfoVector* weaponInfo);
 
   /**
    * Reflection type in RTTI: Moho::SSTIUnitVariableData
@@ -539,6 +557,15 @@ namespace moho
   static_assert(
     offsetof(SSTIUnitVariableData, mOverchargePaused) == 0x221, "SSTIUnitVariableData::mOverchargePaused offset"
   );
+
+  /**
+   * Address: 0x0055C620 (FUN_0055C620, preregister_SSTIUnitVariableDataTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SSTIUnitVariableData`.
+   */
+  [[nodiscard]] gpg::RType* preregister_SSTIUnitVariableDataTypeInfo();
+
   static_assert(sizeof(gpg::core::FastVectorN<SWeakRefSlot, 20>) == 0xB0, "FastVectorN<SWeakRefSlot,20> must be 0xB0");
   static_assert(sizeof(gpg::core::FastVectorN<ReconBlip*, 2>) == 0x18, "FastVectorN<ReconBlip*,2> must be 0x18");
 
@@ -1081,6 +1108,36 @@ namespace moho
     [[nodiscard]] bool IsAtPosition(const Wm3::Vec3f& position) const;
 
     /**
+     * Address: 0x006AAEC0 (FUN_006AAEC0, ?AddRecoilImpulse@Unit@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z)
+     * Mangled: ?AddRecoilImpulse@Unit@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z
+     *
+     * What it does:
+     * Forwards one recoil impulse to active unit motion when present.
+     */
+    void AddRecoilImpulse(const Wm3::Vec3f& impulse);
+
+    /**
+     * Address: 0x006AAEE0 (FUN_006AAEE0, ?AddImpulse@Unit@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z)
+     * Mangled: ?AddImpulse@Unit@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z
+     *
+     * What it does:
+     * Forwards one world impulse into active unit motion as
+     * `CUnitMotion::AddImpulse(impulse, false)` when motion exists.
+     */
+    void AddImpulse(const Wm3::Vec3f& impulse);
+
+    /**
+     * Address: 0x006AAF00 (FUN_006AAF00, ?AddLocalImpulse@Unit@Moho@@QAEXABV?$Vector3@M@Wm3@@0@Z)
+     * Mangled: ?AddLocalImpulse@Unit@Moho@@QAEXABV?$Vector3@M@Wm3@@0@Z
+     *
+     * What it does:
+     * Applies one local-space impulse into the active motion lane: air units
+     * forward to physics-body local impulse, non-air units route through
+     * `CUnitMotion::AddImpulse(..., false)`.
+     */
+    void AddLocalImpulse(const Wm3::Vec3f& localImpulse, const Wm3::Vec3f& localPoint);
+
+    /**
      * Address: 0x006AA900 (FUN_006AA900, ?SetConsumptionActive@Unit@Moho@@QAEX_N@Z)
      *
      * What it does:
@@ -1088,6 +1145,32 @@ namespace moho
      * consumption and dispatches matching Lua script callbacks.
      */
     void SetConsumptionActive(bool isActive);
+
+    /**
+     * Address: 0x006AAE20 (FUN_006AAE20, Moho::Unit::GetConsumptionRequest)
+     *
+     * What it does:
+     * Returns the currently requested upkeep economy pair from
+     * `mConsumptionData`.
+     */
+    [[nodiscard]] SEconValue GetConsumptionRequest() const;
+
+    /**
+     * Address: 0x006AAE40 (FUN_006AAE40, Moho::Unit::UpdateResourceProduction)
+     *
+     * What it does:
+     * Stores the current per-tick maintenance production pair in the shared
+     * economy-rate lane.
+     */
+    void UpdateResourceProduction(const SEconValue& resourceProduction);
+
+    /**
+     * Address: 0x006ABC70 (FUN_006ABC70, ?ResetEconValues@Unit@Moho@@QAEXXZ)
+     *
+     * What it does:
+     * Clears the unit's produced and resources-spent economy totals.
+     */
+    Unit* ResetEconValues();
 
     /**
      * Address: 0x006A9370 (FUN_006A9370, ?RenderAIDebugInfo@Unit@Moho@@AAEXXZ)
@@ -1243,6 +1326,16 @@ namespace moho
      * runtime state.
      */
     void SetGuardedUnit(Unit* guarded);
+
+    /**
+     * Address: 0x006AA720 (FUN_006AA720, ?RemoveGuardedByUnit@Unit@Moho@@AAEXPAV12@@Z)
+     * Mangled: ?RemoveGuardedByUnit@Unit@Moho@@AAEXPAV12@@Z
+     *
+     * What it does:
+     * Adds one guarding unit into this unit's guarded-by owner list when non-null,
+     * then clears stale guard-formation ownership.
+     */
+    void RemoveGuardedByUnit(Unit* guardedByUnit);
 
     /**
      * Address: 0x00585B10 (FUN_00585B10, Moho::Unit::GetFocusEntity)

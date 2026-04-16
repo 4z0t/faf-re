@@ -207,6 +207,26 @@ namespace moho
   };
 
   /**
+   * Address: 0x0057FCC0 (FUN_0057FCC0, Moho::TSimConVarInstance_int::OnCall)
+   *
+   * What it does:
+   * Handles int sim-convar command arguments via the shared int parser helper;
+   * prints current value when fewer than two tokens are provided.
+   */
+  template <>
+  int TSimConVarInstance<int>::HandleConsoleCommand(void* commandArgs);
+
+  /**
+   * Address: 0x00735990 (FUN_00735990, Moho::TSimConVarInstance_uint8::OnCall)
+   *
+   * What it does:
+   * Handles uint8 sim-convar command arguments via the shared uint8 parser
+   * helper; prints current value when fewer than two tokens are provided.
+   */
+  template <>
+  int TSimConVarInstance<std::uint8_t>::HandleConsoleCommand(void* commandArgs);
+
+  /**
    * Address: 0x005D4180 (FUN_005D4180, Moho::TSimConVarInstance_float::OnCall)
    *
    * What it does:

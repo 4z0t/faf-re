@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "gpg/core/algorithms/MD5.h"
+#include "gpg/core/containers/CheckedArrayAllocationLanes.h"
 #include "gpg/core/containers/ReadArchive.h"
 #include "gpg/core/containers/WriteArchive.h"
 #include "gpg/core/reflection/Reflection.h"
@@ -38,6 +39,113 @@ namespace
   std::recursive_mutex gSndVarRegistryMutex;
   std::vector<moho::CSndVar*> gSndVarRegistry;
   std::unordered_multimap<std::uint32_t, moho::CSndVar*> gSndVarNameCache;
+
+  struct SndVarRegistryEntryRuntimeView
+  {
+    std::uint32_t lane00 = 0;
+    std::uint32_t lane04 = 0;
+    std::uint32_t lane08 = 0;
+  };
+  static_assert(sizeof(SndVarRegistryEntryRuntimeView) == 0x0C, "SndVarRegistryEntryRuntimeView size must be 0x0C");
+
+  struct SndVarTreeNodeHeadRuntimeView
+  {
+    std::uint32_t parent = 0;      // +0x00
+    std::uint32_t left = 0;        // +0x04
+    std::uint32_t right = 0;       // +0x08
+    std::uint8_t reserved0C[0x8]{}; // +0x0C
+    std::uint8_t color = 0;        // +0x14
+    std::uint8_t isNil = 0;        // +0x15
+    std::uint8_t reserved16[0x2]{}; // +0x16
+  };
+  static_assert(
+    offsetof(SndVarTreeNodeHeadRuntimeView, color) == 0x14,
+    "SndVarTreeNodeHeadRuntimeView::color offset must be 0x14"
+  );
+  static_assert(
+    offsetof(SndVarTreeNodeHeadRuntimeView, isNil) == 0x15,
+    "SndVarTreeNodeHeadRuntimeView::isNil offset must be 0x15"
+  );
+  static_assert(sizeof(SndVarTreeNodeHeadRuntimeView) == 0x18, "SndVarTreeNodeHeadRuntimeView size must be 0x18");
+
+  /**
+   * Address: 0x004E3450 (FUN_004E3450)
+   *
+   * What it does:
+   * Allocates one 12-byte registry entry and seeds the three scalar lanes from
+   * caller-owned values.
+   */
+  [[maybe_unused]] [[nodiscard]] SndVarRegistryEntryRuntimeView* AllocateSndVarRegistryEntryRuntime(
+    const std::uint32_t lane00,
+    const std::uint32_t lane04,
+    const std::uint32_t* const lane08Source
+  )
+  {
+    auto* const entry = static_cast<SndVarRegistryEntryRuntimeView*>(gpg::core::legacy::AllocateChecked12ByteLane(1u));
+    if (entry != nullptr) {
+      entry->lane00 = lane00;
+    }
+    if (entry != reinterpret_cast<SndVarRegistryEntryRuntimeView*>(-4)) {
+      entry->lane04 = lane04;
+    }
+    if (entry != reinterpret_cast<SndVarRegistryEntryRuntimeView*>(-8)) {
+      entry->lane08 = *lane08Source;
+    }
+    return entry;
+  }
+
+  [[nodiscard]] SndVarTreeNodeHeadRuntimeView* AllocateSndVarTreeNodeHeadRuntime()
+  {
+    auto* const node = static_cast<SndVarTreeNodeHeadRuntimeView*>(gpg::core::legacy::AllocateChecked24ByteLane(1u));
+    if (node != nullptr) {
+      node->parent = 0;
+    }
+    if (node != reinterpret_cast<SndVarTreeNodeHeadRuntimeView*>(-4)) {
+      node->left = 0;
+    }
+    if (node != reinterpret_cast<SndVarTreeNodeHeadRuntimeView*>(-8)) {
+      node->right = 0;
+    }
+    node->color = 1;
+    node->isNil = 0;
+    return node;
+  }
+
+  /**
+   * Address: 0x004E3B50 (FUN_004E3B50)
+   *
+   * What it does:
+   * Allocates and zero-seeds one 24-byte sound runtime tree-head node with the
+   * original non-sentinel color/isNil flag lane values.
+   */
+  [[maybe_unused]] [[nodiscard]] SndVarTreeNodeHeadRuntimeView* AllocateSndVarParamsCacheHeadRuntime()
+  {
+    return AllocateSndVarTreeNodeHeadRuntime();
+  }
+
+  /**
+   * Address: 0x004E3FD0 (FUN_004E3FD0)
+   *
+   * What it does:
+   * Allocates and zero-seeds one 24-byte sound runtime tree-head node with the
+   * original non-sentinel color/isNil flag lane values.
+   */
+  [[maybe_unused]] [[nodiscard]] SndVarTreeNodeHeadRuntimeView* AllocateSndVarAuxCacheHeadRuntimeA()
+  {
+    return AllocateSndVarTreeNodeHeadRuntime();
+  }
+
+  /**
+   * Address: 0x004E4340 (FUN_004E4340)
+   *
+   * What it does:
+   * Allocates and zero-seeds one 24-byte sound runtime tree-head node with the
+   * original non-sentinel color/isNil flag lane values.
+   */
+  [[maybe_unused]] [[nodiscard]] SndVarTreeNodeHeadRuntimeView* AllocateSndVarAuxCacheHeadRuntimeB()
+  {
+    return AllocateSndVarTreeNodeHeadRuntime();
+  }
 
   [[nodiscard]] std::uint32_t HashSndVarName(const msvc8::string& name)
   {

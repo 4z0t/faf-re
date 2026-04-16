@@ -72,6 +72,15 @@ namespace moho
   Wm3::Quatf* EulerRollToQuat(const Wm3::Vector3f* axis, Wm3::Quatf* outQuaternion, float roll);
 
   /**
+   * Address: 0x004EAD30 (FUN_004EAD30, Moho::Zeroed<Wm3::Vector3<float>>)
+   *
+   * What it does:
+   * Returns process-lifetime singleton zero Vector3f (`x=y=z=0.0f`).
+   */
+  template <>
+  [[nodiscard]] const Wm3::Vector3f& Zeroed<Wm3::Vector3f>();
+
+  /**
    * Address: 0x004EAD40 (FUN_004EAD40, Moho::Invalid<Wm3::Vector3<float>>)
    *
    * What it does:

@@ -7,6 +7,8 @@
 
 namespace moho
 {
+  enum EFormationdStatus : std::int32_t;
+
   /**
    * Legacy intrusive listener base used by broadcaster-style event lists.
    *
@@ -26,5 +28,6 @@ namespace moho
 
   static_assert(offsetof(Listener<std::int32_t>, mListenerLink) == 0x04, "Listener<T>::mListenerLink offset must be 0x04");
   static_assert(sizeof(Listener<std::int32_t>) == 0x0C, "Listener<T> size must be 0x0C");
-} // namespace moho
 
+  using Listener_EFormationdStatus = Listener<EFormationdStatus>;
+} // namespace moho

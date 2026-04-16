@@ -139,6 +139,22 @@ namespace moho
       effect.Interpolate();
     }
 
+    /**
+     * Address: 0x00659390 (FUN_00659390)
+     *
+     * What it does:
+     * Fetches one entity bone world transform, copies its position into the
+     * effect payload, rebuilds the effect matrix from the same transform, and
+     * advances interpolation once.
+     */
+    void ApplyBoneTransformToEffect(CEffectImpl& effect, Entity* const entity, const int boneIndex)
+    {
+      const VTransform boneTransform = entity->GetBoneWorldTransform(boneIndex);
+      SetEffectWorldPosition(effect, boneTransform.pos_);
+      effect.mMatrix.Set(boneTransform.orient_, boneTransform.pos_);
+      effect.Interpolate();
+    }
+
     void ApplyTrailBlueprintParams(CEffectImpl& effect, const RTrailBlueprint* const blueprint)
     {
       effect.SetFloatParam(5, 1.0f);
@@ -273,15 +289,7 @@ namespace moho
     SetEffectWorldPosition(*effect, Wm3::Vector3<float>(0.0f, 0.0f, 0.0f));
     ApplyEmitterBlueprintParams(*effect, blueprint);
 
-    const VTransform boneTransform = entity->GetBoneWorldTransform(boneIndex);
-    SetEffectWorldPosition(*effect, boneTransform.pos_);
-    effect->mMatrix = VMatrix4::FromQuatPos(
-      Vector4f(boneTransform.orient_.x, boneTransform.orient_.y, boneTransform.orient_.z, boneTransform.orient_.w),
-      boneTransform.pos_.x,
-      boneTransform.pos_.y,
-      boneTransform.pos_.z
-    );
-    effect->Interpolate();
+    ApplyBoneTransformToEffect(*effect, entity, boneIndex);
 
     if (blueprint != nullptr && !IsBlueprintEnabledForCurrentFidelity(blueprint)) {
       DestroyEffect(effect);

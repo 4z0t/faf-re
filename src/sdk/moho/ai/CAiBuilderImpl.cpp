@@ -231,6 +231,13 @@ namespace
     map.mSize = 0;
   }
 
+  /**
+   * Address: 0x005A0A00 (FUN_005A0A00)
+   *
+   * What it does:
+   * Recursively releases one rebuild-structure RB-tree branch rooted at
+   * `node`, stopping on sentinel/head lanes.
+   */
   void DestroyRebuildTree(SBuilderRebuildNode* node, SBuilderRebuildNode* head)
   {
     if (!node || node == head || node->isNil != 0) {
@@ -256,6 +263,72 @@ namespace
     map.mSize = 0;
   }
 
+  void RemoveRebuildNode(SBuilderRebuildMap& map, SBuilderRebuildNode* node);
+
+  /**
+   * Address: 0x005A0F60 (FUN_005A0F60, rebuild-map erase-range helper)
+   *
+   * What it does:
+   * Erases one half-open iterator range from the rebuild-structure RB tree
+   * and returns/stores the successor iterator after the erased range.
+   */
+  SBuilderRebuildNode* EraseRebuildMapNodeRange(
+    SBuilderRebuildMap& map,
+    SBuilderRebuildNode*& outIterator,
+    SBuilderRebuildNode* first,
+    SBuilderRebuildNode* last
+  )
+  {
+    SBuilderRebuildNode* const head = map.mHead;
+    SBuilderRebuildNode* cursor = first;
+
+    if (cursor == head->left && last == head) {
+      ClearRebuildMapNodes(map);
+      outIterator = head->left;
+      return outIterator;
+    }
+
+    while (cursor != last) {
+      SBuilderRebuildNode* const current = cursor;
+      if (current == nullptr || current == head) {
+        cursor = last;
+        break;
+      }
+
+      if (current->isNil == 0u) {
+        SBuilderRebuildNode* next = current->right;
+        if (next->isNil != 0u) {
+          SBuilderRebuildNode* parent = current->parent;
+          while (parent->isNil == 0u) {
+            if (cursor != parent->right) {
+              break;
+            }
+            cursor = parent;
+            parent = parent->parent;
+          }
+          cursor = parent;
+        } else {
+          cursor = next;
+          while (cursor->left->isNil == 0u) {
+            cursor = cursor->left;
+          }
+        }
+      }
+
+      RemoveRebuildNode(map, current);
+    }
+
+    outIterator = cursor;
+    return outIterator;
+  }
+
+  /**
+   * Address: 0x0059FB80 (FUN_0059FB80)
+   *
+   * What it does:
+   * Clears all rebuild-map nodes, frees header storage, and resets map header
+   * lanes to the empty state.
+   */
   void DestroyRebuildMap(SBuilderRebuildMap& map)
   {
     if (!map.mHead) {
@@ -263,7 +336,8 @@ namespace
       return;
     }
 
-    ClearRebuildMapNodes(map);
+    SBuilderRebuildNode* eraseResult = map.mHead;
+    (void)EraseRebuildMapNodeRange(map, eraseResult, map.mHead->left, map.mHead);
     ::operator delete(map.mHead);
     map.mHead = nullptr;
     map.mSize = 0;

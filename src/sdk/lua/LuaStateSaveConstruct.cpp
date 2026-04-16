@@ -1,7 +1,9 @@
 #include "lua/LuaStateSaveConstruct.h"
 
+#include <cstdlib>
 #include <cstddef>
 #include <cstdint>
+#include <typeinfo>
 
 #include "gpg/core/containers/ArchiveSerialization.h"
 #include "gpg/core/containers/WriteArchive.h"
@@ -195,6 +197,26 @@ namespace LuaPlus
   }
 
   /**
+   * Address: 0x0091E530 (FUN_0091E530, UdataSaveConstruct::Construct)
+   *
+   * What it does:
+   * Writes one userdata payload-type handle lane into archive type-refcounts
+   * and marks save-construct ownership as owned.
+   */
+  void UdataSaveConstruct::Construct(
+    gpg::WriteArchive* const archive,
+    Udata* const value,
+    const int,
+    gpg::RRef* const,
+    gpg::SerSaveConstructArgsResult* const result
+  )
+  {
+    const auto* const payloadType = reinterpret_cast<const gpg::RType*>(value->len);
+    archive->WriteRefCounts(payloadType);
+    result->SetOwned(0u);
+  }
+
+  /**
    * Address: 0x0091F490 (FUN_0091F490, LClosureSaveConstruct::Construct)
    *
    * What it does:
@@ -264,4 +286,208 @@ namespace LuaPlus
   {
     SerializeLuaThreadSaveConstructPayload(archive, value, ownerRef, result);
   }
+
+  /**
+   * Address: 0x0090B5F0 (FUN_0090B5F0, LuaPlus::LuaStateSaveConstruct::RegisterSaveConstructArgsFunction)
+   *
+   * What it does:
+   * Binds the save-construct-args callback into reflected RTTI for
+   * `LuaPlus::LuaState`.
+   */
+  void LuaStateSaveConstruct::RegisterSaveConstructArgsFunction()
+  {
+    static gpg::RType* sLuaStateType = nullptr;
+    if (sLuaStateType == nullptr) {
+      sLuaStateType = gpg::LookupRType(typeid(LuaState));
+    }
+
+    GPG_ASSERT(sLuaStateType->serSaveConstructArgsFunc_ == nullptr);
+    sLuaStateType->serSaveConstructArgsFunc_ = reinterpret_cast<gpg::RType::save_construct_args_func_t>(mConstruct);
+  }
+
+  /**
+   * Address: 0x0091F930 (FUN_0091F930, TStringSaveConstruct::RegisterSaveConstructArgsFunction)
+   *
+   * What it does:
+   * Binds the save-construct-args callback into reflected RTTI for `TString`.
+   */
+  void TStringSaveConstruct::RegisterSaveConstructArgsFunction()
+  {
+    static gpg::RType* sTStringType = nullptr;
+    if (sTStringType == nullptr) {
+      sTStringType = gpg::LookupRType(typeid(TString));
+    }
+
+    GPG_ASSERT(sTStringType->serSaveConstructArgsFunc_ == nullptr);
+    sTStringType->serSaveConstructArgsFunc_ = reinterpret_cast<gpg::RType::save_construct_args_func_t>(mConstruct);
+  }
+
+  /**
+   * Address: 0x0091FAC0 (FUN_0091FAC0, TableSaveConstruct::RegisterSaveConstructArgsFunction)
+   *
+   * What it does:
+   * Binds the save-construct-args callback into reflected RTTI for `Table`.
+   */
+  void TableSaveConstruct::RegisterSaveConstructArgsFunction()
+  {
+    static gpg::RType* sTableType = nullptr;
+    if (sTableType == nullptr) {
+      sTableType = gpg::LookupRType(typeid(Table));
+    }
+
+    GPG_ASSERT(sTableType->serSaveConstructArgsFunc_ == nullptr);
+    sTableType->serSaveConstructArgsFunc_ = reinterpret_cast<gpg::RType::save_construct_args_func_t>(mConstruct);
+  }
+
+  /**
+   * Address: 0x0091FC50 (FUN_0091FC50, LClosureSaveConstruct::RegisterSaveConstructArgsFunction)
+   *
+   * What it does:
+   * Binds the save-construct-args callback into reflected RTTI for `LClosure`.
+   */
+  void LClosureSaveConstruct::RegisterSaveConstructArgsFunction()
+  {
+    static gpg::RType* sLClosureType = nullptr;
+    if (sLClosureType == nullptr) {
+      sLClosureType = gpg::LookupRType(typeid(LClosure));
+    }
+
+    GPG_ASSERT(sLClosureType->serSaveConstructArgsFunc_ == nullptr);
+    sLClosureType->serSaveConstructArgsFunc_ = reinterpret_cast<gpg::RType::save_construct_args_func_t>(mConstruct);
+  }
+
+  /**
+   * Address: 0x0091FDE0 (FUN_0091FDE0, UpValSaveConstruct::RegisterSaveConstructArgsFunction)
+   *
+   * What it does:
+   * Binds the save-construct-args callback into reflected RTTI for `UpVal`.
+   */
+  void UpValSaveConstruct::RegisterSaveConstructArgsFunction()
+  {
+    static gpg::RType* sUpValType = nullptr;
+    if (sUpValType == nullptr) {
+      sUpValType = gpg::LookupRType(typeid(UpVal));
+    }
+
+    GPG_ASSERT(sUpValType->serSaveConstructArgsFunc_ == nullptr);
+    sUpValType->serSaveConstructArgsFunc_ = reinterpret_cast<gpg::RType::save_construct_args_func_t>(mConstruct);
+  }
+
+  /**
+   * Address: 0x0091FF70 (FUN_0091FF70, ProtoSaveConstruct::RegisterSaveConstructArgsFunction)
+   *
+   * What it does:
+   * Binds the save-construct-args callback into reflected RTTI for `Proto`.
+   */
+  void ProtoSaveConstruct::RegisterSaveConstructArgsFunction()
+  {
+    static gpg::RType* sProtoType = nullptr;
+    if (sProtoType == nullptr) {
+      sProtoType = gpg::LookupRType(typeid(Proto));
+    }
+
+    GPG_ASSERT(sProtoType->serSaveConstructArgsFunc_ == nullptr);
+    sProtoType->serSaveConstructArgsFunc_ = reinterpret_cast<gpg::RType::save_construct_args_func_t>(mConstruct);
+  }
+
+  /**
+   * Address: 0x00920100 (FUN_00920100, lua_StateSaveConstruct::RegisterSaveConstructArgsFunction)
+   *
+   * What it does:
+   * Binds the save-construct-args callback into reflected RTTI for
+   * `lua_State`.
+   */
+  void lua_StateSaveConstruct::RegisterSaveConstructArgsFunction()
+  {
+    static gpg::RType* sLuaThreadType = nullptr;
+    if (sLuaThreadType == nullptr) {
+      sLuaThreadType = gpg::LookupRType(typeid(lua_State));
+    }
+
+    GPG_ASSERT(sLuaThreadType->serSaveConstructArgsFunc_ == nullptr);
+    sLuaThreadType->serSaveConstructArgsFunc_ = reinterpret_cast<gpg::RType::save_construct_args_func_t>(mConstruct);
+  }
+
+  /**
+   * Address: 0x00920290 (FUN_00920290, UdataSaveConstruct::RegisterSaveConstructArgsFunction)
+   *
+   * What it does:
+   * Binds the save-construct-args callback into reflected RTTI for `Udata`.
+   */
+  void UdataSaveConstruct::RegisterSaveConstructArgsFunction()
+  {
+    static gpg::RType* sUdataType = nullptr;
+    if (sUdataType == nullptr) {
+      sUdataType = gpg::LookupRType(typeid(Udata));
+    }
+
+    GPG_ASSERT(sUdataType->serSaveConstructArgsFunc_ == nullptr);
+    sUdataType->serSaveConstructArgsFunc_ = reinterpret_cast<gpg::RType::save_construct_args_func_t>(mConstruct);
+  }
 } // namespace LuaPlus
+
+namespace
+{
+  LuaPlus::UdataSaveConstruct gUdataSaveConstructHelper{};
+
+  template <typename THelper>
+  [[nodiscard]] gpg::SerHelperBase* HelperSelfNode(THelper& helper) noexcept
+  {
+    return reinterpret_cast<gpg::SerHelperBase*>(&helper.mNext);
+  }
+
+  template <typename THelper>
+  void InitializeHelperNode(THelper& helper) noexcept
+  {
+    gpg::SerHelperBase* const self = HelperSelfNode(helper);
+    helper.mNext = self;
+    helper.mPrev = self;
+  }
+
+  template <typename THelper>
+  void UnlinkHelperNode(THelper& helper) noexcept
+  {
+    if (helper.mNext != nullptr && helper.mPrev != nullptr) {
+      helper.mNext->mPrev = helper.mPrev;
+      helper.mPrev->mNext = helper.mNext;
+    }
+
+    InitializeHelperNode(helper);
+  }
+
+  /**
+   * Address: 0x00C09D60 (FUN_00C09D60, UdataSaveConstruct::~UdataSaveConstruct)
+   *
+   * What it does:
+   * Unlinks the global Udata save-construct helper from intrusive helper
+   * links.
+   */
+  void cleanup_UdataSaveConstruct()
+  {
+    UnlinkHelperNode(gUdataSaveConstructHelper);
+  }
+
+  /**
+   * Address: 0x00BEA860 (FUN_00BEA860, register_UdataSaveConstruct)
+   *
+   * What it does:
+   * Initializes Udata save-construct helper callback and schedules teardown.
+   */
+  void register_UdataSaveConstruct()
+  {
+    InitializeHelperNode(gUdataSaveConstructHelper);
+    gUdataSaveConstructHelper.mConstruct = &LuaPlus::UdataSaveConstruct::Construct;
+    gUdataSaveConstructHelper.RegisterSaveConstructArgsFunction();
+    (void)std::atexit(&cleanup_UdataSaveConstruct);
+  }
+
+  struct UdataSaveConstructBootstrap
+  {
+    UdataSaveConstructBootstrap()
+    {
+      register_UdataSaveConstruct();
+    }
+  };
+
+  [[maybe_unused]] UdataSaveConstructBootstrap gUdataSaveConstructBootstrap{};
+} // namespace

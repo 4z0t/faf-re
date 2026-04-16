@@ -78,14 +78,6 @@ namespace gpg
   }
 
   /**
-   * Address: 0x00952AB0 (FUN_00952AB0, preregister_ArchiveTokenTypeInfo lane)
-   */
-  gpg::REnumType* preregister_ArchiveTokenTypeInfo()
-  {
-    return AcquireArchiveTokenTypeInfo();
-  }
-
-  /**
    * Address: 0x00C0A210 (FUN_00C0A210, ArchiveTokenTypeInfo::~ArchiveTokenTypeInfo)
    */
   void cleanup_ArchiveTokenTypeInfo()
@@ -103,7 +95,7 @@ namespace gpg
    */
   int register_ArchiveTokenTypeInfoStartup()
   {
-    (void)preregister_ArchiveTokenTypeInfo();
+    (void)AcquireArchiveTokenTypeInfo();
     return std::atexit(&cleanup_ArchiveTokenTypeInfo);
   }
 } // namespace gpg

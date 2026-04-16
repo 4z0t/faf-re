@@ -427,7 +427,7 @@ namespace
   }
 
   /**
-   * Address: 0x006B0940 (FUN_006B0940) guard prologue/epilogue pattern
+    * Alias of FUN_006B0940 (non-canonical helper lane).
    *
    * Mirrors the weak-object intrusive guard chain used by callback wrappers.
    * Shared guard mechanics live in WeakObject so callback helpers do not

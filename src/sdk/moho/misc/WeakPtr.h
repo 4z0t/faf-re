@@ -265,6 +265,150 @@ namespace moho
   static_assert(offsetof(WeakPtr<void>, ownerLinkSlot) == 0x00, "WeakPtr<T>::ownerLinkSlot offset must be 0x00");
   static_assert(offsetof(WeakPtr<void>, nextInOwner) == 0x04, "WeakPtr<T>::nextInOwner offset must be 0x04");
 
+  template <class PayloadT>
+  struct WeakPtrPayloadLane
+  {
+    WeakPtr<void> weak;
+    PayloadT payload;
+  };
+
+  static_assert(sizeof(WeakPtrPayloadLane<std::uint32_t>) == 0x0C, "WeakPtrPayloadLane<uint32_t> size must be 0x0C");
+  static_assert(sizeof(WeakPtrPayloadLane<float>) == 0x0C, "WeakPtrPayloadLane<float> size must be 0x0C");
+
+  template <class PayloadT>
+  [[nodiscard]] inline WeakPtrPayloadLane<PayloadT>* CopyWeakPtrPayloadRangeCore(
+    WeakPtrPayloadLane<PayloadT>* destination,
+    const WeakPtrPayloadLane<PayloadT>* sourceEnd,
+    const WeakPtrPayloadLane<PayloadT>* sourceBegin
+  ) noexcept
+  {
+    for (const WeakPtrPayloadLane<PayloadT>* source = sourceBegin; source != sourceEnd; ++source, ++destination) {
+      if (destination == nullptr) {
+        continue;
+      }
+
+      destination->weak.ownerLinkSlot = source->weak.ownerLinkSlot;
+      if (source->weak.ownerLinkSlot == nullptr) {
+        destination->weak.nextInOwner = nullptr;
+      } else {
+        auto** const ownerHead = reinterpret_cast<WeakPtr<void>**>(source->weak.ownerLinkSlot);
+        destination->weak.nextInOwner = *ownerHead;
+        *ownerHead = &destination->weak;
+      }
+      destination->payload = source->payload;
+    }
+    return destination;
+  }
+
+  /**
+   * Address: 0x00629F40 (FUN_00629F40)
+   *
+   * What it does:
+   * Copies `[sourceBegin, sourceEnd)` weak-link lanes with one trailing float
+   * payload per element and relinks each copied node into the source owner
+   * chain head.
+   */
+  [[nodiscard]] inline WeakPtrPayloadLane<float>* CopyWeakPtrFloatPayloadRange(
+    WeakPtrPayloadLane<float>* destination,
+    const WeakPtrPayloadLane<float>* sourceEnd,
+    const WeakPtrPayloadLane<float>* sourceBegin
+  ) noexcept
+  {
+    return CopyWeakPtrPayloadRangeCore(destination, sourceEnd, sourceBegin);
+  }
+
+  /**
+   * Address: 0x006E01A0 (FUN_006E01A0)
+   *
+   * What it does:
+   * Copies `[sourceBegin, sourceEnd)` weak-link lanes with one trailing
+   * 32-bit payload per element and relinks each copied node into the source
+   * owner chain head.
+   */
+  [[nodiscard]] inline WeakPtrPayloadLane<std::uint32_t>* CopyWeakPtrDwordPayloadRange(
+    WeakPtrPayloadLane<std::uint32_t>* destination,
+    const WeakPtrPayloadLane<std::uint32_t>* sourceEnd,
+    const WeakPtrPayloadLane<std::uint32_t>* sourceBegin
+  ) noexcept
+  {
+    return CopyWeakPtrPayloadRangeCore(destination, sourceEnd, sourceBegin);
+  }
+
+  struct PrefixedWeakPtrDwordPayloadLane
+  {
+    std::uint32_t prefix0;
+    std::uint32_t prefix1;
+    WeakPtr<void> weak;
+    std::uint32_t payload;
+  };
+
+  static_assert(sizeof(PrefixedWeakPtrDwordPayloadLane) == 0x14, "PrefixedWeakPtrDwordPayloadLane size must be 0x14");
+
+  /**
+   * Address: 0x00687A70 (FUN_00687A70)
+   *
+   * What it does:
+   * Copy-assigns one 20-byte payload lane with two leading dwords, one
+   * embedded weak-link node, and one trailing dword while preserving intrusive
+   * weak-owner chain semantics.
+   */
+  [[nodiscard]] inline PrefixedWeakPtrDwordPayloadLane* CopyPrefixedWeakPtrDwordPayloadLane(
+    PrefixedWeakPtrDwordPayloadLane* const destination,
+    const PrefixedWeakPtrDwordPayloadLane* const source
+  ) noexcept
+  {
+    if (destination == nullptr || source == nullptr) {
+      return destination;
+    }
+
+    destination->prefix0 = source->prefix0;
+    destination->prefix1 = source->prefix1;
+
+    if (source->weak.ownerLinkSlot != destination->weak.ownerLinkSlot) {
+      if (destination->weak.ownerLinkSlot != nullptr) {
+        auto** cursor = reinterpret_cast<WeakPtr<void>**>(destination->weak.ownerLinkSlot);
+        while (*cursor != &destination->weak) {
+          cursor = &(*cursor)->nextInOwner;
+        }
+        *cursor = destination->weak.nextInOwner;
+      }
+
+      destination->weak.ownerLinkSlot = source->weak.ownerLinkSlot;
+      if (source->weak.ownerLinkSlot != nullptr) {
+        auto** const ownerHead = reinterpret_cast<WeakPtr<void>**>(source->weak.ownerLinkSlot);
+        destination->weak.nextInOwner = *ownerHead;
+        *ownerHead = &destination->weak;
+      } else {
+        destination->weak.nextInOwner = nullptr;
+      }
+    }
+
+    destination->payload = source->payload;
+    return destination;
+  }
+
+  /**
+   * Address: 0x007A5FB0 (FUN_007A5FB0)
+   *
+   * What it does:
+   * Unlinks every weak node in `[begin, end)` from its owner chain without
+   * mutating the unlinked nodes' local storage lanes.
+   */
+  inline void UnlinkWeakPtrRangeWithoutClearing(WeakPtr<void>* begin, WeakPtr<void>* end) noexcept
+  {
+    for (; begin != end; ++begin) {
+      if (begin->ownerLinkSlot == nullptr) {
+        continue;
+      }
+
+      auto** cursor = reinterpret_cast<WeakPtr<void>**>(begin->ownerLinkSlot);
+      while (*cursor != begin) {
+        cursor = &(*cursor)->nextInOwner;
+      }
+      *cursor = begin->nextInOwner;
+    }
+  }
+
   /**
    * Address: 0x0057D4F0 (FUN_0057D4F0, Moho::WeakPtr_Unit::Set)
    *

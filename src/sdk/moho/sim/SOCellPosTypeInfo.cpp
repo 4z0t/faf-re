@@ -148,6 +148,27 @@ namespace moho
   }
 
   /**
+   * Address: 0x0050AEB0 (FUN_0050AEB0, Moho::Invalid<Moho::SOCellPos>)
+   *
+   * What it does:
+   * Lazily initializes one process-static invalid cell position
+   * (`x = z = 0x8000`) and returns it by reference.
+   */
+  template <>
+  const SOCellPos& Invalid<SOCellPos>()
+  {
+    static SOCellPos invalidCellPos{};
+    static bool initialized = false;
+    if (!initialized) {
+      invalidCellPos.x = static_cast<int16_t>(0x8000);
+      invalidCellPos.z = static_cast<int16_t>(0x8000);
+      initialized = true;
+    }
+
+    return invalidCellPos;
+  }
+
+  /**
    * Address: 0x00BC7D20 (FUN_00BC7D20, register_SOCellPosTypeInfo)
    *
    * What it does:

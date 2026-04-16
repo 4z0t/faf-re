@@ -16,7 +16,7 @@ gpg::RType* IAiReconDB::sType = nullptr;
 IAiReconDB::~IAiReconDB() = default;
 
 /**
- * Address: 0x005C29C0 (FUN_005C29C0, nullsub_1553)
+  * Alias of FUN_005C29C0 (non-canonical helper lane).
  *
  * What it does:
  * No-op checksum update hook in the base recon DB interface lane.

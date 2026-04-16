@@ -80,7 +80,7 @@ namespace moho
     virtual void CreateUnit(uint32_t, RResId const&, SCoordsVec2 const&, float) = 0;
 
     /**
-     * Address: 0x00748C00
+      * Alias of FUN_00748C00 (non-canonical helper lane).
      *
      * VFTable SLOT: 7
      */

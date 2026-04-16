@@ -271,6 +271,93 @@ namespace moho
   int cfunc_IssuePauseL(LuaPlus::LuaState* state);
 
   /**
+   * Address: 0x006F2250 (FUN_006F2250, cfunc_IssueFactoryRallyPoint)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to
+   * `cfunc_IssueFactoryRallyPointL`.
+   */
+  int cfunc_IssueFactoryRallyPoint(lua_State* luaContext);
+
+  /**
+   * Address: 0x006F22C0 (FUN_006F22C0, cfunc_IssueFactoryRallyPointL)
+   *
+   * What it does:
+   * Parses `(unitList, target)`, filters live factory-capable units, and
+   * issues one factory rally command; returns the created command object on
+   * success.
+   */
+  int cfunc_IssueFactoryRallyPointL(LuaPlus::LuaState* state);
+
+  /**
+   * Address: 0x006F30D0 (FUN_006F30D0, cfunc_IssueGuard)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to `cfunc_IssueGuardL`.
+   */
+  int cfunc_IssueGuard(lua_State* luaContext);
+
+  /**
+   * Address: 0x006F3140 (FUN_006F3140, cfunc_IssueGuardL)
+   *
+   * What it does:
+   * Parses `(unitList, target)`, validates guard-capable units and target
+   * payload, then issues `UNITCOMMAND_Guard`.
+   */
+  int cfunc_IssueGuardL(LuaPlus::LuaState* state);
+
+  /**
+   * Address: 0x006F3650 (FUN_006F3650, cfunc_IssueAttack)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to `cfunc_IssueAttackL`.
+   */
+  int cfunc_IssueAttack(lua_State* luaContext);
+
+  /**
+   * Address: 0x006F36C0 (FUN_006F36C0, cfunc_IssueAttackL)
+   *
+   * What it does:
+   * Parses `(unitList, target)`, filters attack-capable units, issues
+   * `UNITCOMMAND_Attack`, and returns the created command object or `nil`.
+   */
+  int cfunc_IssueAttackL(LuaPlus::LuaState* state);
+
+  /**
+   * Address: 0x006F49B0 (FUN_006F49B0, cfunc_IssuePatrol)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to `cfunc_IssuePatrolL`.
+   */
+  int cfunc_IssuePatrol(lua_State* luaContext);
+
+  /**
+   * Address: 0x006F4A20 (FUN_006F4A20, cfunc_IssuePatrolL)
+   *
+   * What it does:
+   * Parses `(unitList, target)`, validates patrol-capable units and target
+   * payload, then issues `UNITCOMMAND_Patrol`.
+   */
+  int cfunc_IssuePatrolL(LuaPlus::LuaState* state);
+
+  /**
+   * Address: 0x006F5820 (FUN_006F5820, cfunc_IssueFerry)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to `cfunc_IssueFerryL`.
+   */
+  int cfunc_IssueFerry(lua_State* luaContext);
+
+  /**
+   * Address: 0x006F5890 (FUN_006F5890, cfunc_IssueFerryL)
+   *
+   * What it does:
+   * Parses `(unitList, target)`, validates ferry-capable units and target
+   * payload, then issues `UNITCOMMAND_Ferry`.
+   */
+  int cfunc_IssueFerryL(LuaPlus::LuaState* state);
+
+  /**
    * Address: 0x00836900 (FUN_00836900, cfunc_DecreaseBuildCountInQueue)
    *
    * What it does:
@@ -304,12 +391,30 @@ namespace moho
   int cfunc_IssueCommand(lua_State* luaContext);
 
   /**
+   * Address: 0x008415B0 (FUN_008415B0, cfunc_IssueCommandL)
+   *
+   * What it does:
+   * Parses command lexical payload and optional argument/clear flag, then
+   * dispatches command issue against current world selection.
+   */
+  int cfunc_IssueCommandL(LuaPlus::LuaState* state);
+
+  /**
    * Address: 0x00841840 (FUN_00841840, cfunc_IssueUnitCommand)
    *
    * What it does:
    * Lua callback target for `func_IssueUnitCommand_LuaFuncDef`.
    */
   int cfunc_IssueUnitCommand(lua_State* luaContext);
+
+  /**
+   * Address: 0x008418C0 (FUN_008418C0, cfunc_IssueUnitCommandL)
+   *
+   * What it does:
+   * Parses `(unitList, command, [arg], [clear])` and dispatches command issue
+   * against the provided user-unit vector.
+   */
+  int cfunc_IssueUnitCommandL(LuaPlus::LuaState* state);
 
   /**
    * Address: 0x00841B90 (FUN_00841B90, cfunc_IssueBlueprintCommand)
@@ -334,6 +439,15 @@ namespace moho
    * Lua callback target for `func_SetOverlayFilter_LuaFuncDef`.
    */
   int cfunc_SetOverlayFilter(lua_State* luaContext);
+
+  /**
+   * Address: 0x00846BE0 (FUN_00846BE0, cfunc_SetOverlayFilterL)
+   *
+   * What it does:
+   * Parses one overlay-filter profile payload and updates range-render
+   * category filters/colors/thickness in the active world session.
+   */
+  int cfunc_SetOverlayFilterL(LuaPlus::LuaState* state);
 
   /**
    * Address: 0x00847270 (FUN_00847270, cfunc_GetActiveBuildTemplate)

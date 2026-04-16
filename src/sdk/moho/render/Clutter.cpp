@@ -963,6 +963,18 @@ namespace moho
   }
 
   /**
+   * Address: 0x007D64C0 (FUN_007D64C0, ?IsVisible@Clutter@Moho@@AAE_NPBVGeomCamera3@2@PBVRegion@12@@Z)
+   *
+   * What it does:
+   * Returns visibility state for one clutter region by delegating to AABB
+   * visibility test using the region's box lane.
+   */
+  bool Clutter::IsVisible(const GeomCamera3* const camera, const ClutterRegion* const region)
+  {
+    return region != nullptr && IsVisible(camera, region->mBox);
+  }
+
+  /**
    * Address: 0x007D6510 (FUN_007D6510, ?UpdateCurrent@Clutter@Moho@@AAEXPBVGeomCamera3@2@@Z)
    *
    * What it does:
@@ -974,12 +986,54 @@ namespace moho
     ClutterRegion* currentRegion = mCurRegion;
     while (currentRegion != nullptr) {
       ClutterRegion* const previousRegion = currentRegion->mPrev;
-      if (!IsVisible(camera, currentRegion->mBox)) {
+      if (!IsVisible(camera, currentRegion)) {
         DestroyRegion(currentRegion);
       }
 
       currentRegion = previousRegion;
     }
+  }
+
+  /**
+   * Address: 0x007D7050 (FUN_007D7050, ?UpdateRegion@Clutter@Moho@@AAEXPBVGeomCamera3@2@PAVRegion@12@@Z)
+   *
+   * What it does:
+   * Rebinds each mesh-instance payload in one region map to this clutter
+   * owner lane.
+   */
+  void Clutter::UpdateRegion(const GeomCamera3* const camera, ClutterRegion* const region)
+  {
+    (void)camera;
+
+    ClutterListNode* const head = region->mMap.head;
+    for (ClutterListNode* node = head->next; node != head; node = node->next) {
+      auto* const meshInstance = static_cast<MeshInstance*>(node->payload);
+      meshInstance->unk24 = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(this));
+    }
+  }
+
+  /**
+   * Address: 0x007D64D0 (FUN_007D64D0, ?IsCluttered@Clutter@Moho@@AAE_NHH@Z)
+   *
+   * What it does:
+   * Probes the region-key RB-tree for one exact `(x,z)` key match.
+   */
+  bool Clutter::IsCluttered(const int x, const int z)
+  {
+    ClutterRegionKey lookupKey{};
+    lookupKey.vtable = RegionKeyVtableResetToken();
+    lookupKey.mX = x;
+    lookupKey.mZ = z;
+
+    ClutterRegionKeyNode* const candidate = FindLowerBound(&mKeys, lookupKey);
+    if (candidate == nullptr || candidate == mKeys.head) {
+      return false;
+    }
+
+    const bool keysEqual =
+      !RegionKeyLess(candidate->key, lookupKey) &&
+      !RegionKeyLess(lookupKey, candidate->key);
+    return keysEqual;
   }
 
   /**
@@ -1270,6 +1324,28 @@ namespace moho
   }
 
   /**
+   * Address: 0x007D6E10 (FUN_007D6E10, ?UnlinkRegion@Clutter@Moho@@AAEXPAVRegion@12@@Z)
+   *
+   * What it does:
+   * Detaches one region node from the active doubly-linked chain and updates
+   * `mCurRegion` when it points at the removed node.
+   */
+  void Clutter::UnlinkRegion(ClutterRegion* const region)
+  {
+    if (mCurRegion == region) {
+      mCurRegion = region->mNext;
+    }
+
+    if (region->mPrev != nullptr) {
+      region->mPrev->mNext = region->mNext;
+    }
+
+    if (region->mNext != nullptr) {
+      region->mNext->mPrev = region->mPrev;
+    }
+  }
+
+  /**
    * Address: 0x007D7080 (FUN_007D7080, ?DestroyRegion@Clutter@Moho@@AAEXPAVRegion@12@@Z)
    */
   void Clutter::DestroyRegion(ClutterRegion* const region)
@@ -1280,16 +1356,7 @@ namespace moho
     regionKey.mZ = region->mZ;
     (void)EraseRegionKeyRange(&regionKey, &mKeys);
 
-    if (mCurRegion == region) {
-      mCurRegion = region->mPrev;
-    }
-
-    if (region->mNext) {
-      region->mNext->mPrev = region->mPrev;
-    }
-    if (region->mPrev) {
-      region->mPrev->mNext = region->mNext;
-    }
+    UnlinkRegion(region);
 
     (void)ResetRegionRuntimeState(region);
 
@@ -1323,6 +1390,17 @@ namespace moho
     mKeys.size = 0;
     mKeys.head->left = mKeys.head;
     mKeys.head->right = mKeys.head;
+  }
+
+  /**
+   * Address: 0x007D62B0 (FUN_007D62B0, ?Initialize@Clutter@Moho@@QAEXXZ)
+   *
+   * What it does:
+   * Forwards to `Shutdown()` (thunk lane in the original binary).
+   */
+  void Clutter::Initialize()
+  {
+    Shutdown();
   }
 
   /**

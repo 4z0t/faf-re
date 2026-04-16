@@ -278,7 +278,7 @@ namespace
   }
 
   /**
-   * Address: 0x00694380 family (serializer save lane)
+    * Alias of FUN_00694380 (non-canonical helper lane).
    *
    * What it does:
    * Serializes tracked `Entity*` pointer lanes from `fastvector<Entity*>` storage.
@@ -361,7 +361,7 @@ namespace
 namespace moho
 {
   /**
-   * Address: 0x0067CD30 (FUN_0067CD30, Moho::RWeakPtrType_Entity::SerLoad)
+    * Alias of FUN_0067CD30 (non-canonical helper lane).
    */
   void WeakPtr_Entity::Deserialize(gpg::ReadArchive* const archive, const int objectPtr, int, gpg::RRef* ownerRef)
   {
@@ -369,7 +369,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x0067CD60 (FUN_0067CD60, Moho::RWeakPtrType_Entity::SerSave)
+    * Alias of FUN_0067CD60 (non-canonical helper lane).
    */
   void WeakPtr_Entity::Serialize(gpg::WriteArchive* const archive, const int objectPtr, int, gpg::RRef* ownerRef)
   {
@@ -628,7 +628,7 @@ namespace gpg
   }
 
   /**
-   * Address: 0x00694380 family (gpg::RFastVectorType_Entity_P::IsIndexed)
+    * Alias of FUN_00694380 (non-canonical helper lane).
    */
   const gpg::RIndexed* RFastVectorType<moho::Entity*>::IsIndexed() const
   {
@@ -636,7 +636,7 @@ namespace gpg
   }
 
   /**
-   * Address: 0x00694380 (FUN_00694380, gpg::RFastVectorType_Entity_P::Init)
+    * Alias of FUN_00694380 (non-canonical helper lane).
    */
   void RFastVectorType<moho::Entity*>::Init()
   {
@@ -647,7 +647,7 @@ namespace gpg
   }
 
   /**
-   * Address: 0x00694380 family (gpg::RFastVectorType_Entity_P::SubscriptIndex)
+    * Alias of FUN_00694380 (non-canonical helper lane).
    */
   gpg::RRef RFastVectorType<moho::Entity*>::SubscriptIndex(void* obj, const int ind) const
   {
@@ -666,7 +666,7 @@ namespace gpg
   }
 
   /**
-   * Address: 0x00694380 family (gpg::RFastVectorType_Entity_P::GetCount)
+    * Alias of FUN_00694380 (non-canonical helper lane).
    */
   size_t RFastVectorType<moho::Entity*>::GetCount(void* obj) const
   {
@@ -683,7 +683,7 @@ namespace gpg
   }
 
   /**
-   * Address: 0x00694380 family (gpg::RFastVectorType_Entity_P::SetCount)
+    * Alias of FUN_00694380 (non-canonical helper lane).
    */
   void RFastVectorType<moho::Entity*>::SetCount(void* obj, const int count) const
   {
@@ -743,7 +743,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00694380 (FUN_00694380, register_FastVectorEntityPtrType_00)
+    * Alias of FUN_00694380 (non-canonical helper lane).
    *
    * What it does:
    * Constructs and preregisters RTTI for `fastvector<Entity*>`.
@@ -756,7 +756,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00BFCEA0 (FUN_00BFCEA0, cleanup_FastVectorEntityPtrType)
+    * Alias of FUN_00BFCEA0 (non-canonical helper lane).
    *
    * What it does:
    * Tears down startup-owned `fastvector<Entity*>` reflection storage.

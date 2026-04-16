@@ -25,6 +25,28 @@ namespace
 {
   constexpr std::uint32_t kMissingTargetEntityId = 0xF0000000u;
 
+  /**
+   * Address: 0x005A6DE0 (FUN_005A6DE0)
+   *
+   * What it does:
+   * Unlinks one weak-entity node from its owner-chain intrusive slot by
+   * replacing the node reference with the stored `nextInOwner` lane.
+   */
+  [[maybe_unused]] WeakPtr<Entity>** UnlinkWeakEntityNodeFromOwnerChain(
+    WeakPtr<Entity>* const node
+  ) noexcept
+  {
+    WeakPtr<Entity>** cursor = reinterpret_cast<WeakPtr<Entity>**>(node->ownerLinkSlot);
+    if (cursor != nullptr) {
+      while (*cursor != node) {
+        cursor = &(*cursor)->nextInOwner;
+      }
+      *cursor = node->nextInOwner;
+    }
+
+    return cursor;
+  }
+
   [[nodiscard]] Entity* FindEntityById(CEntityDb* entityDb, const EntId entityId)
   {
     if (!entityDb) {
@@ -137,7 +159,7 @@ CAiTarget::CAiTarget(const CAiTarget& source)
 }
 
 /**
- * Address: 0x005D5670 (FUN_005D5670)
+  * Alias of FUN_005D5670 (non-canonical helper lane).
  *
  * What it does:
  * Assigns payload/link state from another target object.
@@ -164,7 +186,7 @@ CAiTarget::~CAiTarget()
 }
 
 /**
- * Address: 0x005D5670 (FUN_005D5670)
+  * Alias of FUN_005D5670 (non-canonical helper lane).
  *
  * What it does:
  * Core link/payload copier used by copy-ctor and assignment.
@@ -181,7 +203,7 @@ void CAiTarget::CopyFromLinkedTarget(const CAiTarget& source)
 }
 
 /**
- * Address: 0x005D57E0 (FUN_005D57E0)
+  * Alias of FUN_005D57E0 (non-canonical helper lane).
  *
  * What it does:
  * Unlinks this target from owner weak-link slot chain.

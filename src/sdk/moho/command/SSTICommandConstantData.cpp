@@ -9,6 +9,22 @@
 
 namespace
 {
+  class SSTICommandConstantDataTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "SSTICommandConstantData";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::SSTICommandConstantData);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
   moho::SSTICommandConstantDataSerializer gSSTICommandConstantDataSerializer{};
   gpg::RType* gQuatfType = nullptr;
 
@@ -61,11 +77,42 @@ namespace
     gSSTICommandConstantDataSerializer.RegisterSerializeFunctions();
     (void)std::atexit(&cleanup_SSTICommandConstantDataSerializer_Atexit);
   }
+
+  /**
+   * Address: 0x006EC980 (FUN_006EC980)
+   *
+   * What it does:
+   * Resets the trailing string lane for each `SSTICommandConstantData` entry in
+   * one half-open `[begin, end)` range.
+   */
+  [[maybe_unused]] void ResetSSTICommandConstantDataStringRange(
+    moho::SSTICommandConstantData* begin,
+    moho::SSTICommandConstantData* const end
+  ) noexcept
+  {
+    while (begin != end) {
+      begin->unk2.tidy(true, 0U);
+      ++begin;
+    }
+  }
 } // namespace
 
 namespace moho
 {
   gpg::RType* SSTICommandConstantData::sType = nullptr;
+
+  /**
+   * Address: 0x00552630 (FUN_00552630, preregister_SSTICommandConstantDataTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SSTICommandConstantData`.
+   */
+  gpg::RType* preregister_SSTICommandConstantDataTypeInfo()
+  {
+    static SSTICommandConstantDataTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SSTICommandConstantData), &typeInfo);
+    return &typeInfo;
+  }
 
   /**
    * Address: 0x00554630 (FUN_00554630, Moho::SSTICommandConstantData::MemberDeserialize)
@@ -150,7 +197,7 @@ namespace moho
   {
     gpg::RType* type = SSTICommandConstantData::sType;
     if (type == nullptr) {
-      type = gpg::LookupRType(typeid(SSTICommandConstantData));
+      type = preregister_SSTICommandConstantDataTypeInfo();
       SSTICommandConstantData::sType = type;
     }
 
@@ -168,6 +215,7 @@ namespace
   {
     SSTICommandConstantDataSerializerBootstrap()
     {
+      (void)moho::preregister_SSTICommandConstantDataTypeInfo();
       register_SSTICommandConstantDataSerializer();
     }
   };

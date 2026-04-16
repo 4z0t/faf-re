@@ -116,6 +116,28 @@ namespace
   }
 
   /**
+   * Address: 0x00883380 (FUN_00883380)
+   *
+   * What it does:
+   * Reads one reflected `SSavedGameHeader` payload from a read archive lane
+   * using the provided owner ref (or null-owner fallback).
+   */
+  [[nodiscard]] gpg::ReadArchive* ReadSavedGameHeaderPayload(
+    gpg::ReadArchive* const archive,
+    moho::SSavedGameHeader* const header,
+    const gpg::RRef* const ownerRef
+  )
+  {
+    if (archive == nullptr || header == nullptr) {
+      return archive;
+    }
+
+    const gpg::RRef& effectiveOwner = ownerRef != nullptr ? *ownerRef : NullOwnerRef();
+    archive->Read(moho::SSavedGameHeader::StaticGetClass(), header, effectiveOwner);
+    return archive;
+  }
+
+  /**
    * Address: 0x007CB8E0 (FUN_007CB8E0, func_CopyLaunchInfoBasePtr)
    *
    * What it does:
@@ -888,7 +910,7 @@ namespace moho
     }
 
     mReader = gpg::CreateBinaryReadArchive(file);
-    mReader->Read(SSavedGameHeader::StaticGetClass(), &mHeader, NullOwnerRef());
+    (void)ReadSavedGameHeaderPayload(mReader, &mHeader, nullptr);
     mReader->EndSection(false);
     if (mHeader.mVersion != 20) {
       throw std::runtime_error("WrongVersion");

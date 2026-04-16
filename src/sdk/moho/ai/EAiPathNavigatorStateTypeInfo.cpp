@@ -205,13 +205,19 @@ void EAiPathNavigatorStatePrimitiveSerializer::Serialize(
   archive->WriteInt(static_cast<int>(*value));
 }
 
+/**
+ * Address: 0x005B0050 (FUN_005B0050)
+ *
+ * What it does:
+ * Binds reflected load/save callbacks for `EAiPathNavigatorState`.
+ */
 void EAiPathNavigatorStatePrimitiveSerializer::RegisterSerializeFunctions()
 {
   gpg::RType* const type = CachedEAiPathNavigatorStateType();
   GPG_ASSERT(type != nullptr);
-  GPG_ASSERT(type->serLoadFunc_ == nullptr || type->serLoadFunc_ == mLoadCallback);
-  GPG_ASSERT(type->serSaveFunc_ == nullptr || type->serSaveFunc_ == mSaveCallback);
+  GPG_ASSERT(type->serLoadFunc_ == nullptr);
   type->serLoadFunc_ = mLoadCallback;
+  GPG_ASSERT(type->serSaveFunc_ == nullptr);
   type->serSaveFunc_ = mSaveCallback;
 }
 

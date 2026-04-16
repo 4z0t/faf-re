@@ -86,6 +86,15 @@ namespace moho
   {
   public:
     /**
+     * Address: 0x006A5340 (FUN_006A5340, ??0IUnit@Moho@@QAE@XZ)
+     *
+     * What it does:
+     * Initializes the `IUnit` base object by setting the weak-link head lane to
+     * null and installing the `IUnit` vtable.
+     */
+    IUnit() noexcept;
+
+    /**
      * Address: 0x006A48C0
      * Slot: 0
      * Demangled: public: virtual class Unit const near * __thiscall IUnit::IsUnit(void)const

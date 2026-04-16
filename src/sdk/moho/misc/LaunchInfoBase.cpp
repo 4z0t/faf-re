@@ -153,8 +153,7 @@ namespace
     (void)RegisterArmyLaunchInfoTypeInfoStartup();
 
     if (!gArmyLaunchInfoVectorTypeRegistered) {
-      gpg::PreRegisterRType(typeid(ArmyLaunchInfoVector), &gArmyLaunchInfoVectorTypeInfo);
-      gArmyLaunchInfoVectorTypeRegistered = true;
+      (void)moho::preregister_ArmyLaunchInfoVectorTypeStartup();
     }
 
     gpg::RType* type = gpg::LookupRType(typeid(ArmyLaunchInfoVector));
@@ -486,6 +485,42 @@ namespace
   }
 
   /**
+   * Address: 0x00545130 (FUN_00545130)
+   *
+   * What it does:
+   * Copy-constructs `count` contiguous `BVIntSet` lanes from one source set.
+   * On failure, it resets already-constructed lanes to inline storage and
+   * rethrows.
+   */
+  [[maybe_unused]] void CopyConstructBVIntSetFillRange(
+    const moho::BVIntSet& source, moho::BVIntSet* const destination, std::size_t count
+  )
+  {
+    if (destination == nullptr || count == 0u) {
+      return;
+    }
+
+    moho::BVIntSet* write = destination;
+    try {
+      while (count != 0u) {
+        write->mFirstWordIndex = source.mFirstWordIndex;
+        write->mWords.RebindInlineNoFree();
+        (void)gpg::core::legacy::CopyFrom(
+          write->mWords, source.mWords, write->mWords.originalVec_
+        );
+        --count;
+        ++write;
+      }
+    } catch (...) {
+      write->mWords.ResetStorageToInline();
+      for (moho::BVIntSet* constructed = destination; constructed != write; ++constructed) {
+        constructed->mWords.ResetStorageToInline();
+      }
+      throw;
+    }
+  }
+
+  /**
    * Address: 0x00542CD0 (FUN_00542CD0)
    *
    * What it does:
@@ -500,6 +535,83 @@ namespace
       destination = source;
     }
     return destination;
+  }
+
+  /**
+   * Address: 0x00544E20 (FUN_00544E20)
+   *
+   * What it does:
+   * Rewinds one half-open ArmyLaunchInfo range by releasing heap-backed
+   * `BVIntSet::mWords` storage and restoring inline fastvector lanes.
+   */
+  [[maybe_unused]] moho::ArmyLaunchInfo* ResetArmyLaunchInfoUnitSourcesRange(
+    moho::ArmyLaunchInfo* const begin,
+    moho::ArmyLaunchInfo* const end
+  )
+  {
+    for (moho::ArmyLaunchInfo* cursor = begin; cursor != end; ++cursor) {
+      cursor->mUnitSources.mWords.ResetStorageToInline();
+    }
+    return begin;
+  }
+
+  /**
+   * Address: 0x00543410 (FUN_00543410)
+   *
+   * What it does:
+   * Resets one legacy `vector<ArmyLaunchInfo>` lane by clearing each element's
+   * unit-source storage, releasing the heap buffer, and nulling begin/end/
+   * capacity pointers.
+   */
+  [[maybe_unused]] void ResetArmyLaunchInfoVectorStorage(ArmyLaunchInfoVector& storage)
+  {
+    auto& runtime = msvc8::AsVectorRuntimeView(storage);
+    if (runtime.begin != nullptr) {
+      (void)ResetArmyLaunchInfoUnitSourcesRange(runtime.begin, runtime.end);
+      ::operator delete(runtime.begin);
+    }
+
+    runtime.begin = nullptr;
+    runtime.end = nullptr;
+    runtime.capacityEnd = nullptr;
+  }
+
+  /**
+   * Address: 0x00544EA0 (FUN_00544EA0)
+   *
+   * What it does:
+   * Rewinds one half-open command-source range by releasing heap-backed
+   * name-string storage and restoring empty SSO lanes for each entry.
+   */
+  [[maybe_unused]] void ResetCommandSourceNameRange(
+    moho::SSTICommandSource* const begin,
+    moho::SSTICommandSource* const end
+  )
+  {
+    for (moho::SSTICommandSource* cursor = begin; cursor != end; ++cursor) {
+      cursor->mName.tidy(true, 0U);
+    }
+  }
+
+  /**
+   * Address: 0x005434D0 (FUN_005434D0)
+   *
+   * What it does:
+   * Resets one legacy `vector<SSTICommandSource>` lane by clearing each
+   * command-source name, releasing the heap buffer, and nulling begin/end/
+   * capacity pointers.
+   */
+  [[maybe_unused]] void ResetCommandSourceVectorStorage(msvc8::vector<moho::SSTICommandSource>& storage)
+  {
+    auto& runtime = msvc8::AsVectorRuntimeView(storage);
+    if (runtime.begin != nullptr) {
+      (void)ResetCommandSourceNameRange(runtime.begin, runtime.end);
+      ::operator delete(runtime.begin);
+    }
+
+    runtime.begin = nullptr;
+    runtime.end = nullptr;
+    runtime.capacityEnd = nullptr;
   }
 
   template <typename THelper>
@@ -715,6 +827,35 @@ namespace moho
 {
   gpg::RType* ArmyLaunchInfo::sType = nullptr;
   gpg::RType* LaunchInfoBase::sType = nullptr;
+
+  /**
+   * Address: 0x00544800 (FUN_00544800, preregister_ArmyLaunchInfoVectorTypeStartup)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `vector<ArmyLaunchInfo>`.
+   */
+  gpg::RType* preregister_ArmyLaunchInfoVectorTypeStartup()
+  {
+    auto* const typeInfo = &gArmyLaunchInfoVectorTypeInfo;
+    gpg::PreRegisterRType(typeid(ArmyLaunchInfoVector), typeInfo);
+    gArmyLaunchInfoVectorTypeRegistered = true;
+    return typeInfo;
+  }
+
+  /**
+   * Address: 0x00544320 (FUN_00544320, boost::shared_ptr_LaunchInfoNew::shared_ptr_LaunchInfoNew)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<LaunchInfoNew>` from one raw launch-info
+   * pointer lane.
+   */
+  boost::shared_ptr<LaunchInfoNew>* ConstructSharedLaunchInfoNewFromRaw(
+    boost::shared_ptr<LaunchInfoNew>* const outLaunchInfo,
+    LaunchInfoNew* const launchInfo
+  )
+  {
+    return ::new (outLaunchInfo) boost::shared_ptr<LaunchInfoNew>(launchInfo);
+  }
 
   /**
    * Address: 0x00542110 (FUN_00542110, scalar deleting destructor thunk)

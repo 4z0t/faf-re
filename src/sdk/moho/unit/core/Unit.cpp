@@ -209,6 +209,12 @@ namespace moho
   int cfunc_UnitHasValidTeleportDestL(LuaPlus::LuaState* state);
   int cfunc_UnitHasValidTeleportDest(lua_State* luaContext);
   CScrLuaInitForm* func_UnitHasValidTeleportDest_LuaFuncDef();
+  int cfunc_UnitHasMeleeSpaceAroundTargetL(LuaPlus::LuaState* state);
+  int cfunc_UnitHasMeleeSpaceAroundTarget(lua_State* luaContext);
+  CScrLuaInitForm* func_UnitHasMeleeSpaceAroundTarget_LuaFuncDef();
+  int cfunc_UnitMeleeWarpAdjacentToTargetL(LuaPlus::LuaState* state);
+  int cfunc_UnitMeleeWarpAdjacentToTarget(lua_State* luaContext);
+  CScrLuaInitForm* func_UnitMeleeWarpAdjacentToTarget_LuaFuncDef();
   int cfunc_UnitAddUnitToStorageL(LuaPlus::LuaState* state);
   int cfunc_UnitAddUnitToStorage(lua_State* luaContext);
   CScrLuaInitForm* func_UnitAddUnitToStorage_LuaFuncDef();
@@ -710,6 +716,10 @@ namespace
   constexpr const char* kUnitGetTransportFerryBeaconHelpText = "Unit:GetTransportFerryBeacon()";
   constexpr const char* kUnitHasValidTeleportDestName = "HasValidTeleportDest";
   constexpr const char* kUnitHasValidTeleportDestHelpText = "Unit:HasValidTeleportDest()";
+  constexpr const char* kUnitMeleeWarpAdjacentToTargetName = "MeleeWarpAdjacentToTarget";
+  constexpr const char* kUnitMeleeWarpAdjacentToTargetHelpText = "Unit:MeleeWarpAdjacentToTarget(target)";
+  constexpr const char* kUnitHasMeleeSpaceAroundTargetName = "HasMeleeSpaceAroundTarget";
+  constexpr const char* kUnitHasMeleeSpaceAroundTargetHelpText = "Unit:HasMeleeSpaceAroundTarget(target)";
   constexpr const char* kUnitAddUnitToStorageName = "AddUnitToStorage";
   constexpr const char* kUnitAddUnitToStorageHelpText = "Unit:AddUnitToStorage( storedUnit )";
   constexpr const char* kUnitAddUnitToStorageNoRoomWarning = "No more room available in carrier for unit to be stored";
@@ -1526,6 +1536,24 @@ namespace
 #endif
   }
 
+  /**
+   * Address: 0x00593290 (FUN_00593290)
+   *
+   * What it does:
+   * Resolves one army stat lane by name, synchronizes it as a float, and
+   * applies one pointed float delta through `StatItem::AddFloat`.
+   */
+  std::int32_t AddArmyStatFloatByName(
+    CArmyStats* const armyStats,
+    float* const deltaValue,
+    const char* const statPath
+  )
+  {
+    CArmyStatItem* const statItem = armyStats->TraverseTables(statPath, true);
+    statItem->SynchronizeAsFloat();
+    return statItem->AddFloat(deltaValue);
+  }
+
   void IncrementAIDebugStateStat(CArmyStats* const armyStats, const msvc8::string& statPath)
   {
     if (!armyStats || statPath.empty()) {
@@ -1678,6 +1706,49 @@ namespace
   [[nodiscard]] bool IsArmorMapSentinel(const SArmorMultiplierMapNode* const node) noexcept
   {
     return node == nullptr || node->isNil != 0u;
+  }
+
+  /**
+   * Address: 0x00736760 (FUN_00736760)
+   *
+   * What it does:
+   * Advances one armor-multiplier map node cursor to the next in-order
+   * sentinel-tree node and writes the advanced node back to the caller lane.
+   */
+  [[maybe_unused]] [[nodiscard]] SArmorMultiplierMapNode*
+  AdvanceArmorMultiplierNodeCursor(SArmorMultiplierMapNode*& cursor) noexcept
+  {
+    if (IsArmorMapSentinel(cursor)) {
+      return cursor;
+    }
+
+    SArmorMultiplierMapNode* rightNode = cursor->right;
+    if (rightNode == nullptr) {
+      cursor = nullptr;
+      return cursor;
+    }
+
+    if (rightNode->isNil != 0u) {
+      for (SArmorMultiplierMapNode* parent = cursor->parent; parent != nullptr && parent->isNil == 0u; parent = parent->parent)
+      {
+        if (cursor != parent->right) {
+          cursor = parent;
+          return cursor;
+        }
+        cursor = parent;
+      }
+      cursor = (cursor != nullptr) ? cursor->parent : nullptr;
+      return cursor;
+    }
+
+    SArmorMultiplierMapNode* next = rightNode->left;
+    while (next != nullptr && next->isNil == 0u) {
+      rightNode = next;
+      next = next->left;
+    }
+
+    cursor = rightNode;
+    return cursor;
   }
 
   [[nodiscard]] bool ArmorTypeNameLess(const msvc8::string& lhs, const std::string_view rhs) noexcept
@@ -2371,7 +2442,7 @@ namespace
 } // namespace
 
 /**
- * Address: 0x00593970 (FUN_00593970, func_GetUnitOpt)
+  * Alias of FUN_00593970 (non-canonical helper lane).
  *
  * What it does:
  * Public wrapper that mirrors the anonymous-namespace `GetUnitOptional`
@@ -4456,6 +4527,44 @@ CScrLuaInitForm* moho::func_UnitAddUnitToStorage_LuaFuncDef()
     &CScrLuaMetatableFactory<Unit>::Instance(),
     kUnitLuaClassName,
     kUnitAddUnitToStorageHelpText
+  );
+  return &binder;
+}
+
+/**
+ * Address: 0x006CDCB0 (FUN_006CDCB0, func_UnitHasMeleeSpaceAroundTarget_LuaFuncDef)
+ *
+ * What it does:
+ * Publishes the `Unit:HasMeleeSpaceAroundTarget(target)` Lua binder definition.
+ */
+CScrLuaInitForm* moho::func_UnitHasMeleeSpaceAroundTarget_LuaFuncDef()
+{
+  static CScrLuaBinder binder(
+    SimLuaInitSet(),
+    kUnitHasMeleeSpaceAroundTargetName,
+    &moho::cfunc_UnitHasMeleeSpaceAroundTarget,
+    &CScrLuaMetatableFactory<Unit>::Instance(),
+    kUnitLuaClassName,
+    kUnitHasMeleeSpaceAroundTargetHelpText
+  );
+  return &binder;
+}
+
+/**
+ * Address: 0x006CDEF0 (FUN_006CDEF0, func_UnitMeleeWarpAdjacentToTarget_LuaFuncDef)
+ *
+ * What it does:
+ * Publishes the `Unit:MeleeWarpAdjacentToTarget(target)` Lua binder definition.
+ */
+CScrLuaInitForm* moho::func_UnitMeleeWarpAdjacentToTarget_LuaFuncDef()
+{
+  static CScrLuaBinder binder(
+    SimLuaInitSet(),
+    kUnitMeleeWarpAdjacentToTargetName,
+    &moho::cfunc_UnitMeleeWarpAdjacentToTarget,
+    &CScrLuaMetatableFactory<Unit>::Instance(),
+    kUnitLuaClassName,
+    kUnitMeleeWarpAdjacentToTargetHelpText
   );
   return &binder;
 }
@@ -10652,6 +10761,23 @@ CIntel const* Unit::GetIntelManager() const noexcept
 
 namespace
 {
+  /**
+   * Address: 0x00561C80 (FUN_00561C80, sub_561C80)
+   *
+   * What it does:
+   * Copy-assigns one `fastvector_n<WeakPtr<CUnitCommand>,4>` lane, preserving
+   * element order while reusing existing storage when capacity allows.
+   */
+  void CopyUnitCommandWeakVector(
+    gpg::fastvector_n<moho::WeakPtr<moho::CUnitCommand>, 4>& destination,
+    const gpg::fastvector_n<moho::WeakPtr<moho::CUnitCommand>, 4>& source
+  )
+  {
+    auto& destinationView = gpg::AsFastVectorRuntimeView<moho::WeakPtr<moho::CUnitCommand>>(&destination);
+    const auto& sourceView = gpg::AsFastVectorRuntimeView<moho::WeakPtr<moho::CUnitCommand>>(&source);
+    gpg::FastVectorRuntimeCopyAssign(destinationView, sourceView);
+  }
+
   template <class T, std::size_t N>
   void CopyFastVectorN(gpg::fastvector_n<T, N>& destination, const gpg::fastvector_n<T, N>& source)
   {
@@ -10667,6 +10793,184 @@ namespace
       cached = gpg::LookupRType(typeid(ELayer));
     }
     return cached;
+  }
+
+  class UnitWeaponInfoTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "UnitWeaponInfo";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::UnitWeaponInfo);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
+  class SSTIUnitVariableDataTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "SSTIUnitVariableData";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::SSTIUnitVariableData);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+} // namespace
+
+/**
+ * Address: 0x0055C020 (FUN_0055C020, preregister_UnitWeaponInfoTypeInfo)
+ *
+ * What it does:
+ * Constructs/preregisters RTTI metadata for `UnitWeaponInfo`.
+ */
+gpg::RType* preregister_UnitWeaponInfoTypeInfo()
+{
+  static UnitWeaponInfoTypeInfo typeInfo;
+  gpg::PreRegisterRType(typeid(UnitWeaponInfo), &typeInfo);
+  return &typeInfo;
+}
+
+/**
+ * Address: 0x0055C620 (FUN_0055C620, preregister_SSTIUnitVariableDataTypeInfo)
+ *
+ * What it does:
+ * Constructs/preregisters RTTI metadata for `SSTIUnitVariableData`.
+ */
+gpg::RType* preregister_SSTIUnitVariableDataTypeInfo()
+{
+  static SSTIUnitVariableDataTypeInfo typeInfo;
+  gpg::PreRegisterRType(typeid(SSTIUnitVariableData), &typeInfo);
+  return &typeInfo;
+}
+
+namespace
+{
+  struct UnitTypeInfoPreRegisterBootstrap
+  {
+    UnitTypeInfoPreRegisterBootstrap()
+    {
+      (void)moho::preregister_UnitWeaponInfoTypeInfo();
+      (void)moho::preregister_SSTIUnitVariableDataTypeInfo();
+    }
+  };
+
+  [[maybe_unused]] UnitTypeInfoPreRegisterBootstrap gUnitTypeInfoPreRegisterBootstrap;
+
+  struct SSTIUnitVariableDataSlotRuntime
+  {
+    std::uint32_t mHeaderWord0 = 0;               // +0x00
+    std::uint32_t mHeaderWord1 = 0;               // +0x04
+    moho::SSTIUnitVariableData mVariableData{};   // +0x08
+    std::uint32_t mTailWord0 = 0;                 // +0x230
+  };
+
+  static_assert(
+    offsetof(SSTIUnitVariableDataSlotRuntime, mVariableData) == 0x08,
+    "SSTIUnitVariableDataSlotRuntime::mVariableData offset must be 0x08"
+  );
+  static_assert(
+    offsetof(SSTIUnitVariableDataSlotRuntime, mTailWord0) == 0x230,
+    "SSTIUnitVariableDataSlotRuntime::mTailWord0 offset must be 0x230"
+  );
+  static_assert(sizeof(SSTIUnitVariableDataSlotRuntime) == 0x238, "SSTIUnitVariableDataSlotRuntime size must be 0x238");
+
+  /**
+   * Address: 0x0055D980 (FUN_0055D980, copy_UnitWeaponInfo_range_with_rollback)
+   *
+   * What it does:
+   * Copy-constructs one half-open `UnitWeaponInfo` range into destination
+   * storage and destroys already-constructed entries before rethrowing if a
+   * copy step throws.
+   */
+  [[maybe_unused]] UnitWeaponInfo* CopyUnitWeaponInfoRangeWithRollback(
+    const UnitWeaponInfo* const sourceBegin,
+    const UnitWeaponInfo* const sourceEnd,
+    UnitWeaponInfo* const destinationBegin
+  )
+  {
+    if (sourceBegin == sourceEnd) {
+      return destinationBegin;
+    }
+
+    if (sourceBegin == nullptr || sourceEnd == nullptr || destinationBegin == nullptr) {
+      return destinationBegin;
+    }
+
+    UnitWeaponInfo* destinationCursor = destinationBegin;
+    try {
+      for (const UnitWeaponInfo* sourceCursor = sourceBegin;
+           sourceCursor != sourceEnd;
+           ++sourceCursor, ++destinationCursor) {
+        ::new (destinationCursor) UnitWeaponInfo();
+        destinationCursor->mCat1 = sourceCursor->mCat1;
+        destinationCursor->mCat2 = sourceCursor->mCat2;
+        destinationCursor->mLayer = sourceCursor->mLayer;
+        destinationCursor->mMinRadius = sourceCursor->mMinRadius;
+        destinationCursor->mMaxRadius = sourceCursor->mMaxRadius;
+        destinationCursor->mEffectiveRadius = sourceCursor->mEffectiveRadius;
+        destinationCursor->mUIMinRangeVisualId = sourceCursor->mUIMinRangeVisualId;
+        destinationCursor->mUIMaxRangeVisualId = sourceCursor->mUIMaxRangeVisualId;
+      }
+      return destinationCursor;
+    } catch (...) {
+      while (destinationCursor != destinationBegin) {
+        --destinationCursor;
+        destinationCursor->~UnitWeaponInfo();
+      }
+      throw;
+    }
+  }
+
+  /**
+   * Address: 0x005CBB20 (FUN_005CBB20, copy_SSTIUnitVariableData_slot_range_with_rollback_counted)
+   *
+   * What it does:
+   * Copy-constructs one counted slot range (`header + SSTIUnitVariableData +
+   * tail dword`) into destination storage and destroys already-constructed
+   * payload lanes before rethrowing if a copy step throws.
+   */
+  [[maybe_unused]] SSTIUnitVariableDataSlotRuntime* CopySSTIUnitVariableDataSlotRangeWithRollbackCounted(
+    const std::uint32_t count,
+    SSTIUnitVariableDataSlotRuntime* const destinationBegin,
+    const SSTIUnitVariableDataSlotRuntime* const sourceBegin
+  )
+  {
+    if (count == 0u) {
+      return destinationBegin;
+    }
+
+    if (destinationBegin == nullptr || sourceBegin == nullptr) {
+      return destinationBegin;
+    }
+
+    SSTIUnitVariableDataSlotRuntime* destinationCursor = destinationBegin;
+    try {
+      for (std::uint32_t i = 0; i < count; ++i, ++destinationCursor) {
+        const SSTIUnitVariableDataSlotRuntime* const sourceCursor = sourceBegin + i;
+        destinationCursor->mHeaderWord0 = sourceCursor->mHeaderWord0;
+        ::new (&destinationCursor->mVariableData) SSTIUnitVariableData(sourceCursor->mVariableData);
+        destinationCursor->mTailWord0 = sourceCursor->mTailWord0;
+      }
+      return destinationCursor;
+    } catch (...) {
+      for (SSTIUnitVariableDataSlotRuntime* destroyCursor = destinationBegin;
+           destroyCursor != destinationCursor;
+           ++destroyCursor) {
+        destroyCursor->mVariableData.~SSTIUnitVariableData();
+      }
+      throw;
+    }
   }
 } // namespace
 
@@ -10757,6 +11061,24 @@ void UnitWeaponInfo::MemberSerialize(gpg::WriteArchive* const archive) const
 }
 
 /**
+ * Address: 0x005C3850 (FUN_005C3850, init_SSTIUnitWeaponInfoVector_inline)
+ *
+ * What it does:
+ * Rebinds one weapon-info fastvector to inline storage and applies the
+ * zero-count resize lane used during unit-variable-data construction.
+ */
+SSTIUnitWeaponInfoVector* InitializeSSTIUnitWeaponInfoVector(SSTIUnitWeaponInfoVector* const weaponInfo)
+{
+  if (!weaponInfo) {
+    return weaponInfo;
+  }
+
+  weaponInfo->RebindInlineNoFree();
+  weaponInfo->Resize(0u);
+  return weaponInfo;
+}
+
+/**
  * Address: 0x005BD7A0 (FUN_005BD7A0, ??0SSTIUnitVariableData@Moho@@QAE@@Z)
  *
  * What it does:
@@ -10807,6 +11129,7 @@ SSTIUnitVariableData::SSTIUnitVariableData()
   , mPad222_227{}
 {
   mCustomName.tidy(false, 0U);
+  (void)InitializeSSTIUnitWeaponInfoVector(&mWeaponInfo);
 
   mAttributes.blueprint = nullptr;
   mAttributes.unknown_0004 = 0;
@@ -10897,8 +11220,8 @@ SSTIUnitVariableData& SSTIUnitVariableData::AssignFrom(const SSTIUnitVariableDat
   mPriorSharedPose = other.mPriorSharedPose;
   mSharedPose = other.mSharedPose;
   std::memcpy(mPad094_097, other.mPad094_097, sizeof(mPad094_097));
-  CopyFastVectorN(mCommands, other.mCommands);
-  CopyFastVectorN(mBuildQueue, other.mBuildQueue);
+  CopyUnitCommandWeakVector(mCommands, other.mCommands);
+  CopyUnitCommandWeakVector(mBuildQueue, other.mBuildQueue);
   CopyFastVectorN(mWeaponInfo, other.mWeaponInfo);
   mAttributes = other.mAttributes;
   mScriptbits = other.mScriptbits;
@@ -11058,6 +11381,62 @@ bool Unit::IsAtPosition(const Wm3::Vec3f& position) const
   );
 
   return currentCellX == targetCellX && currentCellZ == targetCellZ;
+}
+
+/**
+ * Address: 0x006AAEC0 (FUN_006AAEC0, ?AddRecoilImpulse@Unit@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z)
+ * Mangled: ?AddRecoilImpulse@Unit@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z
+ *
+ * What it does:
+ * Forwards one recoil impulse into `UnitMotion` when present.
+ */
+void Unit::AddRecoilImpulse(const Wm3::Vec3f& impulse)
+{
+  CUnitMotion* const unitMotion = UnitMotion;
+  if (unitMotion != nullptr) {
+    unitMotion->AddRecoilImpulse(impulse);
+  }
+}
+
+/**
+ * Address: 0x006AAEE0 (FUN_006AAEE0, ?AddImpulse@Unit@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z)
+ * Mangled: ?AddImpulse@Unit@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z
+ *
+ * What it does:
+ * Forwards one world impulse to `UnitMotion` when present.
+ */
+void Unit::AddImpulse(const Wm3::Vec3f& impulse)
+{
+  CUnitMotion* const unitMotion = UnitMotion;
+  if (unitMotion != nullptr) {
+    unitMotion->AddImpulse(impulse, false);
+  }
+}
+
+/**
+ * Address: 0x006AAF00 (FUN_006AAF00, ?AddLocalImpulse@Unit@Moho@@QAEXABV?$Vector3@M@Wm3@@0@Z)
+ * Mangled: ?AddLocalImpulse@Unit@Moho@@QAEXABV?$Vector3@M@Wm3@@0@Z
+ *
+ * What it does:
+ * Routes local impulse handling by motion type: airborne units use body-local
+ * impulse integration, non-air units feed unit-motion impulse blending.
+ */
+void Unit::AddLocalImpulse(const Wm3::Vec3f& localImpulse, const Wm3::Vec3f& localPoint)
+{
+  CUnitMotion* const unitMotion = UnitMotion;
+  if (unitMotion == nullptr) {
+    return;
+  }
+
+  const Unit* const motionOwner = unitMotion->mUnit;
+  const RUnitBlueprint* const blueprint = motionOwner->GetBlueprint();
+  if (blueprint->Physics.MotionType == RULEUMT_Air) {
+    SPhysBody* const body = static_cast<Entity*>(unitMotion->mUnit)->GetPhysBody(false);
+    body->AddLocalImpulse(localImpulse, localPoint);
+    return;
+  }
+
+  unitMotion->AddImpulse(localImpulse, false);
 }
 
 /**
@@ -11978,6 +12357,23 @@ void Unit::SetGuardedUnit(Unit* const guarded)
   }
 
   NeedSyncGameData = true;
+}
+
+/**
+ * Address: 0x006AA720 (FUN_006AA720, ?RemoveGuardedByUnit@Unit@Moho@@AAEXPAV12@@Z)
+ * Mangled: ?RemoveGuardedByUnit@Unit@Moho@@AAEXPAV12@@Z
+ *
+ * What it does:
+ * Inserts one guarding owner into this unit's guarded-by list when non-null,
+ * then clears this unit's guard-formation lane.
+ */
+void Unit::RemoveGuardedByUnit(Unit* const guardedByUnit)
+{
+  if (guardedByUnit != nullptr) {
+    AddGuardedByOwner(GuardedByList, guardedByUnit);
+  }
+
+  ClearGuardFormation(this);
 }
 
 /**
@@ -12972,6 +13368,48 @@ void Unit::SetRepeatQueue(const bool enabled)
 }
 
 /**
+ * Address: 0x006AAE20 (FUN_006AAE20, Moho::Unit::GetConsumptionRequest)
+ *
+ * What it does:
+ * Returns the requested per-tick consumption pair from `mConsumptionData`.
+ */
+SEconValue Unit::GetConsumptionRequest() const
+{
+  SEconValue request{};
+  request.energy = mConsumptionData->mRequested.energy;
+  request.mass = mConsumptionData->mRequested.mass;
+  return request;
+}
+
+/**
+ * Address: 0x006AAE40 (FUN_006AAE40, Moho::Unit::UpdateResourceProduction)
+ *
+ * What it does:
+ * Stores one economy-rate pair in the shared runtime production lane.
+ */
+void Unit::UpdateResourceProduction(const SEconValue& resourceProduction)
+{
+  SharedEconomyRateEnergy = resourceProduction.energy;
+  SharedEconomyRateMass = resourceProduction.mass;
+}
+
+/**
+ * Address: 0x006ABC70 (FUN_006ABC70, ?ResetEconValues@Unit@Moho@@QAEXXZ)
+ *
+ * What it does:
+ * Clears the unit's produced and resources-spent economy totals.
+ */
+Unit* Unit::ResetEconValues()
+{
+  SSTIUnitVariableData& varDat = VarDat();
+  varDat.mResourcesSpent.ENERGY = 0.0f;
+  varDat.mResourcesSpent.MASS = 0.0f;
+  varDat.mProduced.ENERGY = 0.0f;
+  varDat.mProduced.MASS = 0.0f;
+  return this;
+}
+
+/**
  * Address: 0x006AA900 (FUN_006AA900, ?SetConsumptionActive@Unit@Moho@@QAEX_N@Z)
  *
  * What it does:
@@ -13102,7 +13540,7 @@ void Unit::CreateInterface(SSyncData* const syncData)
     createParams.mConstDat.mBuildStateTag = mConstDat.mBuildStateTag;
     createParams.mConstDat.mStatsRoot = mConstDat.mStatsRoot;
     createParams.mConstDat.mFake = mConstDat.mFake;
-    syncData->mNewUnits.push_back(createParams);
+    (void)QueueCreateUnitParams(syncData, createParams);
   }
 
   mInterfaceCreated = 1u;

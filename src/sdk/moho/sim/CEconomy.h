@@ -10,6 +10,7 @@ namespace gpg
 {
   class ReadArchive;
   class RType;
+  class SerConstructResult;
   class WriteArchive;
 } // namespace gpg
 
@@ -89,4 +90,29 @@ namespace moho
     offsetof(CEconomy, mConsumptionData) == 0x58, "CEconomy::mConsumptionData offset must be 0x58"
   );
   static_assert(sizeof(CEconomy) == 0x60, "CEconomy size must be 0x60");
+
+  /**
+   * Address: 0x00563B10 (FUN_00563B10, preregister_SEconValueTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SEconValue`.
+   */
+  [[nodiscard]] gpg::RType* preregister_SEconValueTypeInfo();
+
+  /**
+   * Address: 0x00563D40 (FUN_00563D40, preregister_SEconTotalsTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SEconTotals`.
+   */
+  [[nodiscard]] gpg::RType* preregister_SEconTotalsTypeInfo();
+
+  /**
+   * Address: 0x00772FC0 (FUN_00772FC0)
+   *
+   * What it does:
+   * Allocates one `CEconomy` runtime object with constructor-default field
+   * lanes and stores an unowned reflected reference in `result`.
+   */
+  void ConstructCEconomyForSerializer(gpg::SerConstructResult* result);
 } // namespace moho

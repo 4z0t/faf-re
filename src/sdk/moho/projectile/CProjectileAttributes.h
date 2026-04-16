@@ -53,6 +53,14 @@ namespace moho
   {
   public:
     /**
+     * Address: 0x0069A850 (FUN_0069A850, Moho::CProjectileAttributesTypeInfo::CProjectileAttributesTypeInfo)
+     *
+     * What it does:
+     * Preregisters `CProjectileAttributes` reflection metadata at startup.
+     */
+    CProjectileAttributesTypeInfo();
+
+    /**
      * Address: 0x0069A8E0 (FUN_0069A8E0, Moho::CProjectileAttributesTypeInfo::dtr)
      */
     ~CProjectileAttributesTypeInfo() override;

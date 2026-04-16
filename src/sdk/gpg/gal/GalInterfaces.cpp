@@ -4,8 +4,26 @@
 #include "EffectMacro.hpp"
 #include "Error.hpp"
 #include "Head.hpp"
+#include "VertexFormat.hpp"
 
 #include <cstring>
+
+namespace gpg::gal
+{
+  /**
+   * Address: 0x009044C0 (FUN_009044C0, gpg::gal::VertexFormat::VertexFormat)
+   *
+   * What it does:
+   * Restores base vertex-format vtable ownership and clears three runtime
+   * state lanes used by derived backend wrappers.
+   */
+  VertexFormat::VertexFormat()
+    : mReserved04{}
+    , mState0C(0)
+    , mState10(0)
+    , mState14(0)
+  {}
+} // namespace gpg::gal
 
 namespace gpg
 {

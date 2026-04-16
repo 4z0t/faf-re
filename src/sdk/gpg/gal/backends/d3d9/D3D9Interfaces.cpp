@@ -28,6 +28,7 @@
 #include "boost/weak_ptr.h"
 
 #include <bit>
+#include <cstdint>
 #include <fstream>
 #include <cstdio>
 #include <cstring>
@@ -1647,6 +1648,118 @@ namespace gpg::gal
         }
 
         /**
+         * Address: 0x008E9D20 (FUN_008E9D20, boost::shared_ptr_RenderTargetD3D9::shared_ptr_RenderTargetD3D9)
+         *
+         * What it does:
+         * Constructs one `shared_ptr<RenderTargetD3D9>` from one raw pointer lane.
+         */
+        boost::shared_ptr<RenderTargetD3D9>* ConstructSharedRenderTargetD3D9FromRaw(
+            boost::shared_ptr<RenderTargetD3D9>* const outRenderTarget,
+            RenderTargetD3D9* const renderTarget
+        )
+        {
+            return ::new (outRenderTarget) boost::shared_ptr<RenderTargetD3D9>(renderTarget);
+        }
+
+        /**
+         * Address: 0x008E9D80 (FUN_008E9D80, boost::shared_ptr_DepthStencilTargetD3D9::shared_ptr_DepthStencilTargetD3D9)
+         *
+         * What it does:
+         * Constructs one `shared_ptr<DepthStencilTargetD3D9>` from one raw pointer lane.
+         */
+        boost::shared_ptr<DepthStencilTargetD3D9>* ConstructSharedDepthStencilTargetD3D9FromRaw(
+            boost::shared_ptr<DepthStencilTargetD3D9>* const outDepthStencilTarget,
+            DepthStencilTargetD3D9* const depthStencilTarget
+        )
+        {
+            return ::new (outDepthStencilTarget) boost::shared_ptr<DepthStencilTargetD3D9>(depthStencilTarget);
+        }
+
+        /**
+         * Address: 0x008E9DB0 (FUN_008E9DB0, boost::shared_ptr_VertexFormatD3D9::shared_ptr_VertexFormatD3D9)
+         *
+         * What it does:
+         * Constructs one `shared_ptr<VertexFormatD3D9>` from one raw pointer lane.
+         */
+        boost::shared_ptr<VertexFormatD3D9>* ConstructSharedVertexFormatD3D9FromRaw(
+            boost::shared_ptr<VertexFormatD3D9>* const outVertexFormat,
+            VertexFormatD3D9* const vertexFormat
+        )
+        {
+            return ::new (outVertexFormat) boost::shared_ptr<VertexFormatD3D9>(vertexFormat);
+        }
+
+        /**
+         * Address: 0x008E9DE0 (FUN_008E9DE0, boost::shared_ptr_VertexBufferD3D9::shared_ptr_VertexBufferD3D9)
+         *
+         * What it does:
+         * Constructs one `shared_ptr<VertexBufferD3D9>` from one raw pointer lane.
+         */
+        boost::shared_ptr<VertexBufferD3D9>* ConstructSharedVertexBufferD3D9FromRaw(
+            boost::shared_ptr<VertexBufferD3D9>* const outVertexBuffer,
+            VertexBufferD3D9* const vertexBuffer
+        )
+        {
+            return ::new (outVertexBuffer) boost::shared_ptr<VertexBufferD3D9>(vertexBuffer);
+        }
+
+        /**
+         * Address: 0x008E9E10 (FUN_008E9E10, boost::shared_ptr_IndexBufferD3D9::shared_ptr_IndexBufferD3D9)
+         *
+         * What it does:
+         * Constructs one `shared_ptr<IndexBufferD3D9>` from one raw pointer lane.
+         */
+        boost::shared_ptr<IndexBufferD3D9>* ConstructSharedIndexBufferD3D9FromRaw(
+            boost::shared_ptr<IndexBufferD3D9>* const outIndexBuffer,
+            IndexBufferD3D9* const indexBuffer
+        )
+        {
+            return ::new (outIndexBuffer) boost::shared_ptr<IndexBufferD3D9>(indexBuffer);
+        }
+
+        /**
+         * Address: 0x008EA060 (FUN_008EA060, boost::shared_ptr_PipelineStateD3D9::shared_ptr_PipelineStateD3D9)
+         *
+         * What it does:
+         * Constructs one `shared_ptr<PipelineStateD3D9>` from one raw pointer lane.
+         */
+        boost::shared_ptr<PipelineStateD3D9>* ConstructSharedPipelineStateD3D9FromRaw(
+            boost::shared_ptr<PipelineStateD3D9>* const outPipelineState,
+            PipelineStateD3D9* const pipelineState
+        )
+        {
+            return ::new (outPipelineState) boost::shared_ptr<PipelineStateD3D9>(pipelineState);
+        }
+
+        /**
+         * Address: 0x00941A60 (FUN_00941A60, boost::shared_ptr_EffectTechniqueD3D9::shared_ptr_EffectTechniqueD3D9)
+         *
+         * What it does:
+         * Constructs one `shared_ptr<EffectTechniqueD3D9>` from one raw pointer lane.
+         */
+        boost::shared_ptr<EffectTechniqueD3D9>* ConstructSharedEffectTechniqueD3D9FromRaw(
+            boost::shared_ptr<EffectTechniqueD3D9>* const outTechnique,
+            EffectTechniqueD3D9* const technique
+        )
+        {
+            return ::new (outTechnique) boost::shared_ptr<EffectTechniqueD3D9>(technique);
+        }
+
+        /**
+         * Address: 0x00941A90 (FUN_00941A90, boost::shared_ptr_EffectVariableD3D9::shared_ptr_EffectVariableD3D9)
+         *
+         * What it does:
+         * Constructs one `shared_ptr<EffectVariableD3D9>` from one raw pointer lane.
+         */
+        boost::shared_ptr<EffectVariableD3D9>* ConstructSharedEffectVariableD3D9FromRaw(
+            boost::shared_ptr<EffectVariableD3D9>* const outVariable,
+            EffectVariableD3D9* const variable
+        )
+        {
+            return ::new (outVariable) boost::shared_ptr<EffectVariableD3D9>(variable);
+        }
+
+        /**
          * Address: 0x008EA250 (FUN_008EA250, boost::shared_ptr_PipelineStateD3D9::operator=)
          *
          * What it does:
@@ -1660,6 +1773,40 @@ namespace gpg::gal
         {
             outPipelineState->reset(pipelineState);
             return outPipelineState;
+        }
+
+        /**
+         * Address: 0x008EA210 (FUN_008EA210)
+         *
+         * What it does:
+         * Copy-constructs one half-open `AdapterModeD3D9` range into caller
+         * storage and returns one-past-last destination slot.
+         */
+        [[maybe_unused]] [[nodiscard]] AdapterModeD3D9* CopyAdapterModeRange(
+            AdapterModeD3D9* const destinationBegin,
+            const AdapterModeD3D9* sourceBegin,
+            const AdapterModeD3D9* sourceEnd
+        )
+        {
+            std::uintptr_t destinationCursor = reinterpret_cast<std::uintptr_t>(destinationBegin);
+            for (const AdapterModeD3D9* sourceCursor = sourceBegin;
+                 sourceCursor != sourceEnd;
+                 ++sourceCursor, destinationCursor += sizeof(AdapterModeD3D9))
+            {
+                if (destinationCursor == 0U)
+                {
+                    continue;
+                }
+
+                auto* const destination = reinterpret_cast<AdapterModeD3D9*>(destinationCursor);
+                ::new (static_cast<void*>(destination)) AdapterModeD3D9(
+                    sourceCursor->width_,
+                    sourceCursor->height_,
+                    sourceCursor->refreshRate_
+                );
+            }
+
+            return reinterpret_cast<AdapterModeD3D9*>(destinationCursor);
         }
 
         /**
@@ -3028,6 +3175,35 @@ namespace gpg::gal
         }
 
         /**
+         * Address: 0x00941C00 (FUN_00941C00)
+         *
+         * What it does:
+         * Copy-assigns one `EffectTechnique` shared-pointer range into destination
+         * storage and returns the resulting end pointer.
+         */
+        EffectTechniqueSharedRef* CopyAssignEffectTechniqueSharedRefRange(
+            const EffectTechniqueSharedRef* sourceFirst,
+            const EffectTechniqueSharedRef* sourceLast,
+            EffectTechniqueSharedRef* destinationFirst
+        )
+        {
+            const EffectTechniqueSharedRef* read = sourceFirst;
+            EffectTechniqueSharedRef* write = destinationFirst;
+            while (read != sourceLast)
+            {
+                if (write != nullptr)
+                {
+                    *write = *read;
+                }
+
+                ++read;
+                ++write;
+            }
+
+            return write;
+        }
+
+        /**
          * Address: 0x00942410 (FUN_00942410)
          *
          * What it does:
@@ -3040,16 +3216,7 @@ namespace gpg::gal
             EffectTechniqueSharedRef* destinationFirst
         )
         {
-            EffectTechniqueSharedRef* read = sourceFirst;
-            EffectTechniqueSharedRef* write = destinationFirst;
-            while (read != sourceLast)
-            {
-                *write = *read;
-                ++read;
-                ++write;
-            }
-
-            return write;
+            return CopyAssignEffectTechniqueSharedRefRange(sourceFirst, sourceLast, destinationFirst);
         }
 
         [[noreturn]] void ThrowEffectTechniqueVectorLengthError()
@@ -3250,6 +3417,21 @@ namespace gpg::gal
             context.lane54 = {};
         }
 
+        /**
+         * Address: 0x009419E0 (FUN_009419E0)
+         *
+         * What it does:
+         * Initializes base EffectD3D9 construction lanes: clears weak-self,
+         * initializes embedded effect-context runtime storage, and resets the
+         * retained native effect handle.
+         */
+        void InitializeEffectD3D9ConstructionLanes(EffectD3D9* const effect)
+        {
+            effect->selfWeak_.reset();
+            InitializeEffectContextRuntimeStorage(*AsEffectContextRuntime(effect));
+            effect->dxEffect_ = nullptr;
+        }
+
         void DestroyEffectContextRuntimeStorage(EffectContextRuntime& context) noexcept
         {
             ReleaseSharedCount(context.sharedCount48);
@@ -3372,6 +3554,43 @@ namespace gpg::gal
         }
 
         /**
+         * Address: 0x008F04A0 (FUN_008F04A0)
+         *
+         * What it does:
+         * Writes one raw byte lane into a target output stream and applies
+         * `badbit` when sentry/buffer writes fail.
+         */
+        std::ostream& WriteRawByteLaneToStream(
+            std::ostream& stream,
+            const void* const data,
+            const std::size_t byteCount
+        )
+        {
+            std::ostream::sentry sentry(stream);
+            std::ios_base::iostate ioState = std::ios_base::goodbit;
+            if (sentry)
+            {
+                std::streambuf* const outputBuffer = stream.rdbuf();
+                const std::streamsize writeCount = static_cast<std::streamsize>(byteCount);
+                if (outputBuffer == nullptr ||
+                    outputBuffer->sputn(static_cast<const char*>(data), writeCount) != writeCount)
+                {
+                    ioState |= std::ios_base::badbit;
+                }
+            }
+            else
+            {
+                ioState |= std::ios_base::badbit;
+            }
+
+            if (ioState != std::ios_base::goodbit)
+            {
+                stream.setstate(ioState);
+            }
+            return stream;
+        }
+
+        /**
          * Address: 0x008F09A0 (FUN_008F09A0)
          *
          * What it does:
@@ -3484,7 +3703,7 @@ namespace gpg::gal
             {
                 const char* const compiledBytes = static_cast<const char*>(GetD3DXBufferPointer(compiledEffectBuffer.get()));
                 const unsigned int compiledBytesCount = GetD3DXBufferSize(compiledEffectBuffer.get());
-                compiledCache.write(compiledBytes, static_cast<std::streamsize>(compiledBytesCount));
+                WriteRawByteLaneToStream(compiledCache, compiledBytes, static_cast<std::size_t>(compiledBytesCount));
                 compiledCache.close();
             }
 
@@ -4528,6 +4747,22 @@ namespace gpg::gal
     }
 
     /**
+     * Address: 0x008EFDD0 (FUN_008EFDD0)
+     *
+     * What it does:
+     * Appends one adapter-mode projection entry (`width/height/refresh`) to the
+     * destination head-mode vector and returns the inserted slot.
+     */
+    HeadAdapterMode* AppendHeadAdapterMode(
+        msvc8::vector<HeadAdapterMode>& adapterModes,
+        const HeadAdapterMode& mode
+    )
+    {
+        adapterModes.push_back(mode);
+        return &adapterModes.back();
+    }
+
+    /**
      * Address: 0x008F2080 (FUN_008F2080)
      *
      * What it does:
@@ -4558,7 +4793,7 @@ namespace gpg::gal
                 mappedMode.width = mode.width_;
                 mappedMode.height = mode.height_;
                 mappedMode.refreshRate = mode.refreshRate_;
-                head.adapterModes.push_back(mappedMode);
+                static_cast<void>(AppendHeadAdapterMode(head.adapterModes, mappedMode));
             }
 
             head.validFormats1.clear();
@@ -6817,7 +7052,7 @@ namespace gpg::gal
           effectContextPad_{},
           dxEffect_(nullptr)
     {
-        InitializeEffectContextRuntimeStorage(*AsEffectContextRuntime(this));
+        InitializeEffectD3D9ConstructionLanes(this);
         InitializeEffectD3D9State(this, context, dxEffect);
     }
 

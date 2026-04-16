@@ -316,6 +316,13 @@ namespace
     return false;
   }
 
+  /**
+   * Address: 0x0063B990 (FUN_0063B990)
+   *
+   * What it does:
+   * Checks whether one manipulator has at least one watched bone whose
+   * skeleton bone name wildcard-matches `bonePattern`.
+   */
   [[nodiscard]] bool
   ManipulatorHasWatchBonePattern(const moho::IAniManipulator* const manipulator, const char* const bonePattern)
   {
@@ -442,7 +449,7 @@ namespace
   }
 
   /**
-   * Address: 0x00BFACD0 (FUN_00BFACD0, Moho::CAniActorConstruct::~CAniActorConstruct)
+    * Alias of FUN_00BFACD0 (non-canonical helper lane).
    *
    * What it does:
    * Unlinks `CAniActorConstruct` helper node from intrusive helper list.
@@ -953,7 +960,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00BFAC70 (FUN_00BFAC70, sub_BFAC70)
+    * Alias of FUN_00BFAC70 (non-canonical helper lane).
    *
    * What it does:
    * Releases startup-owned `CAniActorTypeInfo` storage.
@@ -975,7 +982,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00BFAD00 (FUN_00BFAD00, sub_BFAD00)
+    * Alias of FUN_00BFAD00 (non-canonical helper lane).
    *
    * What it does:
    * Unlinks global serializer helper node from intrusive helper list.

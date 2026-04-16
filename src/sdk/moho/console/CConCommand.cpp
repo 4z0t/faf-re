@@ -645,7 +645,7 @@ namespace
   }
 
   /**
-   * Address: 0x004203D0 (FUN_004203D0, std::map_string_CConCommand::Iterator::inc)
+    * Alias of FUN_004203D0 (non-canonical helper lane).
    *
    * What it does:
    * Moves one command-map iterator to the next in-order entry.
@@ -1084,8 +1084,8 @@ void moho::CON_GetCommandList(msvc8::string& outText, const bool includeDescript
 
 /**
  * Address: 0x0041C770 (FUN_0041C770, ?CON_GetFindTextMatches@Moho@@YA?BV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@std@@PBD@Z)
- * Address: 0x0041FF10 (FUN_0041FF10, std::map_string_CConCommand::_Lbound)
- * Address: 0x004203D0 (FUN_004203D0, std::map_string_CConCommand::Iterator::inc)
+  * Alias of FUN_0041FF10 (non-canonical helper lane).
+  * Alias of FUN_004203D0 (non-canonical helper lane).
  *
  * What it does:
  * Returns command names starting with `prefix` (case-insensitive).
@@ -1224,7 +1224,7 @@ void moho::ExecuteConsoleCommandText(const char* commandText)
 }
 
 /**
- * Address: 0x0041CC90 (FUN_0041CC90, ?CON_Execute@Moho@@YAXPBD@Z)
+  * Alias of FUN_0041CC90 (non-canonical helper lane).
  *
  * What it does:
  * Public console execution entry point used by Lua and UI helpers.
@@ -1321,7 +1321,7 @@ void moho::CON_Echo(void* const commandArgs)
 
 /**
  * Address: 0x0041EF40 (FUN_0041EF40, Moho::CON_ListCommands)
- * Address: 0x004203D0 (FUN_004203D0, std::map_string_CConCommand::Iterator::inc)
+  * Alias of FUN_004203D0 (non-canonical helper lane).
  *
  * What it does:
  * Emits one formatted line per registered command.
@@ -1949,7 +1949,7 @@ void moho::UI_DumpControlsUnderCursor(void* const commandArgs)
 
 /**
  * Address: 0x004F2B40 (FUN_004F2B40, ?WIN_AppRequestExit@Moho@@YAXXZ)
- * Address: 0x004F2400 (FUN_004F2400, ?WIN_AppRequestExit@Moho@@YAXXZ_0)
+  * Alias of FUN_004F2400 (non-canonical helper lane).
  *
  * What it does:
  * Requests application main-loop exit through the active wx app object.
@@ -2547,7 +2547,7 @@ void moho::TConVar<float>::Handle(void* commandArgs)
 
 /**
  * Address: 0x007FDE00 (FUN_007FDE00, Moho::TConVar_uint::Process)
- * Address: 0x103C8880 (FUN_103C8880)
+  * Alias of FUN_103C8880 (non-canonical helper lane).
  *
  * What it does:
  * Handles uint32 convar command; prints current value when no RHS command args are provided.

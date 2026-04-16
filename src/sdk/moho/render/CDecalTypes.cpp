@@ -110,6 +110,18 @@ namespace
     const auto* const listView = static_cast<const SDecalInfoListRuntimeView*>(object);
     return static_cast<int>(listView->mCount);
   }
+
+  /**
+   * Address: 0x0077C9A0 (FUN_0077C9A0)
+   *
+   * What it does:
+   * Clears one reflected `list<SDecalInfo>` payload and resets its sentinel
+   * links through the legacy list container API.
+   */
+  void ClearSDecalInfoListStorage(msvc8::list<moho::SDecalInfo>& list)
+  {
+    list.clear();
+  }
 } // namespace
 
 /**
@@ -183,7 +195,7 @@ void gpg::RListType_SDecalInfo::SerLoad(
 
   unsigned int count = 0u;
   archive->ReadUInt(&count);
-  list->clear();
+  ClearSDecalInfoListStorage(*list);
 
   gpg::RType* const elementType = CachedSDecalInfoType();
   if (elementType == nullptr) {
@@ -234,6 +246,19 @@ void gpg::RListType_SDecalInfo::SerSave(
   for (const moho::SDecalInfo& value : *list) {
     archive->Write(elementType, &value, owner);
   }
+}
+
+/**
+ * Address: 0x0077DF00 (FUN_0077DF00, preregister_RListType_SDecalInfo)
+ *
+ * What it does:
+ * Constructs/preregisters RTTI metadata for `msvc8::list<moho::SDecalInfo>`.
+ */
+[[nodiscard]] gpg::RType* preregister_RListType_SDecalInfo()
+{
+  static gpg::RListType_SDecalInfo typeInfo;
+  gpg::PreRegisterRType(typeid(msvc8::list<moho::SDecalInfo>), &typeInfo);
+  return &typeInfo;
 }
 
 namespace moho
@@ -337,5 +362,35 @@ namespace moho
     mObj = static_cast<std::uint32_t>(objectId);
     mArmy = static_cast<std::uint32_t>(armyIndex);
     mFidelity = static_cast<std::uint32_t>(fidelity);
+  }
+
+  /**
+   * Address: 0x0077D5A0 (FUN_0077D5A0)
+   *
+   * What it does:
+   * Saves decal position/size/rotation vectors plus texture/type lanes and
+   * runtime metadata fields to archive payload.
+   */
+  void SDecalInfo::MemberSerialize(gpg::WriteArchive* const archive) const
+  {
+    if (!archive) {
+      return;
+    }
+
+    gpg::RType* const vector3fType = CachedVector3fType();
+    gpg::RRef ownerRef{};
+    archive->Write(vector3fType, &mPos, ownerRef);
+    archive->Write(vector3fType, &mSize, ownerRef);
+    archive->Write(vector3fType, &mRot, ownerRef);
+
+    archive->WriteString(const_cast<msvc8::string*>(&mTexName1));
+    archive->WriteString(const_cast<msvc8::string*>(&mTexName2));
+    archive->WriteBool(mIsSplat != 0u);
+    archive->WriteFloat(mLODParam);
+    archive->WriteUInt(mStartTick);
+    archive->WriteString(const_cast<msvc8::string*>(&mType));
+    archive->WriteInt(static_cast<int>(mObj));
+    archive->WriteInt(static_cast<int>(mArmy));
+    archive->WriteInt(static_cast<int>(mFidelity));
   }
 } // namespace moho

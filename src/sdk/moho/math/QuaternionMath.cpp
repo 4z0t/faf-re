@@ -465,6 +465,50 @@ namespace moho
   }
 
   /**
+   * Address: 0x006C1070 (FUN_006C1070)
+   *
+   * What it does:
+   * Extracts one axis-angle representation from a quaternion, returning the
+   * normalized axis in `axisOut` and angle (radians) in `angleRadiansOut`.
+   */
+  void QuatToAxisAndAngle(
+    const Wm3::Quaternionf& quaternion,
+    Wm3::Vector3f* const axisOut,
+    float* const angleRadiansOut
+  ) noexcept
+  {
+    if (axisOut == nullptr || angleRadiansOut == nullptr) {
+      return;
+    }
+
+    constexpr float kAxisEpsilon = 1.0e-6f;
+    constexpr float kPi = 3.1415927f;
+    const float axisLengthSquared =
+      (quaternion.x * quaternion.x) + (quaternion.y * quaternion.y) + (quaternion.z * quaternion.z);
+
+    if (axisLengthSquared <= kAxisEpsilon) {
+      axisOut->x = 1.0f;
+      axisOut->y = 0.0f;
+      axisOut->z = 0.0f;
+      *angleRadiansOut = 0.0f;
+      return;
+    }
+
+    float halfAngle = 0.0f;
+    if (quaternion.w <= -1.0f) {
+      halfAngle = kPi;
+    } else if (quaternion.w < 1.0f) {
+      halfAngle = static_cast<float>(std::acos(static_cast<double>(quaternion.w)));
+    }
+
+    *angleRadiansOut = halfAngle * 2.0f;
+    const float inverseAxisLength = 1.0f / std::sqrt(axisLengthSquared);
+    axisOut->x = quaternion.x * inverseAxisLength;
+    axisOut->y = quaternion.y * inverseAxisLength;
+    axisOut->z = quaternion.z * inverseAxisLength;
+  }
+
+  /**
    * Address: 0x00697360 (FUN_00697360, func_VecToQuatB)
    *
    * What it does:

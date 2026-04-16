@@ -1,9 +1,13 @@
 #include "moho/unit/tasks/CUnitFormAndMoveTask.h"
 
 #include <new>
+#include <typeinfo>
 
+#include "gpg/core/containers/ReadArchive.h"
+#include "gpg/core/containers/WriteArchive.h"
 #include "moho/ai/CAiAttackerImpl.h"
 #include "moho/ai/CAiFormationInstance.h"
+#include "moho/ai/IFormationInstanceCountedPtrReflection.h"
 #include "moho/ai/CAiTarget.h"
 #include "moho/ai/IAiCommandDispatchImpl.h"
 #include "moho/resource/blueprints/RUnitBlueprint.h"
@@ -63,6 +67,16 @@ namespace
     }
 
     return reinterpret_cast<moho::Broadcaster*>(&navigator->mListenerNode);
+  }
+
+  [[nodiscard]] gpg::RType* CachedCCommandTaskType()
+  {
+    gpg::RType* type = moho::CCommandTask::sType;
+    if (!type) {
+      type = gpg::LookupRType(typeid(moho::CCommandTask));
+      moho::CCommandTask::sType = type;
+    }
+    return type;
   }
 } // namespace
 
@@ -232,6 +246,54 @@ namespace moho
     }
 
     return 1;
+  }
+
+  /**
+   * Address: 0x0061A9C0 (FUN_0061A9C0)
+   *
+   * What it does:
+   * Deserializes base command-task state, weak formation pointer lane, and
+   * the arrival-satisfied flag for one form-move task.
+   */
+  void CUnitFormAndMoveTask::MemberDeserialize(gpg::ReadArchive* const archive)
+  {
+    if (!archive) {
+      return;
+    }
+
+    const gpg::RRef owner{};
+    archive->Read(CachedCCommandTaskType(), static_cast<CCommandTask*>(this), owner);
+
+    IFormationInstance* formationBase = static_cast<IFormationInstance*>(mFormation);
+    archive->ReadPointer_IFormationInstance(&formationBase, &owner);
+    mFormation = static_cast<CAiFormationInstance*>(formationBase);
+
+    bool arrivalSatisfied = (mFormationArrivalSatisfied != 0u);
+    archive->ReadBool(&arrivalSatisfied);
+    mFormationArrivalSatisfied = arrivalSatisfied ? 1u : 0u;
+  }
+
+  /**
+   * Address: 0x0061AA30 (FUN_0061AA30)
+   *
+   * What it does:
+   * Serializes base command-task state, weak formation pointer lane, and the
+   * arrival-satisfied flag for one form-move task.
+   */
+  void CUnitFormAndMoveTask::MemberSerialize(gpg::WriteArchive* const archive) const
+  {
+    if (!archive) {
+      return;
+    }
+
+    const gpg::RRef owner{};
+    archive->Write(CachedCCommandTaskType(), const_cast<CCommandTask*>(static_cast<const CCommandTask*>(this)), owner);
+
+    gpg::RRef formationRef{};
+    gpg::RRef_IFormationInstance(&formationRef, mFormation);
+    gpg::WriteRawPointer(archive, formationRef, gpg::TrackedPointerState::Unowned, owner);
+
+    archive->WriteBool(mFormationArrivalSatisfied != 0u);
   }
 
   /**

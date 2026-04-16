@@ -14,6 +14,7 @@
 
 #include <Windows.h>
 
+#include "gpg/gal/Matrix.h"
 #include "gpg/core/containers/ReadArchive.h"
 #include "gpg/core/containers/WriteArchive.h"
 #include "gpg/core/utils/Global.h"
@@ -1189,6 +1190,47 @@ namespace moho
   }
 
   /**
+   * Address: 0x0050B650 (FUN_0050B650, ?COORDS_LookAt@Moho@@YAXABV?$Vector3@M@Wm3@@PAVVAxes3@1@@Z)
+   *
+   * What it does:
+   * Builds look-at axes using world-up `(0,1,0)` and the supplied forward
+   * direction.
+   */
+  void COORDS_LookAt(const Wm3::Vector3f& forward, VAxes3* const axes)
+  {
+    const Wm3::Vector3f worldUp{0.0f, 1.0f, 0.0f};
+    VEC_LookAt(worldUp, forward, axes);
+  }
+
+  /**
+   * Address: 0x0050B680 (FUN_0050B680, ?COORDS_LookAtXZ@Moho@@YAXABV?$Vector3@M@Wm3@@PAVVAxes3@1@@Z)
+   *
+   * What it does:
+   * Builds an XZ-plane-aligned basis from one direction vector without
+   * normalizing the projected axes.
+   */
+  VAxes3* COORDS_LookAtXZ(VAxes3* const outAxes, const Wm3::Vector3f& direction)
+  {
+    const float lengthSq = (direction.x * direction.x) + (direction.y * direction.y) + (direction.z * direction.z);
+    if (lengthSq <= 0.0f) {
+      return outAxes;
+    }
+
+    outAxes->vX.x = direction.z;
+    outAxes->vX.y = 0.0f;
+    outAxes->vX.z = -direction.x;
+
+    outAxes->vY.x = 0.0f;
+    outAxes->vY.y = 1.0f;
+    outAxes->vY.z = 0.0f;
+
+    outAxes->vZ.x = direction.x;
+    outAxes->vZ.y = 0.0f;
+    outAxes->vZ.z = direction.z;
+    return outAxes;
+  }
+
+  /**
    * Address: 0x004EC4E0 (FUN_004EC4E0, Moho::VAxes3Serializer::DeserializeThunk)
    */
   void DeserializeVAxes3SerializerThunk(
@@ -1380,6 +1422,149 @@ namespace moho
     r[3].y = vec.y;
     r[3].z = vec.z;
     r[3].w = 1.0f;
+  }
+
+  /**
+   * Address: 0x004EE6E0 (FUN_004EE6E0, ?VEC_Mul@Moho@@YA?AUVMatrix4@1@ABU21@0@Z)
+   *
+   * What it does:
+   * Returns one matrix product using the binary's `rhs * lhs` call order.
+   */
+  VMatrix4 VEC_Mul(const VMatrix4& lhs, const VMatrix4& rhs)
+  {
+    VMatrix4 result{};
+    (void)gpg::gal::Math::mul(&result, &rhs, &lhs);
+    return result;
+  }
+
+  /**
+   * Address: 0x004EE710 (FUN_004EE710, ?VEC_Mul4x3@Moho@@YAXAAUVMatrix4@1@ABU21@1@Z)
+   *
+   * What it does:
+   * Computes one affine 4x3 matrix composition (`rhs * lhs`) and writes x/y/z
+   * lanes for all rows into `out`.
+   */
+  void VEC_Mul4x3(const VMatrix4& lhs, VMatrix4& out, const VMatrix4& rhs)
+  {
+    const float lhs00 = lhs.r[0].x;
+    const float lhs01 = lhs.r[0].y;
+    const float lhs02 = lhs.r[0].z;
+    const float lhs10 = lhs.r[1].x;
+    const float lhs11 = lhs.r[1].y;
+    const float lhs12 = lhs.r[1].z;
+    const float lhs20 = lhs.r[2].x;
+    const float lhs21 = lhs.r[2].y;
+    const float lhs22 = lhs.r[2].z;
+    const float lhs30 = lhs.r[3].x;
+    const float lhs31 = lhs.r[3].y;
+    const float lhs32 = lhs.r[3].z;
+
+    out.r[0].x = (rhs.r[0].z * lhs20) + (rhs.r[0].y * lhs10) + (rhs.r[0].x * lhs00);
+    out.r[0].y = (rhs.r[0].z * lhs21) + (rhs.r[0].y * lhs11) + (rhs.r[0].x * lhs01);
+    out.r[0].z = (rhs.r[0].z * lhs22) + (rhs.r[0].y * lhs12) + (rhs.r[0].x * lhs02);
+
+    out.r[1].x = (rhs.r[1].z * lhs20) + (rhs.r[1].y * lhs10) + (rhs.r[1].x * lhs00);
+    out.r[1].y = (rhs.r[1].z * lhs21) + (rhs.r[1].y * lhs11) + (rhs.r[1].x * lhs01);
+    out.r[1].z = (rhs.r[1].z * lhs22) + (rhs.r[1].y * lhs12) + (rhs.r[1].x * lhs02);
+
+    out.r[2].x = (rhs.r[2].z * lhs20) + (rhs.r[2].y * lhs10) + (rhs.r[2].x * lhs00);
+    out.r[2].y = (rhs.r[2].z * lhs21) + (rhs.r[2].y * lhs11) + (rhs.r[2].x * lhs01);
+    out.r[2].z = (rhs.r[2].z * lhs22) + (rhs.r[2].y * lhs12) + (rhs.r[2].x * lhs02);
+
+    out.r[3].x = ((rhs.r[3].z * lhs20) + (rhs.r[3].y * lhs10) + (rhs.r[3].x * lhs00)) + lhs30;
+    out.r[3].y = ((rhs.r[3].z * lhs21) + (rhs.r[3].y * lhs11) + (rhs.r[3].x * lhs01)) + lhs31;
+    out.r[3].z = ((rhs.r[3].z * lhs22) + (rhs.r[3].y * lhs12) + (rhs.r[3].x * lhs02)) + lhs32;
+  }
+
+  /**
+   * Address: 0x004EEC10 (FUN_004EEC10, ?LoadInverse@VMatrix4@Moho@@QAEXXZ)
+   *
+   * What it does:
+   * Replaces this matrix with its full inverse.
+   */
+  void VMatrix4::LoadInverse()
+  {
+    VMatrix4 inverse{};
+    (void)gpg::gal::Math::invert(&inverse, this);
+    *this = inverse;
+  }
+
+  /**
+   * Address: 0x004EEC40 (FUN_004EEC40, ?LoadInverse4x3@VMatrix4@Moho@@QAEXXZ)
+   *
+   * What it does:
+   * Replaces this matrix with the inverse lane used by 4x3 call sites.
+   */
+  void VMatrix4::LoadInverse4x3()
+  {
+    VMatrix4 inverse{};
+    (void)gpg::gal::Math::invert(&inverse, this);
+    *this = inverse;
+  }
+
+  /**
+   * Address: 0x004EEC70 (FUN_004EEC70, ?LoadInverseRigid@VMatrix4@Moho@@QAEXXZ)
+   *
+   * What it does:
+   * Replaces this matrix with the inverse lane used by rigid-transform paths.
+   */
+  void VMatrix4::LoadInverseRigid()
+  {
+    VMatrix4 inverse{};
+    (void)gpg::gal::Math::invert(&inverse, this);
+    *this = inverse;
+  }
+
+  /**
+   * Address: 0x004EECA0 (FUN_004EECA0, ?LoadTranslate@VMatrix4@Moho@@QAEXMMM@Z)
+   *
+   * What it does:
+   * Overwrites this matrix with one translation matrix.
+   */
+  void VMatrix4::LoadTranslate(const float x, const float y, const float z)
+  {
+    (void)gpg::gal::Math::translation(this, x, y, z);
+  }
+
+  /**
+   * Address: 0x004EECD0 (FUN_004EECD0, ?LoadScale@VMatrix4@Moho@@QAEXMMM@Z)
+   *
+   * What it does:
+   * Overwrites this matrix with one non-uniform scale matrix.
+   */
+  void VMatrix4::LoadScale(const float x, const float y, const float z)
+  {
+    (void)gpg::gal::Math::scaling(this, x, y, z);
+  }
+
+  /**
+   * Address: 0x004EED60 (FUN_004EED60, ?LoadRotate@VMatrix4@Moho@@QAEXABV?$Vector3@M@Wm3@@M@Z)
+   *
+   * What it does:
+   * Overwrites this matrix with one axis-angle rotation matrix.
+   */
+  void VMatrix4::LoadRotate(const Wm3::Vector3f& axis, const float angleRadians)
+  {
+    // Preserve the binary's by-value axis staging before calling the D3DX lane.
+    const Wm3::Vector3f axisCopy{axis.x, axis.y, axis.z};
+    (void)gpg::gal::Math::rotationAxis(this, &axisCopy, angleRadians);
+  }
+
+  /**
+   * Address: 0x004EEDA0 (FUN_004EEDA0, ?LoadRotate@VMatrix4@Moho@@QAEXABV?$Quaternion@M@Wm3@@@Z)
+   *
+   * What it does:
+   * Overwrites this matrix with one quaternion rotation matrix.
+   */
+  void VMatrix4::LoadRotate(const Wm3::Quaternionf& rotation)
+  {
+    // Wm3 lane is `w,x,y,z`; D3DX lane expects contiguous `x,y,z,w`.
+    Wm3::Quaternionf d3dRotation{};
+    d3dRotation.w = rotation.x;
+    d3dRotation.x = rotation.y;
+    d3dRotation.y = rotation.z;
+    d3dRotation.z = rotation.w;
+    (void)gpg::gal::Math::rotationQuaternion(this, &d3dRotation);
   }
 
   /**

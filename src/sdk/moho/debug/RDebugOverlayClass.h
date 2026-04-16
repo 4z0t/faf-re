@@ -39,7 +39,8 @@ namespace moho
     gpg::RRef GetDerivedObjectRef() override;
 
     /**
-     * Address: 0x0064C4D0 (FUN_0064C4D0, scalar deleting body)
+     * Address: 0x0064C400 (FUN_0064C400, non-deleting destructor body)
+     * Thunk entry: 0x0064C4D0 (FUN_0064C4D0, scalar deleting destructor)
      * Slot: 2
      */
     ~RDebugOverlayClass() override;

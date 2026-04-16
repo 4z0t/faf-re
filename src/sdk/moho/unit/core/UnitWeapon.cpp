@@ -11,24 +11,30 @@
 #include "gpg/core/utils/Global.h"
 #include "moho/audio/CSimSoundManager.h"
 #include "moho/audio/CSndParams.h"
+#include "moho/ai/CAiAttackerImpl.h"
 #include "moho/ai/IAiAttacker.h"
+#include "moho/containers/SCoordsVec2.h"
 #include "moho/entity/EntityCategorySetVectorReflection.h"
+#include "moho/entity/EntityCollisionUpdater.h"
 #include "moho/lua/CScrLuaBinder.h"
 #include "moho/lua/CScrLuaInitForm.h"
 #include "moho/lua/CScrLuaObjectFactory.h"
 #include "moho/lua/SCR_FromLua.h"
 #include "moho/lua/SCR_ToLua.h"
 #include "moho/math/QuaternionMath.h"
+#include "moho/math/Vector3f.h"
 #include "moho/resource/blueprints/RBlueprint.h"
 #include "moho/resource/blueprints/RProjectileBlueprint.h"
 #include "moho/resource/blueprints/RUnitBlueprint.h"
 #include "moho/projectile/Projectile.h"
 #include "moho/serialization/SBlackListInfoVectorReflection.h"
 #include "moho/sim/CArmyImpl.h"
+#include "moho/sim/CSimConVarBase.h"
 #include "moho/sim/ReconBlip.h"
 #include "moho/sim/RRuleGameRules.h"
 #include "moho/sim/Sim.h"
 #include "moho/sim/STIMap.h"
+#include "moho/task/CTask.h"
 #include "moho/task/CTaskThread.h"
 #include "moho/unit/core/Unit.h"
 #include "moho/unit/tasks/CFireWeaponTask.h"
@@ -103,6 +109,63 @@ namespace
   constexpr const char* kUnitWeaponSetFireTargetLayerCapsName = "SetFireTargetLayerCaps";
   constexpr const char* kUnitWeaponSetFireTargetLayerCapsHelpText = "UnitWeapon:SetFireTargetLayerCaps(mask)";
 
+  void AttachTaskToStage(moho::CTask* const task, moho::CTaskStage* const stage)
+  {
+    if (task == nullptr || stage == nullptr) {
+      return;
+    }
+
+    auto* const thread = new moho::CTaskThread(stage);
+    task->mOwnerThread = thread;
+    task->mSubtask = thread->mTaskTop;
+    thread->mTaskTop = task;
+  }
+
+  /**
+   * Address: 0x006DEAE0 (FUN_006DEAE0)
+   *
+   * What it does:
+   * Unlinks each blacklist-row weak-entity lane in `[begin, end)` from its
+   * owner-chain intrusive list.
+   */
+  void UnlinkBlacklistWeakEntityRange(
+    moho::SBlackListInfo* begin,
+    moho::SBlackListInfo* end
+  ) noexcept
+  {
+    for (; begin != end; ++begin) {
+      auto** ownerCursor = reinterpret_cast<moho::WeakPtr<moho::Entity>**>(begin->mEntity.ownerLinkSlot);
+      if (ownerCursor == nullptr) {
+        continue;
+      }
+
+      while (*ownerCursor != &begin->mEntity) {
+        ownerCursor = &(*ownerCursor)->nextInOwner;
+      }
+      *ownerCursor = begin->mEntity.nextInOwner;
+    }
+  }
+
+  /**
+   * Address: 0x006DBD70 (FUN_006DBD70)
+   *
+   * What it does:
+   * Unlinks weak-owner lanes in the blacklist element range and rewinds the
+   * logical vector end back to begin without releasing capacity storage.
+   */
+  [[nodiscard]] moho::SBlackListInfo* ResetBlacklistRangeToBegin(
+    msvc8::vector<moho::SBlackListInfo>& blacklist
+  ) noexcept
+  {
+    auto& runtime = msvc8::AsVectorRuntimeView(blacklist);
+    if (runtime.begin != runtime.end) {
+      UnlinkBlacklistWeakEntityRange(runtime.begin, runtime.end);
+      runtime.end = runtime.begin;
+    }
+
+    return runtime.begin;
+  }
+
   [[nodiscard]] gpg::RRef ExtractLuaUserDataRef(const LuaPlus::LuaObject& userDataObject)
   {
     gpg::RRef out{};
@@ -166,29 +229,40 @@ namespace
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
   }
 
-  enum class UnitWeaponTargetSolutionStatus : std::uint8_t
+  [[nodiscard]] Wm3::Box3f BuildAxisAlignedCollisionProbe(
+    const Wm3::Vec3f& center,
+    const Wm3::Vec3f& extents
+  ) noexcept
   {
-    Available = 0u,
-    InsideMinRange = 1u,
-    NoSolution = 2u,
-    OutsideMaxRange = 3u,
-  };
+    Wm3::Box3f probe{};
+    probe.Center[0] = center.x;
+    probe.Center[1] = center.y;
+    probe.Center[2] = center.z;
 
-  /**
-   * Address: 0x006D5B40 (FUN_006D5B40, Moho::UnitWeapon::TargetSolutionStatusGun)
-   *
-   * What it does:
-   * Evaluates one target point against radius/height/heading constraints and
-   * returns one target-solution status lane for gun-style weapons.
-   */
-  [[nodiscard]] UnitWeaponTargetSolutionStatus EvaluateTargetSolutionStatusGun(
+    probe.Axis[0][0] = 1.0f;
+    probe.Axis[0][1] = 0.0f;
+    probe.Axis[0][2] = 0.0f;
+    probe.Axis[1][0] = 0.0f;
+    probe.Axis[1][1] = 1.0f;
+    probe.Axis[1][2] = 0.0f;
+    probe.Axis[2][0] = 0.0f;
+    probe.Axis[2][1] = 0.0f;
+    probe.Axis[2][2] = 1.0f;
+
+    probe.Extent[0] = extents.x;
+    probe.Extent[1] = extents.y;
+    probe.Extent[2] = extents.z;
+    return probe;
+  }
+
+  [[nodiscard]] moho::ESolutionStatus EvaluateTargetSolutionStatusGun(
     moho::UnitWeapon* const weapon,
     const Wm3::Vec3f& targetPosition,
     float* const inOutDistanceSq
   )
   {
     if (weapon == nullptr || weapon->mUnit == nullptr) {
-      return UnitWeaponTargetSolutionStatus::NoSolution;
+      return moho::ESolutionStatus::TRS_NoSolution;
     }
 
     float distanceSq = 0.0f;
@@ -211,10 +285,10 @@ namespace
     }
 
     if (distanceSq > weapon->mAttributes.mMaxRadiusSq) {
-      return UnitWeaponTargetSolutionStatus::OutsideMaxRange;
+      return moho::ESolutionStatus::TRS_OutsideMaxRange;
     }
     if (distanceSq <= weapon->mAttributes.mMinRadiusSq) {
-      return UnitWeaponTargetSolutionStatus::InsideMinRange;
+      return moho::ESolutionStatus::TRS_InsideMinRange;
     }
 
     float maxHeightDiff = weapon->mAttributes.mMaxHeightDiff;
@@ -223,7 +297,7 @@ namespace
     }
     const float heightDiff = std::fabs(targetPosition.y - weapon->mUnit->GetPosition().y);
     if (heightDiff > maxHeightDiff) {
-      return UnitWeaponTargetSolutionStatus::OutsideMaxRange;
+      return moho::ESolutionStatus::TRS_OutsideMaxRange;
     }
 
     if (weapon->mWeaponBlueprint != nullptr && weapon->mWeaponBlueprint->HeadingArcRange < 180.0f) {
@@ -241,7 +315,7 @@ namespace
       const float headingArcRange = weapon->mWeaponBlueprint->HeadingArcRange * kDegreesToRadians;
       const float headingDelta = moho::NormalizeAngleSignedRadians(targetHeading - unitHeading - headingArcCenter);
       if (std::fabs(headingDelta) > headingArcRange) {
-        return UnitWeaponTargetSolutionStatus::NoSolution;
+        return moho::ESolutionStatus::TRS_NoSolution;
       }
     }
 
@@ -249,46 +323,20 @@ namespace
       *inOutDistanceSq = distanceSq;
     }
 
-    return UnitWeaponTargetSolutionStatus::Available;
+    return moho::ESolutionStatus::TRS_Available;
   }
 
-  [[nodiscard]] bool UnitWeaponHasSiloAmmo(const moho::UnitWeapon* const weapon) noexcept
+  constexpr float kBombDropHeadingDotThreshold = 0.866f;
+  constexpr std::uint32_t kBombDropInnerCircleDepth = 0xFFFF7F3Fu;
+  constexpr std::uint32_t kBombDropOuterCircleDepth = 0xFF7F3F00u;
+
+  [[nodiscard]] bool ShouldRenderBombDropZone(moho::Sim* const sim)
   {
-    if (weapon == nullptr || weapon->mWeaponBlueprint == nullptr || weapon->mWeaponBlueprint->CountedProjectile == 0u) {
-      return true;
-    }
-    if (weapon->mUnit == nullptr || weapon->mUnit->AiSiloBuild == nullptr) {
-      return true;
-    }
-    const std::int32_t storageCount =
-      weapon->mUnit->AiSiloBuild->SiloGetStorageCount(static_cast<moho::ESiloType>(weapon->mWeaponBlueprint->NukeWeapon));
-    return storageCount != 0;
-  }
+    static moho::TSimConVar<bool> sAiRenderBombDropZone(false, "AI_RenderBombDropZone", false);
 
-  [[nodiscard]] bool CanWeaponFireCurrentTarget(moho::UnitWeapon* const weapon)
-  {
-    if (weapon == nullptr || !weapon->mTarget.HasTarget()) {
-      return false;
-    }
-    if (weapon->mWeaponBlueprint != nullptr) {
-      if (weapon->mWeaponBlueprint->IgnoreIfDisabled != 0u && weapon->mEnabled == 0u) {
-        return false;
-      }
-      if (weapon->mTarget.targetType == moho::EAiTargetType::AITARGET_Ground
-          && weapon->mWeaponBlueprint->CannotAttackGround != 0u) {
-        return false;
-      }
-    }
-    if (!UnitWeaponHasSiloAmmo(weapon)) {
-      return false;
-    }
-
-    const Wm3::Vec3f targetPosition = weapon->mTarget.GetTargetPosGun(true);
-    if (!IsFiniteVector3(targetPosition)) {
-      return false;
-    }
-
-    return EvaluateTargetSolutionStatusGun(weapon, targetPosition, nullptr) == UnitWeaponTargetSolutionStatus::Available;
+    moho::CSimConVarInstanceBase* const instance = sim ? sim->GetSimVar(&sAiRenderBombDropZone) : nullptr;
+    const void* const valueStorage = instance ? instance->GetValueStorage() : nullptr;
+    return valueStorage != nullptr && *static_cast<const bool*>(valueStorage);
   }
 
   /**
@@ -1294,7 +1342,15 @@ namespace moho
     const LuaPlus::LuaObject weaponObject(LuaPlus::LuaStackObject(state, 1));
     UnitWeapon* const weapon = SCR_FromLua_UnitWeapon(weaponObject, state);
 
-    const bool canFire = CanWeaponFireCurrentTarget(weapon);
+    bool canFire = false;
+    if (weapon != nullptr
+        && weapon->mTarget.HasTarget()
+        && UnitWeapon::CanFire(weapon, &weapon->mTarget)
+        && weapon->CheckSilo()) {
+      const Wm3::Vec3f targetPosition = weapon->mTarget.GetTargetPosGun(true);
+      canFire = weapon->TargetSolutionStatusGun(&targetPosition, nullptr) == ESolutionStatus::TRS_Available;
+    }
+
     lua_pushboolean(rawState, canFire ? 1 : 0);
     return 1;
   }
@@ -2325,7 +2381,7 @@ namespace moho
    * Address: 0x006D4100 (FUN_006D4100, sub_6D4100)
    */
   UnitWeapon::UnitWeapon()
-    : CScriptEvent()
+    : CScriptEvent(LuaPlus::LuaObject{})
     , mSim(nullptr)
     , mWeaponBlueprint(nullptr)
     , mProjectileBlueprint(nullptr)
@@ -2363,6 +2419,134 @@ namespace moho
   }
 
   /**
+   * Address: 0x006D4310 (FUN_006D4310, Moho::UnitWeapon::UnitWeapon)
+   *
+   * What it does:
+   * Binds this weapon to one attacker/blueprint lane, allocates and stages
+   * the fire task thread, creates script-object state, and applies parsed
+   * category restrictions from weapon blueprint text lanes.
+   */
+  UnitWeapon::UnitWeapon(
+    CAiAttackerImpl* const attackerImpl,
+    RUnitBlueprintWeapon* const weaponBlueprint,
+    const int weaponIndex
+  )
+    : CScriptEvent(LuaPlus::LuaObject{})
+    , mSim(attackerImpl->GetUnit()->SimulationRef)
+    , mWeaponBlueprint(weaponBlueprint)
+    , mProjectileBlueprint(nullptr)
+    , mAttacker(reinterpret_cast<IAiAttacker*>(attackerImpl))
+    , mAttributes(weaponBlueprint)
+    , mUnit(attackerImpl->GetUnit())
+    , mWeaponIndex(weaponIndex)
+    , mBone(-1)
+    , mEnabled(1u)
+    , mPadAD{0u, 0u, 0u}
+    , mLabel("Default")
+    , mTarget()
+    , mFireWeaponTask(nullptr)
+    , mCanFire(1u)
+    , mPadF1ToF7{0u, 0u, 0u, 0u, 0u, 0u, 0u}
+    , mCat1{}
+    , mCat2{}
+    , mFireTargetLayerCaps(LAYER_None)
+    , mFiringRandomness(weaponBlueprint->FiringRandomness)
+    , mTargetPriorities()
+    , mBlacklist()
+    , mUnknown170(0)
+    , mUnknown174(1u)
+    , mPad175To177{0u, 0u, 0u}
+    , mAimingAt(GetRecoveredInvalidAimingVector())
+    , mShotsAtTarget(0)
+  {
+    mTarget.targetType = EAiTargetType::AITARGET_None;
+    mTarget.targetEntity.ownerLinkSlot = nullptr;
+    mTarget.targetEntity.nextInOwner = nullptr;
+    mTarget.targetPoint = -1;
+    mTarget.targetIsMobile = false;
+
+    const std::uint32_t categoryUniverseBits =
+      static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(mSim->mRules));
+    mCat1.ResetToEmpty(categoryUniverseBits);
+    mCat2.ResetToEmpty(categoryUniverseBits);
+
+    if (!mWeaponBlueprint->ProjectileId.name.empty()) {
+      mProjectileBlueprint = mSim->mRules->GetProjectileBlueprint(mWeaponBlueprint->ProjectileId);
+    }
+
+    mFireWeaponTask = new CFireWeaponTask(this);
+    AttachTaskToStage(mFireWeaponTask, attackerImpl->GetTaskStage());
+
+    CreateInstance();
+    (void)ResetBlacklistRangeToBegin(mBlacklist);
+    (void)RunScript("OnCreate");
+
+    if (!mWeaponBlueprint->TargetRestrictDisallow.empty()) {
+      mCat1 = mSim->mRules->ParseEntityCategory(mWeaponBlueprint->TargetRestrictDisallow.c_str());
+      mUnit->NeedSyncGameData = true;
+    }
+
+    if (!mWeaponBlueprint->TargetRestrictOnlyAllow.empty()) {
+      mCat2 = mSim->mRules->ParseEntityCategory(mWeaponBlueprint->TargetRestrictOnlyAllow.c_str());
+      mUnit->NeedSyncGameData = true;
+    }
+  }
+
+  /**
+   * Address: 0x006D4740 (FUN_006D4740, Moho::UnitWeapon::CreateInstance)
+   *
+   * What it does:
+   * Resolves weapon script class from blueprint label/index and binds one Lua
+   * script instance for this weapon object.
+   */
+  void UnitWeapon::CreateInstance()
+  {
+    const LuaPlus::LuaObject unitLuaObject = mUnit->GetLuaObject();
+    LuaPlus::LuaState* const state = unitLuaObject.GetActiveState();
+    if (state == nullptr) {
+      return;
+    }
+
+    LuaPlus::LuaObject weaponBlueprintClass{};
+    if (!mWeaponBlueprint->Label.empty()) {
+      weaponBlueprintClass.AssignString(state, mWeaponBlueprint->Label.c_str());
+    } else {
+      weaponBlueprintClass.AssignInteger(state, mWeaponIndex);
+    }
+
+    LuaPlus::LuaObject scriptClass = mUnit->GetWeaponClass(weaponBlueprintClass);
+    if (!scriptClass) {
+      const msvc8::string classNameText =
+        !mWeaponBlueprint->Label.empty() ? gpg::STR_Printf("\"%s\"", mWeaponBlueprint->Label.c_str())
+                                         : gpg::STR_Printf("%d", mWeaponIndex);
+
+      const RUnitBlueprint* const ownerBlueprint = mUnit->GetBlueprint();
+      gpg::Logf(
+        "%s:GetWeaponClass(%s) returned nil, falling back to Weapon",
+        ownerBlueprint ? ownerBlueprint->mBlueprintId.c_str() : "<unknown>",
+        classNameText.c_str()
+      );
+
+      LuaPlus::LuaObject weaponModule = SCR_Import(state, "/lua/sim/Weapon.lua");
+      if (!weaponModule.IsNil()) {
+        LuaPlus::LuaObject weaponClass = weaponModule.GetByName("Weapon");
+        if (!weaponClass.IsNil()) {
+          scriptClass = weaponClass;
+        }
+      }
+
+      if (scriptClass.IsNil()) {
+        gpg::Logf(" can't find Weapon, using UnitWeapon directly");
+        scriptClass = CScrLuaMetatableFactory<UnitWeapon>::Instance().Get(state);
+      }
+    }
+
+    LuaPlus::LuaObject nilArg1{};
+    LuaPlus::LuaObject nilArg2{};
+    CreateLuaObject(scriptClass, unitLuaObject, nilArg1, nilArg2);
+  }
+
+  /**
    * Address: 0x006D4A90 (FUN_006D4A90, Moho::UnitWeapon::~UnitWeapon)
    *
    * What it does:
@@ -2374,6 +2558,127 @@ namespace moho
       delete mFireWeaponTask;
       mFireWeaponTask = nullptr;
     }
+  }
+
+  /**
+   * Address: 0x006D4C80 (FUN_006D4C80, Moho::UnitWeapon::CanFire)
+   *
+   * What it does:
+   * Evaluates one weapon-owner fire gate lane (state, movement, water level,
+   * bomb-drop release timing, and heading constraints) for one target payload.
+   */
+  bool UnitWeapon::CanFire(UnitWeapon* const weapon, CAiTarget* const targetData)
+  {
+    if (weapon == nullptr || weapon->mUnit == nullptr || weapon->mWeaponBlueprint == nullptr) {
+      return false;
+    }
+
+    Unit* const ownerUnit = weapon->mUnit;
+    const RUnitBlueprint* const unitBlueprint = ownerUnit->GetBlueprint();
+    if (unitBlueprint == nullptr) {
+      return false;
+    }
+
+    if (ownerUnit->VarDat().mStunTicks != 0
+        || ownerUnit->IsUnitState(UNITSTATE_Busy)
+        || (unitBlueprint->Air.CanFly != 0u && ownerUnit->mCurrentLayer != LAYER_Air)) {
+      return false;
+    }
+
+    if (unitBlueprint->AI.NeedUnpack != 0u && !ownerUnit->IsUnitState(UNITSTATE_Immobile)) {
+      return false;
+    }
+
+    const RUnitBlueprintWeapon* const weaponBlueprint = weapon->mWeaponBlueprint;
+    if (weaponBlueprint->AboveWaterFireOnly != 0u || weaponBlueprint->BelowWaterFireOnly != 0u) {
+      const STIMap* const mapData = (ownerUnit->SimulationRef != nullptr) ? ownerUnit->SimulationRef->mMapData : nullptr;
+      const float waterElevation = (mapData != nullptr && mapData->mWaterEnabled != 0u) ? mapData->mWaterElevation : -10000.0f;
+
+      Wm3::Vec3f muzzlePosition{};
+      weapon->GetTransform(&muzzlePosition);
+      const bool isAboveWater = muzzlePosition.y > waterElevation;
+
+      if (weaponBlueprint->AboveWaterFireOnly != 0u && !isAboveWater) {
+        return false;
+      }
+      if (weaponBlueprint->BelowWaterFireOnly != 0u && isAboveWater) {
+        return false;
+      }
+    }
+
+    if (unitBlueprint->Air.Winged == 0u) {
+      return weapon->mCanFire != 0u;
+    }
+
+    if (weaponBlueprint->AutoInitiateAttackCommand != 0u) {
+      const Wm3::Vec3f velocity = ownerUnit->GetVelocity();
+      const float velocityMagnitude =
+        std::sqrt((velocity.x * velocity.x) + (velocity.y * velocity.y) + (velocity.z * velocity.z));
+      const float velocityLane = velocityMagnitude * 10.0f;
+      const float speedGate = ownerUnit->GetAttributes().moveSpeedMult * unitBlueprint->Air.MaxAirspeed * 0.25f;
+      if (speedGate > velocityLane) {
+        return false;
+      }
+    }
+
+    if (weaponBlueprint->NeedToComputeBombDrop == 0u || targetData == nullptr || !targetData->HasTarget()) {
+      return weapon->mCanFire != 0u;
+    }
+
+    if (!ownerUnit->IsUnitState(UNITSTATE_MakingAttackRun)) {
+      return false;
+    }
+
+    Wm3::Vec3f targetPosition = targetData->GetTargetPosGun(false);
+    if (unitBlueprint->Air.PredictAheadForBombDrop > 0.0f && targetData->targetIsMobile) {
+      if (Entity* const targetEntity = targetData->GetEntity(); targetEntity != nullptr) {
+        if (Unit* const targetUnit = targetEntity->IsUnit(); targetUnit != nullptr) {
+          Wm3::Vec3f predictedTargetPosition{};
+          targetUnit->PredictAheadBomb(&predictedTargetPosition, unitBlueprint->Air.PredictAheadForBombDrop);
+          targetPosition = predictedTargetPosition;
+        }
+      }
+    }
+
+    Wm3::Vec3f bombDropPosition{};
+    ownerUnit->CalcBombDrop(&bombDropPosition, targetPosition);
+    if (!moho::IsValidVector3f(bombDropPosition)) {
+      return false;
+    }
+
+    const Wm3::Vec3f& unitPosition = ownerUnit->GetPosition();
+    const float bombDx = bombDropPosition.x - unitPosition.x;
+    const float bombDz = bombDropPosition.z - unitPosition.z;
+    const float bombDropDistance = std::sqrt((bombDx * bombDx) + (bombDz * bombDz));
+
+    if (ShouldRenderBombDropZone(ownerUnit->SimulationRef)) {
+      if (CDebugCanvas* const debugCanvas = ownerUnit->SimulationRef->GetDebugCanvas(); debugCanvas != nullptr) {
+        const Wm3::Vec3f upAxis{0.0f, 1.0f, 0.0f};
+        debugCanvas->AddWireCircle(upAxis, bombDropPosition, bombDropDistance, kBombDropInnerCircleDepth, 6u);
+        debugCanvas->AddWireCircle(upAxis, bombDropPosition, bombDropDistance * 2.0f, kBombDropOuterCircleDepth, 6u);
+      }
+    }
+
+    const float bombDropThreshold = weaponBlueprint->BombDropThreshold;
+    if (bombDropThreshold >= bombDropDistance * 2.0f) {
+      return false;
+    }
+    if (bombDropThreshold < bombDropDistance) {
+      return weapon->mCanFire != 0u;
+    }
+
+    const Wm3::Vec3f forward = ownerUnit->GetTransform().orient_.Rotate(Wm3::Vec3f{0.0f, 0.0f, 1.0f});
+    const float releaseDot = ((bombDropPosition.z - unitPosition.z) * forward.z) + ((bombDropPosition.x - unitPosition.x) * forward.x);
+    if (releaseDot > 0.0f) {
+      return false;
+    }
+
+    const float targetDot = ((targetPosition.z - unitPosition.z) * forward.z) + ((targetPosition.x - unitPosition.x) * forward.x);
+    if (targetDot < kBombDropHeadingDotThreshold) {
+      return false;
+    }
+
+    return weapon->mCanFire != 0u;
   }
 
   /**
@@ -2499,6 +2804,134 @@ namespace moho
     }
 
     return false;
+  }
+
+  /**
+   * Address: 0x006D5B40 (FUN_006D5B40, Moho::UnitWeapon::TargetSolutionStatusGun)
+   *
+   * What it does:
+   * Evaluates one gun target-position lane and returns one range/heading
+   * solution status.
+   */
+  ESolutionStatus UnitWeapon::TargetSolutionStatusGun(const Wm3::Vector3f* const targetPosition, float* const inOutDistanceSq)
+  {
+    return EvaluateTargetSolutionStatusGun(this, *targetPosition, inOutDistanceSq);
+  }
+
+  /**
+   * Address: 0x006D5810 (FUN_006D5810, Moho::UnitWeapon::TargetIsTooCloseMelee)
+   *
+   * What it does:
+   * Evaluates melee target reachability using collision-shell probes for large
+   * mobile targets and footprint-edge touch checks for unit targets.
+   */
+  ESolutionStatus UnitWeapon::TargetIsTooCloseMelee(Entity* const targetEntity)
+  {
+    if (targetEntity->IsMobile()) {
+      const SFootprint& targetFootprint = targetEntity->GetFootprint();
+      std::uint8_t targetSize = targetFootprint.mSizeZ;
+      if (targetFootprint.mSizeX > targetSize) {
+        targetSize = targetFootprint.mSizeX;
+      }
+
+      if (targetSize > 1u) {
+        CollisionResult collisionResult{};
+
+        const SFootprint& ownerFootprint = mUnit->GetFootprint();
+        const Wm3::Vec3f& ownerPosition = mUnit->GetPosition();
+        const float ownerHalfSizeX = static_cast<float>(ownerFootprint.mSizeX) * 0.5f;
+        const float ownerHalfSizeZ = static_cast<float>(ownerFootprint.mSizeZ) * 0.5f;
+        const std::int16_t ownerGridMinX = static_cast<std::int16_t>(
+          static_cast<std::int32_t>(ownerPosition.x - ownerHalfSizeX)
+        );
+        const std::int16_t ownerGridMinZ = static_cast<std::int16_t>(
+          static_cast<std::int32_t>(ownerPosition.z - ownerHalfSizeZ)
+        );
+
+        const Wm3::Vec3f probeCenter{
+          static_cast<float>(ownerGridMinX) + ownerHalfSizeX,
+          0.0f,
+          static_cast<float>(ownerGridMinZ) + ownerHalfSizeZ,
+        };
+
+        constexpr float kMeleeProbeHalfHeight = 1000.0f;
+        const Wm3::Box3f outerProbe = BuildAxisAlignedCollisionProbe(
+          probeCenter,
+          Wm3::Vec3f{ownerHalfSizeX + 1.0f, kMeleeProbeHalfHeight, ownerHalfSizeZ + 1.0f}
+        );
+        const Wm3::Box3f innerProbe = BuildAxisAlignedCollisionProbe(
+          probeCenter,
+          Wm3::Vec3f{ownerHalfSizeX, kMeleeProbeHalfHeight, ownerHalfSizeZ}
+        );
+
+        EntityCollisionUpdater* const targetCollisionShape = targetEntity->CollisionExtents;
+        if (targetCollisionShape != nullptr && targetCollisionShape->CollideBox(&outerProbe, &collisionResult)) {
+          collisionResult.sourceEntity = targetEntity;
+          if (!targetCollisionShape->CollideBox(&innerProbe, &collisionResult)) {
+            return ESolutionStatus::TRS_Available;
+          }
+        }
+
+        return ESolutionStatus::TRS_OutsideMaxRange;
+      }
+    }
+
+    if (Unit* const targetUnit = targetEntity->IsUnit(); targetUnit != nullptr) {
+      const Wm3::Vec3f& targetPosition = targetEntity->GetPositionWm3();
+      const SCoordsVec2 targetFootprintCenter{targetPosition.x, targetPosition.z};
+      const RUnitBlueprint* const targetBlueprint = targetUnit->GetBlueprint();
+      const gpg::Rect2i targetFootprintRect = targetBlueprint->GetFootprintRect(targetFootprintCenter);
+
+      const Wm3::Vec3f& ownerPosition = mUnit->GetPosition();
+      const SCoordsVec2 ownerFootprintCenter{ownerPosition.x, ownerPosition.z};
+      const RUnitBlueprint* const ownerBlueprint = mUnit->GetBlueprint();
+      const gpg::Rect2i ownerFootprintRect = ownerBlueprint->GetFootprintRect(ownerFootprintCenter);
+
+      if (targetFootprintRect.Touches(ownerFootprintRect)) {
+        return ESolutionStatus::TRS_Available;
+      }
+    }
+
+    return ESolutionStatus::TRS_OutsideMaxRange;
+  }
+
+  /**
+   * Address: 0x006D5D40 (FUN_006D5D40, Moho::UnitWeapon::GetSolutionStatus)
+   *
+   * What it does:
+   * Returns one melee/gun target-solution status for a direct target entity
+   * lane.
+   */
+  ESolutionStatus UnitWeapon::GetSolutionStatus(Entity* const targetEntity)
+  {
+    if (targetEntity == nullptr) {
+      return ESolutionStatus::TRS_OutsideMaxRange;
+    }
+
+    if (mUnit->mIsMelee) {
+      return TargetIsTooCloseMelee(targetEntity);
+    }
+
+    const Wm3::Vec3f& targetPosition = targetEntity->GetPositionWm3();
+    return TargetSolutionStatusGun(&targetPosition, nullptr);
+  }
+
+  /**
+   * Address: 0x006D5D80 (FUN_006D5D80, Moho::UnitWeapon::TargetIsTooClose)
+   *
+   * What it does:
+   * Returns one melee/gun solution status for the current `CAiTarget` payload.
+   */
+  ESolutionStatus UnitWeapon::TargetIsTooClose(CAiTarget* const targetData)
+  {
+    if (mUnit->mIsMelee) {
+      if (Entity* const targetEntity = targetData->GetEntity(); targetEntity != nullptr) {
+        return TargetIsTooCloseMelee(targetEntity);
+      }
+    }
+
+    const Wm3::Vec3f targetPosition = targetData->GetTargetPosGun(true);
+    return TargetSolutionStatusGun(&targetPosition, nullptr);
   }
 
   /**

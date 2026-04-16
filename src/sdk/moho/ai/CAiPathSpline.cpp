@@ -1005,7 +1005,7 @@ CAiPathSpline::~CAiPathSpline()
 }
 
 /**
- * Address: 0x005B2550 (FUN_005B2550)
+  * Alias of FUN_005B2550 (non-canonical helper lane).
  */
 void CAiPathSpline::ResetNodesToInline()
 {
@@ -1024,7 +1024,7 @@ CPathPoint* CAiPathSpline::TryGetNode(const std::uint32_t index)
 }
 
 /**
- * Address: 0x005965E0 (FUN_005965E0, sub_5965E0)
+    * Alias of FUN_005965E0 (non-canonical helper lane).
  */
 const CPathPoint* CAiPathSpline::TryGetNode(const std::uint32_t index) const
 {
@@ -1485,6 +1485,39 @@ void SCollisionInfoSerializer::RegisterSerializeFunctions()
 }
 
 /**
+ * Address: 0x0062F9F0 (FUN_0062F9F0, Moho::CPathPoint::MemberDeserialize)
+ *
+ * What it does:
+ * Loads path-point position/direction vectors and state enum lanes from a
+ * read archive payload.
+ */
+void CPathPoint::MemberDeserialize(gpg::ReadArchive* const archive)
+{
+  if (archive == nullptr) {
+    return;
+  }
+
+  gpg::RRef positionOwner{};
+  gpg::RType* const vectorType = ResolveVector3fType();
+  GPG_ASSERT(vectorType != nullptr);
+  if (vectorType == nullptr) {
+    return;
+  }
+  archive->Read(vectorType, &mPosition, positionOwner);
+
+  gpg::RRef directionOwner{};
+  archive->Read(vectorType, &mDirection, directionOwner);
+
+  gpg::RRef stateOwner{};
+  gpg::RType* const stateType = ResolveEPathPointStateType();
+  GPG_ASSERT(stateType != nullptr);
+  if (stateType == nullptr) {
+    return;
+  }
+  archive->Read(stateType, &mState, stateOwner);
+}
+
+/**
  * Address: 0x0062F790 (FUN_0062F790, CPathPointSerializer::Deserialize)
  *
  * What it does:
@@ -1502,19 +1535,38 @@ void CPathPointSerializer::Deserialize(
   }
 
   auto* const point = reinterpret_cast<CPathPoint*>(static_cast<std::uintptr_t>(objectPtr));
-  gpg::RRef valueRef{};
-  gpg::RRef directionRef{};
-  gpg::RRef stateRef{};
-
-  gpg::RType* const vectorType = ResolveVector3fType();
-  GPG_ASSERT(vectorType != nullptr);
-  archive->Read(vectorType, &point->mPosition, valueRef);
-  archive->Read(vectorType, &point->mDirection, directionRef);
-
-  gpg::RType* const stateType = ResolveEPathPointStateType();
-  GPG_ASSERT(stateType != nullptr);
-  archive->Read(stateType, &point->mState, stateRef);
+  point->MemberDeserialize(archive);
 }
+
+namespace
+{
+  /**
+   * Address: 0x0062FAA0 (FUN_0062FAA0)
+   *
+   * What it does:
+   * Writes `CPathPoint` position/direction vectors and path-state enum lanes
+   * into archive storage using reflected runtime types.
+   */
+  void SerializePathPointSerializerBody(const moho::CPathPoint& point, gpg::WriteArchive* const archive)
+  {
+    if (archive == nullptr) {
+      return;
+    }
+
+    gpg::RRef positionOwner{};
+    gpg::RRef directionOwner{};
+    gpg::RRef stateOwner{};
+
+    gpg::RType* const vectorType = ResolveVector3fType();
+    GPG_ASSERT(vectorType != nullptr);
+    archive->Write(vectorType, &point.mPosition, positionOwner);
+    archive->Write(vectorType, &point.mDirection, directionOwner);
+
+    gpg::RType* const stateType = ResolveEPathPointStateType();
+    GPG_ASSERT(stateType != nullptr);
+    archive->Write(stateType, &point.mState, stateOwner);
+  }
+} // namespace
 
 /**
  * Address: 0x0062F7A0 (FUN_0062F7A0, CPathPointSerializer::Serialize)
@@ -1534,18 +1586,7 @@ void CPathPointSerializer::Serialize(
   }
 
   auto* const point = reinterpret_cast<CPathPoint*>(static_cast<std::uintptr_t>(objectPtr));
-  gpg::RRef valueRef{};
-  gpg::RRef directionRef{};
-  gpg::RRef stateRef{};
-
-  gpg::RType* const vectorType = ResolveVector3fType();
-  GPG_ASSERT(vectorType != nullptr);
-  archive->Write(vectorType, &point->mPosition, valueRef);
-  archive->Write(vectorType, &point->mDirection, directionRef);
-
-  gpg::RType* const stateType = ResolveEPathPointStateType();
-  GPG_ASSERT(stateType != nullptr);
-  archive->Write(stateType, &point->mState, stateRef);
+  SerializePathPointSerializerBody(*point, archive);
 }
 
 void CPathPointSerializer::RegisterSerializeFunctions()

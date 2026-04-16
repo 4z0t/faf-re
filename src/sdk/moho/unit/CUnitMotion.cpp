@@ -182,6 +182,50 @@ namespace moho
       return out;
     }
 
+    /**
+     * Address: 0x006B6FE0 (FUN_006B6FE0, sub_6B6FE0)
+     *
+     * What it does:
+     * Applies one world-space impulse into body linear velocity using inverse
+     * mass scaling; zero-mass lanes use `FLT_MAX` scaling to match binary.
+     */
+    void ApplyImpulseToBodyVelocity(SPhysBody& body, const Wm3::Vector3f& impulse) noexcept
+    {
+      const float inverseMass =
+        (body.mMass == 0.0f) ? std::numeric_limits<float>::max() : (1.0f / body.mMass);
+
+      body.mVelocity.x += impulse.x * inverseMass;
+      body.mVelocity.y += impulse.y * inverseMass;
+      body.mVelocity.z += impulse.z * inverseMass;
+    }
+
+    [[nodiscard]] float ClampBallisticAngularRange(const float inverseInertiaAxis) noexcept
+    {
+      constexpr float kBallisticAngularRangeScale = 0.2f;
+      constexpr float kBallisticAngularRangeMax = 2.0f;
+      const float range = inverseInertiaAxis * kBallisticAngularRangeScale;
+      return (range <= kBallisticAngularRangeMax) ? range : kBallisticAngularRangeMax;
+    }
+
+    /**
+     * Address: 0x005BE060 (FUN_005BE060, Moho::CUnitMotion::RandomUniformIntRange)
+     *
+     * What it does:
+     * Samples one 32-bit MT value and scales it into the half-open integer
+     * range `[minValue, maxValue)` using the binary's high-half multiply
+     * trick.
+     */
+    [[nodiscard]] int RandomUniformIntRange(
+      const int minValue,
+      const int maxValue,
+      CRandomStream& randomStream
+    ) noexcept
+    {
+      const std::uint32_t randomValue = randomStream.twister.NextUInt32();
+      const std::uint64_t range = static_cast<std::uint32_t>(maxValue - minValue);
+      return minValue + static_cast<int>((range * randomValue) >> 32);
+    }
+
     [[nodiscard]] const char* UnitMotionStateToScriptString(const EUnitMotionState state) noexcept
     {
       const auto stateIndex = static_cast<std::int32_t>(state);
@@ -1089,6 +1133,95 @@ namespace moho
     mRecoilImpulse.x += (impulse.x - alignedImpulse.x) * kRecoilImpulseBlendFactor;
     mRecoilImpulse.y += (impulse.y - alignedImpulse.y) * kRecoilImpulseBlendFactor;
     mRecoilImpulse.z += (impulse.z - alignedImpulse.z) * kRecoilImpulseBlendFactor;
+  }
+
+  /**
+   * Address: 0x006B8AC0 (FUN_006B8AC0, ?AddImpulse@CUnitMotion@Moho@@QAEXABV?$Vector3@M@Wm3@@_N@Z)
+   * Mangled: ?AddImpulse@CUnitMotion@Moho@@QAEXABV?$Vector3@M@Wm3@@_N@Z
+   *
+   * What it does:
+   * Applies one impulse into owner motion lanes; airborne units update body
+   * velocity directly, while non-air units blend steering state and can force
+   * one ballistic transition with randomized angular impulse.
+   */
+  void CUnitMotion::AddImpulse(const Wm3::Vector3f& impulse, const bool transitionToBallistic)
+  {
+    Unit* const unit = mUnit;
+    if (unit->IsDead() || unit->IsBeingBuilt()) {
+      return;
+    }
+
+    SPhysBody* const body = static_cast<Entity*>(unit)->GetPhysBody(false);
+    const RUnitBlueprint* const blueprint = unit->GetBlueprint();
+    if (blueprint->Physics.MotionType == RULEUMT_Air) {
+      ApplyImpulseToBodyVelocity(*body, impulse);
+      return;
+    }
+
+    if (IsMoving()) {
+      mInStateTransition = true;
+    }
+
+    mVelocity.x = impulse.x + (mVelocity.x * 0.5f);
+    mVelocity.y = impulse.y + (mVelocity.y * 0.5f);
+    mVelocity.z = impulse.z + (mVelocity.z * 0.5f);
+
+    mVector44.x = impulse.x + (mVector44.x * 0.5f);
+    mVector44.y = impulse.y + (mVector44.y * 0.5f);
+    mVector44.z = impulse.z + (mVector44.z * 0.5f);
+
+    if (transitionToBallistic) {
+      CRandomStream* const random = unit->SimulationRef->mRngState;
+      body->SetTransform(unit->GetTransform());
+
+      const float xRange = ClampBallisticAngularRange(body->mInvInertiaTensor.x);
+      const float yRange = ClampBallisticAngularRange(body->mInvInertiaTensor.y);
+      const float zRange = ClampBallisticAngularRange(body->mInvInertiaTensor.z);
+
+      const Wm3::Vector3f localAngularImpulse{
+        random->FRand(-xRange, xRange) / body->mInvInertiaTensor.x,
+        random->FRand(-yRange, yRange) / body->mInvInertiaTensor.y,
+        random->FRand(-zRange, zRange) / body->mInvInertiaTensor.z,
+      };
+
+      Wm3::MultiplyQuaternionVector(&mVector108, localAngularImpulse, body->mOrientation);
+
+      unit->SetCurrentLayer(LAYER_Air);
+      SetMotionState(kUnitMotionStateBallistic);
+
+      ApplyImpulseToBodyVelocity(*body, impulse);
+
+      VTransform pendingTransform(unit->GetTransform());
+      const Wm3::Vector3f& currentPosition = unit->GetPosition();
+      constexpr float kPendingTransformVelocityScale = 0.1f;
+
+      pendingTransform.pos_.x = currentPosition.x + (mVelocity.x * kPendingTransformVelocityScale);
+      pendingTransform.pos_.y = currentPosition.y + (mVelocity.y * kPendingTransformVelocityScale);
+      pendingTransform.pos_.z = currentPosition.z + (mVelocity.z * kPendingTransformVelocityScale);
+
+      unit->SetPendingTransform(pendingTransform, 1.0f);
+      unit->AdvanceCoords();
+
+      mProcessSurfaceCollision = false;
+      mIsBeingPushed = true;
+      return;
+    }
+
+    constexpr float kSurfaceImpulseSpeedScale = 0.2f;
+    const float maxSurfaceSpeed = unit->mInfoCache.mFormationTopSpeed * kSurfaceImpulseSpeedScale;
+
+    const float speed = std::sqrt(
+      (mVelocity.x * mVelocity.x) +
+      (mVelocity.y * mVelocity.y) +
+      (mVelocity.z * mVelocity.z)
+    );
+    if (speed > maxSurfaceSpeed) {
+      (void)VecSetLength(&mVelocity, maxSurfaceSpeed);
+      mVector44 = mVelocity;
+    }
+
+    mProcessSurfaceCollision = true;
+    mIsBeingPushed = true;
   }
 
   /**

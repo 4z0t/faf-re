@@ -295,7 +295,7 @@ namespace
   }
 
   /**
-   * Address: 0x005CFA20 (sub_5CFA20 equivalent used by CAiSiloBuildImpl paths)
+    * Alias of FUN_005CFA20 (non-canonical helper lane).
    */
   void DestroyEconomyRequestPointer(CEconRequest*& request)
   {

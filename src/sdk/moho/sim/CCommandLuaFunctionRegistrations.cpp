@@ -5,14 +5,17 @@
 
 #include "gpg/core/reflection/Reflection.h"
 #include "moho/ai/CAiAttackerImpl.h"
+#include "moho/ai/CAiTarget.h"
 #include "moho/ai/IAiBuilder.h"
 #include "moho/command/SSTICommandIssueData.h"
 #include "moho/lua/CScrLuaBinder.h"
 #include "moho/lua/CScrLuaInitForm.h"
 #include "moho/lua/CScrLuaObjectFactory.h"
+#include "moho/math/Vector3f.h"
 #include "moho/resource/blueprints/RUnitBlueprintCapabilityEnums.h"
 #include "moho/script/CScriptEvent.h"
 #include "moho/script/CScriptObject.h"
+#include "moho/sim/ArmyUnitSet.h"
 #include "moho/sim/Sim.h"
 #include "moho/unit/CUnitCommand.h"
 #include "moho/unit/CUnitCommandQueue.h"
@@ -74,6 +77,18 @@ namespace
   constexpr const char* kSetCursorHelpText = "SetCursor(cursor)";
   constexpr const char* kIssueSiloBuildTacticalHelpText = "IssueSiloBuildTactical";
   constexpr const char* kIssueSiloBuildNukeHelpText = "IssueSiloBuildNuke";
+  constexpr const char* kIssueMoveOffFactoryHelpText = "IssueMoveOffFactory";
+  constexpr const char* kIssueAggressiveMoveHelpText = "IssueAggressiveMove";
+  constexpr const char* kIssueGuardHelpText = "IssueGuard";
+  constexpr const char* kIssueAttackHelpText = "IssueAttack";
+  constexpr const char* kIssuePatrolHelpText = "IssuePatrol";
+  constexpr const char* kIssueFerryHelpText = "IssueFerry";
+  constexpr const char* kIssueMoveOffFactoryInvalidTargetError = "IssueMoveOffFactory: Passed in an invalid target point.";
+  // Binary string lane for FUN_006F3140 uses the same text as move-off-factory.
+  constexpr const char* kIssueGuardInvalidTargetError = "IssueMoveOffFactory: Passed in an invalid target point.";
+  constexpr const char* kIssuePatrolInvalidTargetError = "IssuePatrol: Passed in an invalid target point.";
+  constexpr const char* kIssueFerryInvalidTargetError = "IssueFerry: Passed in an invalid target point.";
+  constexpr const char* kIssueAggressiveMoveInvalidTargetError = "IssueAggressiveMove: Passed in an invalid target point.";
 
   [[nodiscard]] moho::CScrLuaInitFormSet& SimLuaInitSet()
   {
@@ -194,6 +209,13 @@ namespace
     return static_cast<moho::CUnitCommand*>(upcast.mObj);
   }
 
+  /**
+   * Address: 0x006EEE40 (FUN_006EEE40, func_GetUnitList)
+   *
+   * What it does:
+   * Reads one Lua unit-list table and collects only live `Unit*` entries into
+   * the destination unit set.
+   */
   void CollectLiveUnitsFromLuaTable(
     moho::UnitSet& outUnits,
     LuaPlus::LuaState* state,
@@ -310,6 +332,12 @@ namespace moho
   int cfunc_IssueStop(lua_State* luaContext);
   int cfunc_IssuePause(lua_State* luaContext);
   int cfunc_IssueMove(lua_State* luaContext);
+  /**
+   * Address: 0x006F2960 (FUN_006F2960, cfunc_IssueMoveOffFactory)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to `cfunc_IssueMoveOffFactoryL`.
+   */
   int cfunc_IssueMoveOffFactory(lua_State* luaContext);
   int cfunc_IssueFormMove(lua_State* luaContext);
   int cfunc_IssueGuard(lua_State* luaContext);
@@ -321,6 +349,12 @@ namespace moho
   int cfunc_IssueTeleport(lua_State* luaContext);
   int cfunc_IssuePatrol(lua_State* luaContext);
   int cfunc_IssueFormPatrol(lua_State* luaContext);
+  /**
+   * Address: 0x006F50B0 (FUN_006F50B0, cfunc_IssueAggressiveMove)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to `cfunc_IssueAggressiveMoveL`.
+   */
   int cfunc_IssueAggressiveMove(lua_State* luaContext);
   int cfunc_IssueFormAggressiveMove(lua_State* luaContext);
   int cfunc_IssueFerry(lua_State* luaContext);
@@ -353,13 +387,36 @@ namespace moho
   int cfunc_IssueClearCommandsL(LuaPlus::LuaState* state);
   int cfunc_IssueStopL(LuaPlus::LuaState* state);
   int cfunc_IssuePauseL(LuaPlus::LuaState* state);
+  /**
+   * Address: 0x006F29D0 (FUN_006F29D0, cfunc_IssueMoveOffFactoryL)
+   *
+   * What it does:
+   * Parses unit list + target args, issues a move command, and marks the
+   * resulting command as the special move-off-factory lane.
+   */
+  int cfunc_IssueMoveOffFactoryL(LuaPlus::LuaState* state);
   int cfunc_IssueTacticalL(LuaPlus::LuaState* state);
   int cfunc_IssuePatrolL(LuaPlus::LuaState* state);
   int cfunc_IssueFormPatrolL(LuaPlus::LuaState* state);
+  /**
+   * Address: 0x006F5120 (FUN_006F5120, cfunc_IssueAggressiveMoveL)
+   *
+   * What it does:
+   * Parses unit list + target args and issues one aggressive-move command.
+   */
+  int cfunc_IssueAggressiveMoveL(LuaPlus::LuaState* state);
   int cfunc_DecreaseBuildCountInQueueL(LuaPlus::LuaState* state);
   int cfunc_GetUnitCommandDataL(LuaPlus::LuaState* state);
   int cfunc_IssueDockCommandL(LuaPlus::LuaState* state);
   int cfunc_IssueCommandL(LuaPlus::LuaState* state);
+
+  // Shared Sim.cpp helper recovered as UNIT_IssueCommand (FUN_006F12C0).
+  [[nodiscard]] CUnitCommand* IssueCommandToSelectedUnits(
+    Sim* sim,
+    SEntitySetTemplateUnit& selectedUnits,
+    const SSTICommandIssueData& commandIssueData,
+    bool clearQueue
+  );
 
   /**
    * Address: 0x00BD9350 (FUN_00BD9350, j_func_IsCommandDone_LuaFuncDef)
@@ -2151,6 +2208,79 @@ namespace moho
   }
 
   /**
+   * Address: 0x006F2960 (FUN_006F2960, cfunc_IssueMoveOffFactory)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to `cfunc_IssueMoveOffFactoryL`.
+   */
+  int cfunc_IssueMoveOffFactory(lua_State* const luaContext)
+  {
+    return cfunc_IssueMoveOffFactoryL(moho::SCR_ResolveBindingState(luaContext));
+  }
+
+  /**
+   * Address: 0x006F29D0 (FUN_006F29D0, cfunc_IssueMoveOffFactoryL)
+   *
+   * What it does:
+   * Parses one unit list and one target argument, issues a move command to the
+   * filtered selection, and marks the command as move-off-factory when issued.
+   */
+  int cfunc_IssueMoveOffFactoryL(LuaPlus::LuaState* const state)
+  {
+    if (state == nullptr || state->m_state == nullptr) {
+      return 0;
+    }
+
+    lua_State* const rawState = state->m_state;
+    const int argumentCount = lua_gettop(rawState);
+    if (argumentCount != 2) {
+      LuaPlus::LuaState::Error(state, kLuaExpectedArgsWarning, kIssueMoveOffFactoryHelpText, 2, argumentCount);
+    }
+
+    UnitSet sourceUnits{};
+    LuaPlus::LuaStackObject unitListArg(state, 1);
+    CollectLiveUnitsFromLuaTable(sourceUnits, state, unitListArg, kIssueMoveOffFactoryHelpText);
+
+    UnitSet filteredUnits{};
+    if (!ValidateIssueCommandUnits(sourceUnits, filteredUnits, RULEUCC_Move)) {
+      lua_pushnil(rawState);
+      (void)lua_gettop(rawState);
+      return 1;
+    }
+
+    CAiTarget target{};
+    const LuaPlus::LuaObject targetObject(LuaPlus::LuaStackObject(state, 2));
+    SCR_FromLuaCopy_CAiTarget(target, targetObject);
+    if (!IsValidVector3f(target.position) || target.targetType == EAiTargetType::AITARGET_None) {
+      LuaPlus::LuaState::Error(state, kIssueMoveOffFactoryInvalidTargetError);
+    }
+
+    Sim* const sim = lua_getglobaluserdata(rawState);
+    if (sim == nullptr) {
+      lua_pushnil(rawState);
+      (void)lua_gettop(rawState);
+      return 1;
+    }
+
+    SEntitySetTemplateUnit selectedUnits{};
+    selectedUnits.AddUnits(filteredUnits);
+
+    SSTICommandIssueData commandIssueData(EUnitCommandType::UNITCOMMAND_Move);
+    target.EncodeToSSTITarget(commandIssueData.mTarget);
+
+    CUnitCommand* const issuedCommand = IssueCommandToSelectedUnits(sim, selectedUnits, commandIssueData, false);
+    if (issuedCommand == nullptr) {
+      lua_pushnil(rawState);
+      (void)lua_gettop(rawState);
+      return 1;
+    }
+
+    issuedCommand->mUnknownFlag142 = true;
+    issuedCommand->mArgs.PushStack(state);
+    return 1;
+  }
+
+  /**
    * Address: 0x006F3980 (FUN_006F3980, cfunc_CoordinateAttacksL)
    *
    * What it does:
@@ -2310,6 +2440,188 @@ namespace moho
   }
 
   /**
+   * Address: 0x006F2250 (FUN_006F2250, cfunc_IssueFactoryRallyPoint)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to
+   * `cfunc_IssueFactoryRallyPointL`.
+   */
+  int cfunc_IssueFactoryRallyPoint(lua_State* const luaContext)
+  {
+    return cfunc_IssueFactoryRallyPointL(moho::SCR_ResolveBindingState(luaContext));
+  }
+
+  /**
+   * Address: 0x006F22C0 (FUN_006F22C0, cfunc_IssueFactoryRallyPointL)
+   *
+   * What it does:
+   * Parses `(unitList, target)`, filters factory-rally-capable units, issues
+   * one factory command, and returns the created Lua command object on success.
+   */
+  int cfunc_IssueFactoryRallyPointL(LuaPlus::LuaState* const state)
+  {
+    if (state == nullptr || state->m_state == nullptr) {
+      return 0;
+    }
+
+    lua_State* const rawState = state->m_state;
+    const int argumentCount = lua_gettop(rawState);
+    if (argumentCount != 2) {
+      LuaPlus::LuaState::Error(state, kLuaExpectedArgsWarning, kIssueFactoryRallyPointHelpText, 2, argumentCount);
+    }
+
+    UnitSet sourceUnits{};
+    LuaPlus::LuaStackObject unitListArg(state, 1);
+    CollectLiveUnitsFromLuaTable(sourceUnits, state, unitListArg, kIssueFactoryRallyPointHelpText);
+
+    UnitSet filteredUnits{};
+    if (!ValidateIssueCommandUnits(sourceUnits, filteredUnits, RULEUCC_Move)) {
+      return 0;
+    }
+
+    CAiTarget target{};
+    const LuaPlus::LuaObject targetObject(LuaPlus::LuaStackObject(state, 2));
+    SCR_FromLuaCopy_CAiTarget(target, targetObject);
+
+    Sim* const sim = lua_getglobaluserdata(rawState);
+
+    SEntitySetTemplateUnit selectedUnits{};
+    selectedUnits.AddUnits(filteredUnits);
+
+    SSTICommandIssueData commandIssueData(EUnitCommandType::UNITCOMMAND_Move);
+    target.EncodeToSSTITarget(commandIssueData.mTarget);
+
+    CUnitCommand* const issuedCommand = IssueFactoryCommandToSelectedUnits(sim, selectedUnits, commandIssueData, false);
+    if (issuedCommand == nullptr) {
+      return 0;
+    }
+
+    issuedCommand->mArgs.PushStack(state);
+    return 1;
+  }
+
+  /**
+   * Address: 0x006F30D0 (FUN_006F30D0, cfunc_IssueGuard)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to `cfunc_IssueGuardL`.
+   */
+  int cfunc_IssueGuard(lua_State* const luaContext)
+  {
+    return cfunc_IssueGuardL(moho::SCR_ResolveBindingState(luaContext));
+  }
+
+  /**
+   * Address: 0x006F3140 (FUN_006F3140, cfunc_IssueGuardL)
+   *
+   * What it does:
+   * Parses `(unitList, target)`, validates guard-capable units, and queues
+   * `UNITCOMMAND_Guard` on selected units.
+   */
+  int cfunc_IssueGuardL(LuaPlus::LuaState* const state)
+  {
+    if (state == nullptr || state->m_state == nullptr) {
+      return 0;
+    }
+
+    lua_State* const rawState = state->m_state;
+    const int argumentCount = lua_gettop(rawState);
+    if (argumentCount != 2) {
+      LuaPlus::LuaState::Error(state, kLuaExpectedArgsWarning, kIssueGuardHelpText, 2, argumentCount);
+    }
+
+    CAiTarget target{};
+    const LuaPlus::LuaObject targetObject(LuaPlus::LuaStackObject(state, 2));
+    SCR_FromLuaCopy_CAiTarget(target, targetObject);
+    if (!IsValidVector3f(target.position) || target.targetType == EAiTargetType::AITARGET_None) {
+      LuaPlus::LuaState::Error(state, kIssueGuardInvalidTargetError);
+    }
+
+    UnitSet sourceUnits{};
+    LuaPlus::LuaStackObject unitListArg(state, 1);
+    CollectLiveUnitsFromLuaTable(sourceUnits, state, unitListArg, kIssueGuardHelpText);
+
+    UnitSet filteredUnits{};
+    if (!ValidateIssueCommandUnits(sourceUnits, filteredUnits, RULEUCC_Guard)) {
+      return 0;
+    }
+
+    Sim* const sim = lua_getglobaluserdata(rawState);
+
+    SEntitySetTemplateUnit selectedUnits{};
+    selectedUnits.AddUnits(filteredUnits);
+
+    SSTICommandIssueData commandIssueData(EUnitCommandType::UNITCOMMAND_Guard);
+    target.EncodeToSSTITarget(commandIssueData.mTarget);
+    (void)IssueCommandToSelectedUnits(sim, selectedUnits, commandIssueData, false);
+    return 0;
+  }
+
+  /**
+   * Address: 0x006F3650 (FUN_006F3650, cfunc_IssueAttack)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to `cfunc_IssueAttackL`.
+   */
+  int cfunc_IssueAttack(lua_State* const luaContext)
+  {
+    return cfunc_IssueAttackL(moho::SCR_ResolveBindingState(luaContext));
+  }
+
+  /**
+   * Address: 0x006F36C0 (FUN_006F36C0, cfunc_IssueAttackL)
+   *
+   * What it does:
+   * Parses `(unitList, target)`, filters attack-capable units, and returns the
+   * issued command object or `nil` when command creation fails.
+   */
+  int cfunc_IssueAttackL(LuaPlus::LuaState* const state)
+  {
+    if (state == nullptr || state->m_state == nullptr) {
+      return 0;
+    }
+
+    lua_State* const rawState = state->m_state;
+    const int argumentCount = lua_gettop(rawState);
+    if (argumentCount != 2) {
+      LuaPlus::LuaState::Error(state, kLuaExpectedArgsWarning, kIssueAttackHelpText, 2, argumentCount);
+    }
+
+    UnitSet sourceUnits{};
+    LuaPlus::LuaStackObject unitListArg(state, 1);
+    CollectLiveUnitsFromLuaTable(sourceUnits, state, unitListArg, kIssueAttackHelpText);
+
+    UnitSet filteredUnits{};
+    if (!ValidateIssueCommandUnits(sourceUnits, filteredUnits, RULEUCC_Attack)) {
+      lua_pushnil(rawState);
+      (void)lua_gettop(rawState);
+      return 1;
+    }
+
+    CAiTarget target{};
+    const LuaPlus::LuaObject targetObject(LuaPlus::LuaStackObject(state, 2));
+    SCR_FromLuaCopy_CAiTarget(target, targetObject);
+
+    Sim* const sim = lua_getglobaluserdata(rawState);
+
+    SEntitySetTemplateUnit selectedUnits{};
+    selectedUnits.AddUnits(filteredUnits);
+
+    SSTICommandIssueData commandIssueData(EUnitCommandType::UNITCOMMAND_Attack);
+    target.EncodeToSSTITarget(commandIssueData.mTarget);
+
+    CUnitCommand* const issuedCommand = IssueCommandToSelectedUnits(sim, selectedUnits, commandIssueData, false);
+    if (issuedCommand == nullptr) {
+      lua_pushnil(rawState);
+      (void)lua_gettop(rawState);
+      return 1;
+    }
+
+    issuedCommand->mArgs.PushStack(state);
+    return 1;
+  }
+
+  /**
    * Address: 0x006F49B0 (FUN_006F49B0, cfunc_IssuePatrol)
    *
    * What it does:
@@ -2321,6 +2633,52 @@ namespace moho
   }
 
   /**
+   * Address: 0x006F4A20 (FUN_006F4A20, cfunc_IssuePatrolL)
+   *
+   * What it does:
+   * Parses `(unitList, target)`, validates patrol-capable units and target,
+   * and queues `UNITCOMMAND_Patrol`.
+   */
+  int cfunc_IssuePatrolL(LuaPlus::LuaState* const state)
+  {
+    if (state == nullptr || state->m_state == nullptr) {
+      return 0;
+    }
+
+    lua_State* const rawState = state->m_state;
+    const int argumentCount = lua_gettop(rawState);
+    if (argumentCount != 2) {
+      LuaPlus::LuaState::Error(state, kLuaExpectedArgsWarning, kIssuePatrolHelpText, 2, argumentCount);
+    }
+
+    CAiTarget target{};
+    const LuaPlus::LuaObject targetObject(LuaPlus::LuaStackObject(state, 2));
+    SCR_FromLuaCopy_CAiTarget(target, targetObject);
+    if (!IsValidVector3f(target.position) || target.targetType == EAiTargetType::AITARGET_None) {
+      LuaPlus::LuaState::Error(state, kIssuePatrolInvalidTargetError);
+    }
+
+    UnitSet sourceUnits{};
+    LuaPlus::LuaStackObject unitListArg(state, 1);
+    CollectLiveUnitsFromLuaTable(sourceUnits, state, unitListArg, kIssuePatrolHelpText);
+
+    UnitSet filteredUnits{};
+    if (!ValidateIssueCommandUnits(sourceUnits, filteredUnits, RULEUCC_Patrol)) {
+      return 0;
+    }
+
+    Sim* const sim = lua_getglobaluserdata(rawState);
+
+    SEntitySetTemplateUnit selectedUnits{};
+    selectedUnits.AddUnits(filteredUnits);
+
+    SSTICommandIssueData commandIssueData(EUnitCommandType::UNITCOMMAND_Patrol);
+    target.EncodeToSSTITarget(commandIssueData.mTarget);
+    (void)IssueCommandToSelectedUnits(sim, selectedUnits, commandIssueData, false);
+    return 0;
+  }
+
+  /**
    * Address: 0x006F4C80 (FUN_006F4C80, cfunc_IssueFormPatrol)
    *
    * What it does:
@@ -2329,5 +2687,134 @@ namespace moho
   int cfunc_IssueFormPatrol(lua_State* const luaContext)
   {
     return cfunc_IssueFormPatrolL(moho::SCR_ResolveBindingState(luaContext));
+  }
+
+  /**
+   * Address: 0x006F5820 (FUN_006F5820, cfunc_IssueFerry)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to `cfunc_IssueFerryL`.
+   */
+  int cfunc_IssueFerry(lua_State* const luaContext)
+  {
+    return cfunc_IssueFerryL(moho::SCR_ResolveBindingState(luaContext));
+  }
+
+  /**
+   * Address: 0x006F5890 (FUN_006F5890, cfunc_IssueFerryL)
+   *
+   * What it does:
+   * Parses `(unitList, target)`, validates ferry-capable units and target,
+   * and queues `UNITCOMMAND_Ferry`.
+   */
+  int cfunc_IssueFerryL(LuaPlus::LuaState* const state)
+  {
+    if (state == nullptr || state->m_state == nullptr) {
+      return 0;
+    }
+
+    lua_State* const rawState = state->m_state;
+    const int argumentCount = lua_gettop(rawState);
+    if (argumentCount != 2) {
+      LuaPlus::LuaState::Error(state, kLuaExpectedArgsWarning, kIssueFerryHelpText, 2, argumentCount);
+    }
+
+    CAiTarget target{};
+    const LuaPlus::LuaObject targetObject(LuaPlus::LuaStackObject(state, 2));
+    SCR_FromLuaCopy_CAiTarget(target, targetObject);
+    if (!IsValidVector3f(target.position) || target.targetType == EAiTargetType::AITARGET_None) {
+      LuaPlus::LuaState::Error(state, kIssueFerryInvalidTargetError);
+    }
+
+    UnitSet sourceUnits{};
+    LuaPlus::LuaStackObject unitListArg(state, 1);
+    CollectLiveUnitsFromLuaTable(sourceUnits, state, unitListArg, kIssueFerryHelpText);
+
+    UnitSet filteredUnits{};
+    if (!ValidateIssueCommandUnits(sourceUnits, filteredUnits, RULEUCC_Ferry)) {
+      return 0;
+    }
+
+    Sim* const sim = lua_getglobaluserdata(rawState);
+
+    SEntitySetTemplateUnit selectedUnits{};
+    selectedUnits.AddUnits(filteredUnits);
+
+    SSTICommandIssueData commandIssueData(EUnitCommandType::UNITCOMMAND_Ferry);
+    target.EncodeToSSTITarget(commandIssueData.mTarget);
+    (void)IssueCommandToSelectedUnits(sim, selectedUnits, commandIssueData, false);
+    return 0;
+  }
+
+  /**
+   * Address: 0x006F50B0 (FUN_006F50B0, cfunc_IssueAggressiveMove)
+   *
+   * What it does:
+   * Unwraps Lua callback context and forwards to `cfunc_IssueAggressiveMoveL`.
+   */
+  int cfunc_IssueAggressiveMove(lua_State* const luaContext)
+  {
+    return cfunc_IssueAggressiveMoveL(moho::SCR_ResolveBindingState(luaContext));
+  }
+
+  /**
+   * Address: 0x006F5120 (FUN_006F5120, cfunc_IssueAggressiveMoveL)
+   *
+   * What it does:
+   * Parses one unit list and one target argument, then issues one aggressive
+   * move command to the filtered selection.
+   */
+  int cfunc_IssueAggressiveMoveL(LuaPlus::LuaState* const state)
+  {
+    if (state == nullptr || state->m_state == nullptr) {
+      return 0;
+    }
+
+    lua_State* const rawState = state->m_state;
+    const int argumentCount = lua_gettop(rawState);
+    if (argumentCount != 2) {
+      LuaPlus::LuaState::Error(state, kLuaExpectedArgsWarning, kIssueAggressiveMoveHelpText, 2, argumentCount);
+    }
+
+    CAiTarget target{};
+    const LuaPlus::LuaObject targetObject(LuaPlus::LuaStackObject(state, 2));
+    SCR_FromLuaCopy_CAiTarget(target, targetObject);
+    if (!IsValidVector3f(target.position) || target.targetType == EAiTargetType::AITARGET_None) {
+      LuaPlus::LuaState::Error(state, kIssueAggressiveMoveInvalidTargetError);
+    }
+
+    UnitSet sourceUnits{};
+    LuaPlus::LuaStackObject unitListArg(state, 1);
+    CollectLiveUnitsFromLuaTable(sourceUnits, state, unitListArg, kIssueAggressiveMoveHelpText);
+
+    UnitSet filteredUnits{};
+    if (!ValidateIssueCommandUnits(sourceUnits, filteredUnits, RULEUCC_Move)) {
+      lua_pushnil(rawState);
+      (void)lua_gettop(rawState);
+      return 1;
+    }
+
+    Sim* const sim = lua_getglobaluserdata(rawState);
+    if (sim == nullptr) {
+      lua_pushnil(rawState);
+      (void)lua_gettop(rawState);
+      return 1;
+    }
+
+    SEntitySetTemplateUnit selectedUnits{};
+    selectedUnits.AddUnits(filteredUnits);
+
+    SSTICommandIssueData commandIssueData(EUnitCommandType::UNITCOMMAND_AggressiveMove);
+    target.EncodeToSSTITarget(commandIssueData.mTarget);
+
+    CUnitCommand* const issuedCommand = IssueCommandToSelectedUnits(sim, selectedUnits, commandIssueData, false);
+    if (issuedCommand == nullptr) {
+      lua_pushnil(rawState);
+      (void)lua_gettop(rawState);
+      return 1;
+    }
+
+    issuedCommand->mArgs.PushStack(state);
+    return 1;
   }
 } // namespace moho

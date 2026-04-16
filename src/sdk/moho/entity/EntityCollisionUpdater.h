@@ -64,12 +64,12 @@ namespace moho
    * Address: 0x004FE9D0 / 0x004FF2D0
    *
    * What it does:
-   * Segment-shape collision output.
-   * Field at +0x00 is currently not touched by these methods.
+   * Segment-shape collision output. `Entity::Intersects(lineStart, lineEnd, ...)`
+   * stamps the owning source entity into `sourceEntity` (+0x00) on hit.
    */
   struct CollisionLineResult
   {
-    std::uint32_t reserved00;    // +0x00
+    Entity* sourceEntity;        // +0x00
     Wm3::Vec3f direction;        // +0x04
     Wm3::Vec3f position;         // +0x10
     float distanceFromLineStart; // +0x1C

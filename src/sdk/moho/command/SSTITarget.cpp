@@ -11,6 +11,38 @@
 
 namespace
 {
+  class EntIdTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "EntId";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(std::int32_t);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
+  class SSTITargetTypeInfo final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override
+    {
+      return "SSTITarget";
+    }
+
+    void Init() override
+    {
+      size_ = sizeof(moho::SSTITarget);
+      gpg::RType::Init();
+      Finish();
+    }
+  };
+
   [[nodiscard]] gpg::RType* ResolveTypeByAnyName(const std::initializer_list<const char*> names)
   {
     for (const char* const name : names) {
@@ -46,7 +78,7 @@ namespace
     if (sType == nullptr) {
       sType = ResolveTypeByAnyName({"EntId", "Moho::EntId", "int", "signed int"});
       if (sType == nullptr) {
-        sType = gpg::LookupRType(typeid(std::int32_t));
+        sType = moho::preregister_EntIdTypeInfo();
       }
     }
     return sType;
@@ -64,6 +96,32 @@ namespace
 
 namespace moho
 {
+  /**
+   * Address: 0x00557DB0 (FUN_00557DB0, preregister_EntIdTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `EntId`.
+   */
+  gpg::RType* preregister_EntIdTypeInfo()
+  {
+    static EntIdTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(std::int32_t), &typeInfo);
+    return &typeInfo;
+  }
+
+  /**
+   * Address: 0x0055AFE0 (FUN_0055AFE0, preregister_SSTITargetTypeInfo)
+   *
+   * What it does:
+   * Constructs/preregisters RTTI metadata for `SSTITarget`.
+   */
+  gpg::RType* preregister_SSTITargetTypeInfo()
+  {
+    static SSTITargetTypeInfo typeInfo;
+    gpg::PreRegisterRType(typeid(SSTITarget), &typeInfo);
+    return &typeInfo;
+  }
+
   /**
    * Address: 0x0055B3A0 (FUN_0055B3A0, Moho::SSTITarget::MemberDeserialize)
    *
@@ -130,3 +188,17 @@ namespace moho
     }
   }
 } // namespace moho
+
+namespace
+{
+  struct SSTITargetTypeInfoBootstrap
+  {
+    SSTITargetTypeInfoBootstrap()
+    {
+      (void)moho::preregister_EntIdTypeInfo();
+      (void)moho::preregister_SSTITargetTypeInfo();
+    }
+  };
+
+  [[maybe_unused]] SSTITargetTypeInfoBootstrap gSSTITargetTypeInfoBootstrap;
+} // namespace

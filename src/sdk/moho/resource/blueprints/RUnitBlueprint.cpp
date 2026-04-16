@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <new>
 #include <string>
 #include <string_view>
 #include <typeinfo>
@@ -23,6 +24,71 @@ namespace moho
 
   namespace
   {
+    /**
+     * Address: 0x005273B0 (FUN_005273B0, copy_RUnitBlueprintWeapon_counted_range_with_rollback)
+     *
+     * What it does:
+     * Copy-constructs `count` contiguous `RUnitBlueprintWeapon` elements from
+     * `source` into destination storage, then tears down constructed elements
+     * before rethrowing if construction fails.
+     */
+    [[maybe_unused]] RUnitBlueprintWeapon* CopyRUnitBlueprintWeaponCountedRangeWithRollback(
+      int count,
+      RUnitBlueprintWeapon* destination,
+      const RUnitBlueprintWeapon* source
+    )
+    {
+      RUnitBlueprintWeapon* destinationCursor = destination;
+      try {
+        while (count > 0) {
+          if (destinationCursor != nullptr) {
+            ::new (destinationCursor) RUnitBlueprintWeapon(*source);
+          }
+          --count;
+          ++destinationCursor;
+          ++source;
+        }
+        return destinationCursor;
+      } catch (...) {
+        for (RUnitBlueprintWeapon* destroyCursor = destination; destroyCursor != destinationCursor; ++destroyCursor) {
+          destroyCursor->~RUnitBlueprintWeapon();
+        }
+        throw;
+      }
+    }
+
+    /**
+     * Address: 0x00527D30 (FUN_00527D30, copy_RUnitBlueprintWeapon_range_with_rollback)
+     *
+     * What it does:
+     * Copy-constructs one contiguous source range into destination storage and
+     * destroys already-built destination elements before rethrowing on failure.
+     */
+    [[maybe_unused]] RUnitBlueprintWeapon* CopyRUnitBlueprintWeaponRangeWithRollback(
+      RUnitBlueprintWeapon* destinationBegin,
+      RUnitBlueprintWeapon* destinationEnd,
+      const RUnitBlueprintWeapon* sourceBegin
+    )
+    {
+      RUnitBlueprintWeapon* destinationCursor = destinationBegin;
+      const RUnitBlueprintWeapon* sourceCursor = sourceBegin;
+      try {
+        while (destinationCursor != destinationEnd) {
+          if (sourceCursor != nullptr) {
+            ::new (destinationCursor) RUnitBlueprintWeapon(*sourceCursor);
+          }
+          ++destinationCursor;
+          ++sourceCursor;
+        }
+        return destinationCursor;
+      } catch (...) {
+        for (RUnitBlueprintWeapon* destroyCursor = destinationBegin; destroyCursor != destinationCursor; ++destroyCursor) {
+          destroyCursor->~RUnitBlueprintWeapon();
+        }
+        throw;
+      }
+    }
+
     constexpr std::uint8_t kGroundOccupancyMask = 0x0F;
     constexpr float kBlueprintExtentMultiplier = 3.0f;
     constexpr std::int8_t kDefaultFootprintFlags = -1;

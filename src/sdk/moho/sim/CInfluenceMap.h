@@ -308,7 +308,16 @@ namespace moho
     [[nodiscard]] const InfluenceMapCellIndex* FindBlipCell(std::uint32_t blipId) const;
     void UpsertBlipCell(std::uint32_t blipId, std::int32_t cellIndex);
     void RemoveBlipCell(std::uint32_t blipId);
+
+    /**
+     * Address: 0x00715D10 (FUN_00715D10, Moho::CInfluenceMap::InsertEntry)
+     *
+     * What it does:
+     * Builds one per-blip influence entry at `position`, inserts/updates it in
+     * the owning cell lane, and stores the blip-to-cell lookup mapping.
+     */
     void InsertEntry(std::uint32_t blipId, const Wm3::Vec3f& position, const RUnitBlueprint* sourceBlueprint);
+
     void RemoveEntry(std::uint32_t blipId);
     [[nodiscard]] static bool IsInCategory(const CategoryWordRangeView* category, std::uint32_t categoryBitIndex);
 

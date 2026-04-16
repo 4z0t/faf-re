@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <new>
 #include <string>
 #include <vector>
 #include <windows.h>
@@ -20,6 +21,7 @@
 #include "gpg/core/utils/Logging.h"
 #include "legacy/containers/String.h"
 #include "moho/audio/XAudioError.h"
+#include "moho/console/CConCommand.h"
 #include "moho/misc/CVirtualFileSystem.h"
 #include "moho/misc/FileWaitHandleSet.h"
 #include "moho/misc/StartupHelpers.h"
@@ -69,6 +71,139 @@ namespace
 int moho::register_SoundConfigurationCleanupAtExit()
 {
   return std::atexit(&cleanup_SoundConfigurationSingleton);
+}
+
+/**
+ * Address: 0x004DDD80 (FUN_004DDD80, boost::shared_ptr_AudioEngine::shared_ptr_AudioEngine)
+ *
+ * What it does:
+ * Constructs one `shared_ptr<AudioEngine>` from one raw audio-engine pointer lane.
+ */
+boost::shared_ptr<moho::AudioEngine>* ConstructSharedAudioEngineFromRaw(
+  boost::shared_ptr<moho::AudioEngine>* const outEngine,
+  moho::AudioEngine* const engine
+)
+{
+  return ::new (outEngine) boost::shared_ptr<moho::AudioEngine>(engine);
+}
+
+/**
+ * Address: 0x004DE470 (FUN_004DE470)
+ *
+ * What it does:
+ * Releases one contiguous range of `AudioEngineRef` control lanes.
+ */
+[[nodiscard]] std::uintptr_t ReleaseAudioEngineRefControlRange(
+  moho::AudioEngineRef* const begin,
+  moho::AudioEngineRef* const end
+) noexcept
+{
+  std::uintptr_t lastControlAddress = 0u;
+  if (begin == nullptr || end == nullptr) {
+    return lastControlAddress;
+  }
+
+  for (moho::AudioEngineRef* entry = begin; entry != end; ++entry) {
+    auto* const control = static_cast<boost::detail::sp_counted_base*>(entry->mControl);
+    if (control == nullptr) {
+      continue;
+    }
+
+    lastControlAddress = reinterpret_cast<std::uintptr_t>(control);
+    control->release();
+  }
+
+  return lastControlAddress;
+}
+
+/**
+ * Address: 0x004DE4C0 (FUN_004DE4C0)
+ *
+ * What it does:
+ * Fills one destination `AudioEngineRef` range from one source pair and
+ * retains the copied shared-control lane for each written element.
+ */
+void FillAudioEngineRefRangeFromSingleSource(
+  std::int32_t count,
+  moho::AudioEngineRef* destination,
+  const moho::AudioEngineRef* const source
+) noexcept
+{
+  for (; count > 0; --count, ++destination) {
+    if (destination == nullptr) {
+      continue;
+    }
+
+    destination->mEngine = source != nullptr ? source->mEngine : nullptr;
+    destination->mControl = source != nullptr ? source->mControl : nullptr;
+
+    auto* const control = static_cast<boost::detail::sp_counted_base*>(destination->mControl);
+    if (control != nullptr) {
+      control->add_ref_copy();
+    }
+  }
+}
+
+namespace
+{
+  struct SpCountedImplAudioEngineRuntimeView
+  {
+    void* mVftable;                         // +0x00
+    std::int32_t mUseCount;                 // +0x04
+    std::int32_t mWeakCount;                // +0x08
+    moho::AudioEngineImpl** mOwnedSlot;     // +0x0C
+  };
+
+  static_assert(
+    sizeof(SpCountedImplAudioEngineRuntimeView) == 0x10,
+    "SpCountedImplAudioEngineRuntimeView size must be 0x10"
+  );
+
+  void DestroyAudioEngineImplOwnedSlotCore(moho::AudioEngineImpl** const ownedSlot) noexcept
+  {
+    if (ownedSlot == nullptr) {
+      return;
+    }
+
+    moho::AudioEngineImpl* const impl = *ownedSlot;
+    if (impl != nullptr) {
+      impl->~AudioEngineImpl();
+      operator delete(impl);
+    }
+
+    operator delete(ownedSlot);
+  }
+}
+
+/**
+ * Address: 0x004DE750 (FUN_004DE750)
+ *
+ * What it does:
+ * Releases one `sp_counted_impl_p<AudioEngine>` owned slot by destroying the
+ * pointed `AudioEngineImpl` and deleting the slot storage.
+ */
+void DestroyAudioEngineImplOwnedByCountedBlock(
+  SpCountedImplAudioEngineRuntimeView* const countedBlock
+) noexcept
+{
+  if (countedBlock == nullptr) {
+    return;
+  }
+
+  DestroyAudioEngineImplOwnedSlotCore(countedBlock->mOwnedSlot);
+}
+
+/**
+ * Address: 0x004DE7C0 (FUN_004DE7C0)
+ *
+ * What it does:
+ * Destroys one heap-owned `AudioEngineImpl*` slot and its pointee.
+ */
+void DestroyAudioEngineImplOwnedSlot(
+  moho::AudioEngineImpl** const ownedSlot
+) noexcept
+{
+  DestroyAudioEngineImplOwnedSlotCore(ownedSlot);
 }
 
 /**
@@ -219,6 +354,262 @@ namespace
     return static_cast<AudioCategoryVolumeNode*>(map.mHead);
   }
 
+  void AdvanceCategoryIterator(AudioCategoryVolumeNode*& node) noexcept;
+  [[nodiscard]] float* FindOrInsertCategoryVolume(moho::AudioMapStorage& map, std::uint16_t category);
+
+  template <typename Node>
+  struct AudioMapInsertStatus
+  {
+    Node* mNode;
+    std::uint8_t mInserted;
+    std::uint8_t mPad05[3];
+  };
+
+  struct AudioCategoryLookupCursor
+  {
+    std::uint16_t mCategory;
+    std::uint16_t mPad02;
+    AudioCategoryVolumeNode* mNode;
+  };
+
+  /**
+   * Address: 0x004DC250 (FUN_004DC250)
+   *
+   * What it does:
+   * Stores one category-map node pointer plus insertion-status byte.
+   */
+  [[nodiscard]] AudioMapInsertStatus<AudioCategoryVolumeNode>* AssignCategoryInsertStatus(
+    AudioMapInsertStatus<AudioCategoryVolumeNode>* const outResult,
+    AudioCategoryVolumeNode* const node,
+    const std::uint8_t inserted
+  ) noexcept
+  {
+    outResult->mNode = node;
+    outResult->mInserted = inserted;
+    return outResult;
+  }
+
+  /**
+   * Address: 0x004DC260 (FUN_004DC260)
+   *
+   * What it does:
+   * Stores one pointer lane into one destination slot.
+   */
+  [[nodiscard]] void** StorePointerLaneA(void** const outSlot, void* const value) noexcept
+  {
+    *outSlot = value;
+    return outSlot;
+  }
+
+  /**
+   * Address: 0x004DC2A0 (FUN_004DC2A0)
+   *
+   * What it does:
+   * Stores one pointer lane into one destination slot.
+   */
+  [[nodiscard]] void** StorePointerLaneB(void** const outSlot, void* const value) noexcept
+  {
+    *outSlot = value;
+    return outSlot;
+  }
+
+  /**
+   * Address: 0x004DC320 (FUN_004DC320)
+   *
+   * What it does:
+   * Returns one pointer slot value and clears the slot to null.
+   */
+  [[nodiscard]] void* TakeAndClearPointerLaneA(void*& lane) noexcept
+  {
+    void* const previous = lane;
+    lane = nullptr;
+    return previous;
+  }
+
+  /**
+   * Address: 0x004DC340 (FUN_004DC340)
+   *
+   * What it does:
+   * Returns one pointer slot value and clears the slot to null.
+   */
+  [[nodiscard]] void* TakeAndClearPointerLaneB(void*& lane) noexcept
+  {
+    void* const previous = lane;
+    lane = nullptr;
+    return previous;
+  }
+
+  /**
+   * Address: 0x004DC380 (FUN_004DC380)
+   *
+   * What it does:
+   * Stores one category key plus one node lane into one lookup cursor.
+   */
+  [[nodiscard]] AudioCategoryLookupCursor* AssignCategoryLookupCursor(
+    AudioCategoryLookupCursor* const outCursor,
+    const std::uint16_t category,
+    AudioCategoryVolumeNode* const node
+  ) noexcept
+  {
+    outCursor->mCategory = category;
+    outCursor->mPad02 = 0u;
+    outCursor->mNode = node;
+    return outCursor;
+  }
+
+  /**
+   * Address: 0x004DC760 (FUN_004DC760)
+   *
+   * What it does:
+   * Stores one map-head pointer lane from one `AudioMapStorage`.
+   */
+  [[nodiscard]] void** StoreMapHeadPointerA(void** const outHead, const moho::AudioMapStorage& map) noexcept
+  {
+    *outHead = map.mHead;
+    return outHead;
+  }
+
+  /**
+   * Address: 0x004DC770 (FUN_004DC770)
+   *
+   * What it does:
+   * Stores one map-size lane from one `AudioMapStorage`.
+   */
+  [[nodiscard]] std::uint32_t* StoreMapSizeLaneA(std::uint32_t* const outSize, const moho::AudioMapStorage& map) noexcept
+  {
+    *outSize = map.mSize;
+    return outSize;
+  }
+
+  /**
+   * Address: 0x004DC7E0 (FUN_004DC7E0)
+   *
+   * What it does:
+   * Stores one map-head pointer lane from one `AudioMapStorage`.
+   */
+  [[nodiscard]] void** StoreMapHeadPointerB(void** const outHead, const moho::AudioMapStorage& map) noexcept
+  {
+    *outHead = map.mHead;
+    return outHead;
+  }
+
+  /**
+   * Address: 0x004DC7F0 (FUN_004DC7F0)
+   *
+   * What it does:
+   * Stores one map-size lane from one `AudioMapStorage`.
+   */
+  [[nodiscard]] std::uint32_t* StoreMapSizeLaneB(std::uint32_t* const outSize, const moho::AudioMapStorage& map) noexcept
+  {
+    *outSize = map.mSize;
+    return outSize;
+  }
+
+  /**
+   * Address: 0x004DC830 (FUN_004DC830)
+   *
+   * What it does:
+   * Stores one map-head pointer lane from one `AudioMapStorage`.
+   */
+  [[nodiscard]] void** StoreMapHeadPointerC(void** const outHead, const moho::AudioMapStorage& map) noexcept
+  {
+    *outHead = map.mHead;
+    return outHead;
+  }
+
+  /**
+   * Address: 0x004DCDC0 (FUN_004DCDC0)
+   *
+   * What it does:
+   * Stores the left-most tree lane from one non-null map head.
+   */
+  [[nodiscard]] void** StoreMapLeftmostPointer(void** const outNode, const moho::AudioMapStorage& map) noexcept
+  {
+    const auto* const head = AsCategoryMapHead(map);
+    *outNode = head != nullptr ? static_cast<void*>(head->mLeft) : nullptr;
+    return outNode;
+  }
+
+  /**
+   * Address: 0x004DE120 (FUN_004DE120, func_newS6N)
+   *
+   * What it does:
+   * Allocates one contiguous category-volume node array and throws
+   * `std::bad_alloc` when multiplication overflows.
+   */
+  [[nodiscard]] AudioCategoryVolumeNode* AllocateCategoryNodeArrayChecked(const std::uint32_t count)
+  {
+    if (count != 0u && (std::numeric_limits<std::uint32_t>::max() / count) < sizeof(AudioCategoryVolumeNode)) {
+      throw std::bad_alloc{};
+    }
+
+    return static_cast<AudioCategoryVolumeNode*>(operator new(sizeof(AudioCategoryVolumeNode) * count));
+  }
+
+  /**
+   * Address: 0x004DDBA0 (FUN_004DDBA0)
+   *
+   * What it does:
+   * Allocates raw storage for one category-volume node.
+   */
+  [[nodiscard]] AudioCategoryVolumeNode* AllocateSingleCategoryNodeRaw()
+  {
+    return AllocateCategoryNodeArrayChecked(1u);
+  }
+
+  /**
+   * Address: 0x004DD8B0 (FUN_004DD8B0)
+   *
+   * What it does:
+   * Allocates one zero-initialized category-volume node storage lane.
+   */
+  [[nodiscard]] AudioCategoryVolumeNode* AllocateCategoryVolumeNodeStorage()
+  {
+    auto* const node = ::new (AllocateSingleCategoryNodeRaw()) AudioCategoryVolumeNode{};
+    node->mLeft = nullptr;
+    node->mParent = nullptr;
+    node->mRight = nullptr;
+    node->mColor = 1u;
+    node->mIsNil = 0u;
+    return node;
+  }
+
+  /**
+   * Address: 0x004DD8F0 (FUN_004DD8F0)
+   *
+   * What it does:
+   * Allocates one category-volume node and initializes tree links plus payload
+   * value lanes.
+   */
+  [[nodiscard]] AudioCategoryVolumeNode* ConstructCategoryVolumeNode(
+    AudioCategoryVolumeNode* const left,
+    AudioCategoryVolumeNode* const parent,
+    AudioCategoryVolumeNode* const right,
+    const std::uint16_t category,
+    const float volume
+  )
+  {
+    auto* const node = AllocateCategoryVolumeNodeStorage();
+    node->mLeft = left;
+    node->mParent = parent;
+    node->mRight = right;
+    node->mCategory = category;
+    node->mPad0E = 0;
+    node->mVolume = volume;
+    node->mColor = 0u;
+    node->mIsNil = 0u;
+    node->mPad16[0] = 0;
+    node->mPad16[1] = 0;
+    return node;
+  }
+
+  /**
+   * Address: 0x004DDB00 (FUN_004DDB00)
+   *
+   * What it does:
+   * Recursively destroys one category-volume RB-tree subtree and frees each
+   * node allocation.
+   */
   void DestroyCategoryMapSubtree(AudioCategoryVolumeNode* node, const AudioCategoryVolumeNode* head)
   {
     if (node == nullptr || node == head || node->mIsNil != 0u) {
@@ -230,6 +621,85 @@ namespace
     delete node;
   }
 
+  /**
+   * Address: 0x004DCEA0 (FUN_004DCEA0)
+   *
+   * What it does:
+   * Erases one half-open range from the category-volume map and returns the
+   * post-erase iterator lane.
+   */
+  [[nodiscard]] AudioCategoryVolumeNode** EraseCategoryVolumeRange(
+    moho::AudioMapStorage& map,
+    AudioCategoryVolumeNode** const outNext,
+    AudioCategoryVolumeNode* first,
+    AudioCategoryVolumeNode* const last
+  )
+  {
+    AudioCategoryVolumeNode* const head = AsCategoryMapHead(map);
+    if (head == nullptr) {
+      if (outNext != nullptr) {
+        *outNext = nullptr;
+      }
+      return outNext;
+    }
+
+    if (first == head->mLeft && last == head) {
+      DestroyCategoryMapSubtree(head->mParent, head);
+      head->mParent = head;
+      head->mLeft = head;
+      head->mRight = head;
+      map.mSize = 0u;
+      if (outNext != nullptr) {
+        *outNext = head->mLeft;
+      }
+      return outNext;
+    }
+
+    if (first != last) {
+      std::vector<const AudioCategoryVolumeNode*> erasedNodes;
+      AudioCategoryVolumeNode* cursor = first;
+      while (cursor != nullptr && cursor != head && cursor != last) {
+        erasedNodes.push_back(cursor);
+        AdvanceCategoryIterator(cursor);
+      }
+
+      std::vector<std::pair<std::uint16_t, float>> retained;
+      retained.reserve(map.mSize);
+      AudioCategoryVolumeNode* iter = head->mLeft;
+      while (iter != nullptr && iter != head && iter->mIsNil == 0u) {
+        AudioCategoryVolumeNode* const current = iter;
+        AdvanceCategoryIterator(iter);
+        if (std::find(erasedNodes.begin(), erasedNodes.end(), current) == erasedNodes.end()) {
+          retained.emplace_back(current->mCategory, current->mVolume);
+        }
+      }
+
+      DestroyCategoryMapSubtree(head->mParent, head);
+      head->mParent = head;
+      head->mLeft = head;
+      head->mRight = head;
+      map.mSize = 0u;
+
+      for (const auto& [category, volume] : retained) {
+        if (float* const outVolume = FindOrInsertCategoryVolume(map, category); outVolume != nullptr) {
+          *outVolume = volume;
+        }
+      }
+    }
+
+    if (outNext != nullptr) {
+      *outNext = last == nullptr ? head : last;
+    }
+    return outNext;
+  }
+
+  /**
+   * Address: 0x004DA250 (FUN_004DA250)
+   *
+   * What it does:
+   * Releases one category-volume tree head/subtree pair and resets map lanes
+   * to the empty state.
+   */
   void ResetCategoryMap(moho::AudioMapStorage& map)
   {
     auto* const head = AsCategoryMapHead(map);
@@ -238,7 +708,8 @@ namespace
       return;
     }
 
-    DestroyCategoryMapSubtree(head->mLeft, head);
+    AudioCategoryVolumeNode* next = nullptr;
+    (void)EraseCategoryVolumeRange(map, &next, head->mLeft, head);
     delete head;
     map.mHead = nullptr;
     map.mSize = 0;
@@ -249,7 +720,7 @@ namespace
     map.mAllocatorCookie = nullptr;
     map.mSize = 0;
 
-    auto* const head = new AudioCategoryVolumeNode{};
+    auto* const head = AllocateCategoryVolumeNodeStorage();
     head->mLeft = head;
     head->mParent = head;
     head->mRight = head;
@@ -263,7 +734,16 @@ namespace
     map.mHead = head;
   }
 
-  [[nodiscard]] float* FindOrInsertCategoryVolume(moho::AudioMapStorage& map, const std::uint16_t category)
+  /**
+   * Address: 0x004DC080 (FUN_004DC080)
+   *
+   * What it does:
+   * Resolves one category-volume node by key or inserts a defaulted node
+   * (`1.0f`) into the category-volume RB-tree.
+   */
+  [[nodiscard]] AudioCategoryVolumeNode* FindOrInsertCategoryVolumeNode(
+    moho::AudioMapStorage& map, const std::uint16_t category
+  )
   {
     auto* head = AsCategoryMapHead(map);
     if (head == nullptr) {
@@ -284,21 +764,17 @@ namespace
         goLeft = false;
         node = node->mRight;
       } else {
-        return &node->mVolume;
+        return node;
       }
     }
 
-    auto* const inserted = new AudioCategoryVolumeNode{};
-    inserted->mLeft = head;
-    inserted->mRight = head;
-    inserted->mParent = (parent == head) ? head : parent;
-    inserted->mCategory = category;
-    inserted->mPad0E = 0;
-    inserted->mVolume = kDefaultCategoryVolume;
-    inserted->mColor = 0;
-    inserted->mIsNil = 0;
-    inserted->mPad16[0] = 0;
-    inserted->mPad16[1] = 0;
+    auto* const inserted = ConstructCategoryVolumeNode(
+      head,
+      (parent == head) ? head : parent,
+      head,
+      category,
+      kDefaultCategoryVolume
+    );
 
     if (parent == head) {
       head->mParent = inserted;
@@ -317,28 +793,232 @@ namespace
     }
 
     ++map.mSize;
-    return &inserted->mVolume;
+    return inserted;
   }
 
-  [[nodiscard]] const float* FindCategoryVolume(const moho::AudioMapStorage& map, const std::uint16_t category)
+  /**
+   * Address: 0x004DB7E0 (FUN_004DB7E0)
+   *
+   * What it does:
+   * Finds one category-volume slot by category id or inserts a defaulted slot
+   * (`1.0f`) and returns its volume lane.
+   */
+  [[nodiscard]] float* FindOrInsertCategoryVolume(moho::AudioMapStorage& map, const std::uint16_t category)
   {
-    const auto* const head = AsCategoryMapHead(map);
+    AudioCategoryVolumeNode* const node = FindOrInsertCategoryVolumeNode(map, category);
+    return node != nullptr ? &node->mVolume : nullptr;
+  }
+
+  [[nodiscard]] AudioCategoryVolumeNode*
+  FindCategoryVolumeNode(const moho::AudioMapStorage& map, const std::uint16_t category) noexcept
+  {
+    AudioCategoryVolumeNode* const head = AsCategoryMapHead(map);
     if (head == nullptr) {
       return nullptr;
     }
 
-    const AudioCategoryVolumeNode* node = head->mParent;
+    AudioCategoryVolumeNode* node = head->mParent;
     while (node != nullptr && node != head && node->mIsNil == 0u) {
       if (category < node->mCategory) {
         node = node->mLeft;
       } else if (category > node->mCategory) {
         node = node->mRight;
       } else {
-        return &node->mVolume;
+        return node;
       }
     }
 
     return nullptr;
+  }
+
+  /**
+   * Address: 0x004DCDE0 (FUN_004DCDE0)
+   *
+   * What it does:
+   * Resolves one category-map key to a node and reports whether a new node was
+   * inserted.
+   */
+  [[nodiscard]] AudioMapInsertStatus<AudioCategoryVolumeNode>* FindOrInsertCategoryVolumeStatus(
+    moho::AudioMapStorage& map,
+    const std::uint16_t* const categoryKey,
+    AudioMapInsertStatus<AudioCategoryVolumeNode>* const outResult
+  )
+  {
+    if (categoryKey == nullptr || outResult == nullptr) {
+      return outResult;
+    }
+
+    AudioCategoryVolumeNode* node = FindCategoryVolumeNode(map, *categoryKey);
+    std::uint8_t inserted = 0u;
+    if (node == nullptr) {
+      node = FindOrInsertCategoryVolumeNode(map, *categoryKey);
+      inserted = 1u;
+    }
+
+    return AssignCategoryInsertStatus(outResult, node, inserted);
+  }
+
+  [[nodiscard]] const float* FindCategoryVolume(const moho::AudioMapStorage& map, const std::uint16_t category)
+  {
+    const AudioCategoryVolumeNode* const node = FindCategoryVolumeNode(map, category);
+    return node != nullptr ? &node->mVolume : nullptr;
+  }
+
+  /**
+   * Address: 0x004DD800 (FUN_004DD800)
+   *
+   * What it does:
+   * Performs one left-rotation around one category-volume RB-tree node.
+   */
+  [[nodiscard]] AudioCategoryVolumeNode*
+  RotateCategoryVolumeNodeLeft(AudioCategoryVolumeNode* const node, moho::AudioMapStorage& map)
+  {
+    AudioCategoryVolumeNode* const pivot = node->mRight;
+    node->mRight = pivot->mLeft;
+    if (pivot->mLeft != nullptr && pivot->mLeft->mIsNil == 0u) {
+      pivot->mLeft->mParent = node;
+    }
+
+    pivot->mParent = node->mParent;
+    AudioCategoryVolumeNode* const head = AsCategoryMapHead(map);
+    if (node == head->mParent) {
+      head->mParent = pivot;
+    } else {
+      AudioCategoryVolumeNode* const parent = node->mParent;
+      if (node == parent->mLeft) {
+        parent->mLeft = pivot;
+      } else {
+        parent->mRight = pivot;
+      }
+    }
+
+    pivot->mLeft = node;
+    node->mParent = pivot;
+    return pivot;
+  }
+
+  /**
+   * Address: 0x004DD860 (FUN_004DD860)
+   *
+   * What it does:
+   * Performs one right-rotation around one category-volume RB-tree node.
+   */
+  [[nodiscard]] AudioCategoryVolumeNode*
+  RotateCategoryVolumeNodeRight(AudioCategoryVolumeNode* const node, moho::AudioMapStorage& map)
+  {
+    AudioCategoryVolumeNode* const pivot = node->mLeft;
+    node->mLeft = pivot->mRight;
+    if (pivot->mRight != nullptr && pivot->mRight->mIsNil == 0u) {
+      pivot->mRight->mParent = node;
+    }
+
+    pivot->mParent = node->mParent;
+    AudioCategoryVolumeNode* const head = AsCategoryMapHead(map);
+    if (node == head->mParent) {
+      head->mParent = pivot;
+    } else {
+      AudioCategoryVolumeNode* const parent = node->mParent;
+      if (node == parent->mRight) {
+        parent->mRight = pivot;
+      } else {
+        parent->mLeft = pivot;
+      }
+    }
+
+    pivot->mRight = node;
+    node->mParent = pivot;
+    return pivot;
+  }
+
+  /**
+   * Address: 0x004DDB40 (FUN_004DDB40)
+   *
+   * What it does:
+   * Returns the right-most descendant from one category-volume tree node.
+   */
+  [[nodiscard]] AudioCategoryVolumeNode* RightmostCategoryDescendant(AudioCategoryVolumeNode* node) noexcept
+  {
+    while (node != nullptr && node->mRight != nullptr && node->mRight->mIsNil == 0u) {
+      node = node->mRight;
+    }
+    return node;
+  }
+
+  /**
+   * Address: 0x004DDB60 (FUN_004DDB60)
+   *
+   * What it does:
+   * Returns the left-most descendant from one category-volume tree node.
+   */
+  [[nodiscard]] AudioCategoryVolumeNode* LeftmostCategoryDescendant(AudioCategoryVolumeNode* node) noexcept
+  {
+    while (node != nullptr && node->mLeft != nullptr && node->mLeft->mIsNil == 0u) {
+      node = node->mLeft;
+    }
+    return node;
+  }
+
+  /**
+   * Address: 0x004DDC30 (FUN_004DDC30)
+   *
+   * What it does:
+   * Retreats one category-volume tree iterator to in-order predecessor.
+   */
+  void RetreatCategoryIterator(AudioCategoryVolumeNode*& node) noexcept
+  {
+    if (node == nullptr) {
+      return;
+    }
+
+    if (node->mIsNil != 0u) {
+      node = node->mRight;
+      return;
+    }
+
+    AudioCategoryVolumeNode* prev = node->mLeft;
+    if (prev != nullptr && prev->mIsNil == 0u) {
+      prev = RightmostCategoryDescendant(prev);
+      node = prev != nullptr ? prev : node;
+      return;
+    }
+
+    AudioCategoryVolumeNode* parent = node->mParent;
+    while (parent != nullptr && parent->mIsNil == 0u && node == parent->mLeft) {
+      node = parent;
+      parent = parent->mParent;
+    }
+    if (parent != nullptr) {
+      node = parent;
+    }
+  }
+
+  /**
+   * Address: 0x004DDC90 (FUN_004DDC90)
+   *
+   * What it does:
+   * Advances one category-volume tree iterator to in-order successor.
+   */
+  void AdvanceCategoryIterator(AudioCategoryVolumeNode*& node) noexcept
+  {
+    if (node == nullptr || node->mIsNil != 0u) {
+      return;
+    }
+
+    AudioCategoryVolumeNode* next = node->mRight;
+    if (next != nullptr && next->mIsNil == 0u) {
+      next = LeftmostCategoryDescendant(next);
+      node = next != nullptr ? next : node;
+      return;
+    }
+
+    AudioCategoryVolumeNode* parent = node->mParent;
+    while (parent != nullptr && parent->mIsNil == 0u && node == parent->mRight) {
+      node = parent;
+      parent = parent->mParent;
+    }
+    if (parent != nullptr) {
+      node = parent;
+    }
   }
 
   [[nodiscard]] AudioSoundBankLoader* FindBankLoader(moho::AudioEngineImpl* impl, const std::uint16_t bankId)
@@ -421,6 +1101,159 @@ namespace
     return static_cast<AudioMap1CategoryNode*>(map.mHead);
   }
 
+  /**
+   * Address: 0x004DE060 (FUN_004DE060, func_NewS11N)
+   *
+   * What it does:
+   * Allocates one contiguous paused-category node array and throws
+   * `std::bad_alloc` when multiplication overflows.
+   */
+  [[nodiscard]] AudioMap1CategoryNode* AllocatePausedCategoryNodeArrayChecked(const std::uint32_t count)
+  {
+    if (count != 0u && (std::numeric_limits<std::uint32_t>::max() / count) < sizeof(AudioMap1CategoryNode)) {
+      throw std::bad_alloc{};
+    }
+
+    return static_cast<AudioMap1CategoryNode*>(operator new(sizeof(AudioMap1CategoryNode) * count));
+  }
+
+  /**
+   * Address: 0x004DD4B0 (FUN_004DD4B0)
+   *
+   * What it does:
+   * Allocates raw storage for one paused-category node.
+   */
+  [[nodiscard]] AudioMap1CategoryNode* AllocateSinglePausedCategoryNodeRaw()
+  {
+    return AllocatePausedCategoryNodeArrayChecked(1u);
+  }
+
+  /**
+   * Address: 0x004DCBE0 (FUN_004DCBE0)
+   *
+   * What it does:
+   * Performs one left-rotation around one paused-category RB-tree node.
+   */
+  [[nodiscard]] AudioMap1CategoryNode* RotatePausedCategoryNodeLeft(AudioMap1CategoryNode* const node, moho::AudioMapStorage& map)
+  {
+    AudioMap1CategoryNode* const pivot = node->mRight;
+    node->mRight = pivot->mLeft;
+    if (pivot->mLeft != nullptr && pivot->mLeft->mIsNil == 0u) {
+      pivot->mLeft->mParent = node;
+    }
+
+    pivot->mParent = node->mParent;
+    AudioMap1CategoryNode* const head = AsMap1Head(map);
+    if (node == head->mParent) {
+      head->mParent = pivot;
+    } else {
+      AudioMap1CategoryNode* const parent = node->mParent;
+      if (node == parent->mLeft) {
+        parent->mLeft = pivot;
+      } else {
+        parent->mRight = pivot;
+      }
+    }
+
+    pivot->mLeft = node;
+    node->mParent = pivot;
+    return pivot;
+  }
+
+  /**
+   * Address: 0x004DCC40 (FUN_004DCC40)
+   *
+   * What it does:
+   * Performs one right-rotation around one paused-category RB-tree node.
+   */
+  [[nodiscard]] AudioMap1CategoryNode* RotatePausedCategoryNodeRight(
+    AudioMap1CategoryNode* const node, moho::AudioMapStorage& map
+  )
+  {
+    AudioMap1CategoryNode* const pivot = node->mLeft;
+    node->mLeft = pivot->mRight;
+    if (pivot->mRight != nullptr && pivot->mRight->mIsNil == 0u) {
+      pivot->mRight->mParent = node;
+    }
+
+    pivot->mParent = node->mParent;
+    AudioMap1CategoryNode* const head = AsMap1Head(map);
+    if (node == head->mParent) {
+      head->mParent = pivot;
+    } else {
+      AudioMap1CategoryNode* const parent = node->mParent;
+      if (node == parent->mRight) {
+        parent->mRight = pivot;
+      } else {
+        parent->mLeft = pivot;
+      }
+    }
+
+    pivot->mRight = node;
+    node->mParent = pivot;
+    return pivot;
+  }
+
+  /**
+   * Address: 0x004DD460 (FUN_004DD460)
+   *
+   * What it does:
+   * Allocates one zero-initialized paused-category node storage lane.
+   */
+  [[nodiscard]] AudioMap1CategoryNode* AllocatePausedCategoryNodeStorage()
+  {
+    auto* const node = ::new (AllocateSinglePausedCategoryNodeRaw()) AudioMap1CategoryNode{};
+    node->mLeft = nullptr;
+    node->mParent = nullptr;
+    node->mRight = nullptr;
+    node->mColor = 1u;
+    node->mIsNil = 0u;
+    return node;
+  }
+
+  /**
+   * Address: 0x004DCC90 (FUN_004DCC90)
+   *
+   * What it does:
+   * Allocates one paused-category node and copies link/key lanes into it.
+   */
+  [[nodiscard]] AudioMap1CategoryNode* ConstructPausedCategoryNode(
+    AudioMap1CategoryNode* const left,
+    AudioMap1CategoryNode* const parent,
+    AudioMap1CategoryNode* const right,
+    const char* const categoryName,
+    const std::uint8_t color
+  )
+  {
+    auto* const node = AllocatePausedCategoryNodeStorage();
+    node->mLeft = left;
+    node->mParent = parent;
+    node->mRight = right;
+    node->mCategoryName.assign_owned(categoryName != nullptr ? categoryName : "");
+    node->mColor = color;
+    node->mIsNil = 0u;
+    node->mPad2A[0] = 0;
+    node->mPad2A[1] = 0;
+    return node;
+  }
+
+  /**
+   * Address: 0x004DDAD0 (FUN_004DDAD0)
+   *
+   * What it does:
+   * Stores one paused-category node pointer plus insertion-status byte.
+   */
+  [[nodiscard]] AudioMapInsertStatus<AudioMap1CategoryNode>* AssignPausedCategoryInsertStatus(
+    AudioMapInsertStatus<AudioMap1CategoryNode>* const outResult,
+    AudioMap1CategoryNode* const node,
+    const std::uint8_t inserted
+  ) noexcept
+  {
+    outResult->mNode = node;
+    outResult->mInserted = inserted;
+    return outResult;
+  }
+
   [[nodiscard]] AudioMap1CategoryNode*
   FindMap1CategoryNode(const moho::AudioMapStorage& map, const char* const categoryName)
   {
@@ -444,6 +1277,160 @@ namespace
     return nullptr;
   }
 
+  /**
+   * Address: 0x004DD3D0 (FUN_004DD3D0)
+   *
+   * What it does:
+   * Returns the right-most descendant from one paused-category tree node.
+   */
+  [[nodiscard]] AudioMap1CategoryNode* RightmostPausedDescendant(AudioMap1CategoryNode* node) noexcept
+  {
+    while (node != nullptr && node->mRight != nullptr && node->mRight->mIsNil == 0u) {
+      node = node->mRight;
+    }
+    return node;
+  }
+
+  /**
+   * Address: 0x004DD3F0 (FUN_004DD3F0)
+   *
+   * What it does:
+   * Returns the left-most descendant from one paused-category tree node.
+   */
+  [[nodiscard]] AudioMap1CategoryNode* LeftmostPausedDescendant(AudioMap1CategoryNode* node) noexcept
+  {
+    while (node != nullptr && node->mLeft != nullptr && node->mLeft->mIsNil == 0u) {
+      node = node->mLeft;
+    }
+    return node;
+  }
+
+  /**
+   * Address: 0x004DD380 (FUN_004DD380)
+   *
+   * What it does:
+   * Finds one lower-bound node for a paused-category name key.
+   */
+  [[nodiscard]] AudioMap1CategoryNode*
+  LowerBoundPausedCategoryNode(const moho::AudioMapStorage& map, const char* const categoryName)
+  {
+    AudioMap1CategoryNode* const head = AsMap1Head(map);
+    if (head == nullptr || categoryName == nullptr) {
+      return nullptr;
+    }
+
+    AudioMap1CategoryNode* candidate = head;
+    AudioMap1CategoryNode* node = head->mParent;
+    while (node != nullptr && node != head && node->mIsNil == 0u) {
+      if (std::strcmp(node->mCategoryName.c_str(), categoryName) >= 0) {
+        candidate = node;
+        node = node->mLeft;
+      } else {
+        node = node->mRight;
+      }
+    }
+
+    return candidate;
+  }
+
+  /**
+   * Address: 0x004DD410 (FUN_004DD410)
+   *
+   * What it does:
+   * Finds one upper-bound node for a paused-category name key.
+   */
+  [[nodiscard]] AudioMap1CategoryNode*
+  UpperBoundPausedCategoryNode(const moho::AudioMapStorage& map, const char* const categoryName)
+  {
+    AudioMap1CategoryNode* const head = AsMap1Head(map);
+    if (head == nullptr || categoryName == nullptr) {
+      return nullptr;
+    }
+
+    AudioMap1CategoryNode* candidate = head;
+    AudioMap1CategoryNode* node = head->mParent;
+    while (node != nullptr && node != head && node->mIsNil == 0u) {
+      if (std::strcmp(categoryName, node->mCategoryName.c_str()) >= 0) {
+        node = node->mRight;
+      } else {
+        candidate = node;
+        node = node->mLeft;
+      }
+    }
+
+    return candidate;
+  }
+
+  /**
+   * Address: 0x004DDD30 (FUN_004DDD30)
+   *
+   * What it does:
+   * Advances one paused-category tree iterator to in-order successor.
+   */
+  void AdvancePausedCategoryIterator(AudioMap1CategoryNode*& node) noexcept
+  {
+    if (node == nullptr || node->mIsNil != 0u) {
+      return;
+    }
+
+    AudioMap1CategoryNode* next = node->mRight;
+    if (next != nullptr && next->mIsNil == 0u) {
+      next = LeftmostPausedDescendant(next);
+      node = next != nullptr ? next : node;
+      return;
+    }
+
+    AudioMap1CategoryNode* parent = node->mParent;
+    while (parent != nullptr && parent->mIsNil == 0u && node == parent->mRight) {
+      node = parent;
+      parent = parent->mParent;
+    }
+    if (parent != nullptr) {
+      node = parent;
+    }
+  }
+
+  /**
+   * Address: 0x004DD950 (FUN_004DD950)
+   *
+   * What it does:
+   * Retreats one paused-category tree iterator to in-order predecessor.
+   */
+  void RetreatPausedCategoryIterator(AudioMap1CategoryNode*& node) noexcept
+  {
+    if (node == nullptr) {
+      return;
+    }
+
+    if (node->mIsNil != 0u) {
+      node = node->mRight;
+      return;
+    }
+
+    AudioMap1CategoryNode* prev = node->mLeft;
+    if (prev != nullptr && prev->mIsNil == 0u) {
+      prev = RightmostPausedDescendant(prev);
+      node = prev != nullptr ? prev : node;
+      return;
+    }
+
+    AudioMap1CategoryNode* parent = node->mParent;
+    while (parent != nullptr && parent->mIsNil == 0u && node == parent->mLeft) {
+      node = parent;
+      parent = parent->mParent;
+    }
+    if (parent != nullptr) {
+      node = parent;
+    }
+  }
+
+  /**
+   * Address: 0x004DD320 (FUN_004DD320)
+   *
+   * What it does:
+   * Recursively destroys one paused-category RB-tree subtree including string
+   * payload lanes.
+   */
   void DestroyMap1Subtree(AudioMap1CategoryNode* node, const AudioMap1CategoryNode* const head)
   {
     if (node == nullptr || node == head || node->mIsNil != 0u) {
@@ -489,7 +1476,7 @@ namespace
     map.mAllocatorCookie = nullptr;
     map.mSize = 0;
 
-    auto* const head = new AudioMap1CategoryNode{};
+    auto* const head = AllocatePausedCategoryNodeStorage();
     head->mLeft = head;
     head->mParent = head;
     head->mRight = head;
@@ -501,6 +1488,13 @@ namespace
     map.mHead = head;
   }
 
+  /**
+   * Address: 0x004DA220 (FUN_004DA220)
+   *
+   * What it does:
+   * Releases one paused-category tree head/subtree pair and resets map lanes
+   * to the empty state.
+   */
   void ResetMap1(moho::AudioMapStorage& map)
   {
     AudioMap1CategoryNode* const head = AsMap1Head(map);
@@ -516,6 +1510,12 @@ namespace
     map.mSize = 0;
   }
 
+  /**
+   * Address: 0x004DB600 (FUN_004DB600)
+   *
+   * What it does:
+   * Inserts one paused-category name into the paused-category tree when absent.
+   */
   [[nodiscard]] bool InsertPausedCategoryName(moho::AudioMapStorage& map, const char* const categoryName)
   {
     if (categoryName == nullptr || *categoryName == '\0') {
@@ -547,15 +1547,13 @@ namespace
       }
     }
 
-    auto* const inserted = new AudioMap1CategoryNode{};
-    inserted->mLeft = head;
-    inserted->mRight = head;
-    inserted->mParent = (parent == head) ? head : parent;
-    inserted->mCategoryName.assign_owned(categoryName);
-    inserted->mColor = 0;
-    inserted->mIsNil = 0;
-    inserted->mPad2A[0] = 0;
-    inserted->mPad2A[1] = 0;
+    auto* const inserted = ConstructPausedCategoryNode(
+      head,
+      (parent == head) ? head : parent,
+      head,
+      categoryName,
+      0u
+    );
 
     if (parent == head) {
       head->mParent = inserted;
@@ -588,6 +1586,12 @@ namespace
     CollectRetainedPausedCategoryNames(node->mRight, head, categoryToRemove, retainedNames);
   }
 
+  /**
+   * Address: 0x004DB710 (FUN_004DB710)
+   *
+   * What it does:
+   * Removes one paused-category name from the paused-category tree.
+   */
   [[nodiscard]] bool ErasePausedCategoryName(moho::AudioMapStorage& map, const char* const categoryName)
   {
     if (categoryName == nullptr || *categoryName == '\0') {
@@ -616,6 +1620,33 @@ namespace
     return true;
   }
 
+  /**
+   * Address: 0x004DB770 (FUN_004DB770)
+   *
+   * What it does:
+   * Counts paused-category entries matching one category name.
+   */
+  [[nodiscard]] int CountPausedCategoryMatches(const moho::AudioMapStorage& map, const char* const categoryName)
+  {
+    if (categoryName == nullptr || *categoryName == '\0') {
+      return 0;
+    }
+
+    AudioMap1CategoryNode* const endNode = AsMap1Head(map);
+    if (endNode == nullptr) {
+      return 0;
+    }
+
+    AudioMap1CategoryNode* node = LowerBoundPausedCategoryNode(map, categoryName);
+    AudioMap1CategoryNode* const upper = UpperBoundPausedCategoryNode(map, categoryName);
+    int count = 0;
+    while (node != nullptr && node != endNode && node != upper) {
+      ++count;
+      AdvancePausedCategoryIterator(node);
+    }
+    return count;
+  }
+
   [[nodiscard]] moho::SoundConfiguration* EnsureSoundConfigurationForCreate()
   {
     if (moho::sSoundConfiguration != nullptr) {
@@ -640,6 +1671,206 @@ namespace
     return configuration;
   }
 
+  /**
+   * Address: 0x004DC230 (FUN_004DC230)
+   *
+   * What it does:
+   * Atomically swaps the process-global `sSoundConfiguration` lane with the
+   * caller-provided pointer slot.
+   */
+  void SwapSoundConfigurationSingletonPointer(moho::SoundConfiguration*& replacementOrOutPrevious) noexcept
+  {
+    moho::SoundConfiguration* const previous = moho::sSoundConfiguration;
+    moho::sSoundConfiguration = replacementOrOutPrevious;
+    replacementOrOutPrevious = previous;
+  }
+
+  /**
+   * Address: 0x004DDFE0 (FUN_004DDFE0)
+   *
+   * What it does:
+   * Allocates one contiguous array of 8-byte elements and raises
+   * `std::bad_alloc` when element-count multiplication overflows.
+   */
+  [[nodiscard]] void* AllocateEightByteElementArrayChecked(const std::uint32_t elementCount)
+  {
+    if (elementCount != 0u && (std::numeric_limits<std::uint32_t>::max() / elementCount) < 8u) {
+      throw std::bad_alloc{};
+    }
+
+    return operator new(static_cast<std::size_t>(elementCount) * 8u);
+  }
+
+  /**
+   * Address: 0x004DD1E0 (FUN_004DD1E0)
+   *
+   * What it does:
+   * Stores one pointer lane into one destination slot.
+   */
+  [[nodiscard]] void** StorePointerLaneC(void** const outSlot, void* const value) noexcept
+  {
+    *outSlot = value;
+    return outSlot;
+  }
+
+  /**
+   * Address: 0x004DD210 (FUN_004DD210)
+   *
+   * What it does:
+   * Stores one `AudioEngineRef*` advanced by one element index.
+   */
+  [[nodiscard]] moho::AudioEngineRef** ComputeAudioEngineRefOffset(
+    moho::AudioEngineRef** const outSlot,
+    moho::AudioEngineRef* const* const base,
+    const int index
+  ) noexcept
+  {
+    *outSlot = *base + index;
+    return outSlot;
+  }
+
+  /**
+   * Address: 0x004DD230 (FUN_004DD230)
+   *
+   * What it does:
+   * Stores one pointer lane into one destination slot.
+   */
+  [[nodiscard]] void** StorePointerLaneD(void** const outSlot, void* const value) noexcept
+  {
+    *outSlot = value;
+    return outSlot;
+  }
+
+  /**
+   * Address: 0x004DD290 (FUN_004DD290)
+   *
+   * What it does:
+   * Copies one `AudioEngineRef` from engine/control source lanes.
+   */
+  [[nodiscard]] moho::AudioEngineRef* AssignAudioEngineRefLaneA(
+    moho::AudioEngineRef* const outRef,
+    moho::AudioEngine* const* const engineLane,
+    void* const* const controlLane
+  ) noexcept
+  {
+    outRef->mEngine = *engineLane;
+    outRef->mControl = *controlLane;
+    return outRef;
+  }
+
+  /**
+   * Address: 0x004DD2A0 (FUN_004DD2A0)
+   *
+   * What it does:
+   * Copies one `AudioEngineRef` from engine/control source lanes.
+   */
+  [[nodiscard]] moho::AudioEngineRef* AssignAudioEngineRefLaneB(
+    moho::AudioEngineRef* const outRef,
+    moho::AudioEngine* const* const engineLane,
+    void* const* const controlLane
+  ) noexcept
+  {
+    outRef->mEngine = *engineLane;
+    outRef->mControl = *controlLane;
+    return outRef;
+  }
+
+  /**
+   * Address: 0x004DD2B0 (FUN_004DD2B0)
+   *
+   * What it does:
+   * Clears one pointer lane to null.
+   */
+  [[nodiscard]] void** ZeroPointerLaneA(void** const outSlot) noexcept
+  {
+    *outSlot = nullptr;
+    return outSlot;
+  }
+
+  /**
+   * Address: 0x004DD2C0 (FUN_004DD2C0)
+   *
+   * What it does:
+   * Stores one pointer lane into one destination slot.
+   */
+  [[nodiscard]] void** StorePointerLaneE(void** const outSlot, void* const value) noexcept
+  {
+    *outSlot = value;
+    return outSlot;
+  }
+
+  /**
+   * Address: 0x004DDA20 (FUN_004DDA20)
+   *
+   * What it does:
+   * Clears one pointer lane to null.
+   */
+  [[nodiscard]] void** ZeroPointerLaneB(void** const outSlot) noexcept
+  {
+    *outSlot = nullptr;
+    return outSlot;
+  }
+
+  /**
+   * Address: 0x004DDA30 (FUN_004DDA30)
+   *
+   * What it does:
+   * Stores one pointer lane into one destination slot.
+   */
+  [[nodiscard]] void** StorePointerLaneF(void** const outSlot, void* const value) noexcept
+  {
+    *outSlot = value;
+    return outSlot;
+  }
+
+  /**
+   * Address: 0x004DDA70 (FUN_004DDA70)
+   *
+   * What it does:
+   * Stores one pointer lane into one destination slot.
+   */
+  [[nodiscard]] void** StorePointerLaneG(void** const outSlot, void* const value) noexcept
+  {
+    *outSlot = value;
+    return outSlot;
+  }
+
+  /**
+   * Address: 0x004DDA80 (FUN_004DDA80)
+   *
+   * What it does:
+   * Stores one pointer lane into one destination slot.
+   */
+  [[nodiscard]] void** StorePointerLaneH(void** const outSlot, void* const value) noexcept
+  {
+    *outSlot = value;
+    return outSlot;
+  }
+
+  /**
+   * Address: 0x004DDDF0 (FUN_004DDDF0)
+   *
+   * What it does:
+   * Stores one pointer lane into one destination slot.
+   */
+  [[nodiscard]] void** StorePointerLaneI(void** const outSlot, void* const value) noexcept
+  {
+    *outSlot = value;
+    return outSlot;
+  }
+
+  /**
+   * Address: 0x004DDE00 (FUN_004DDE00)
+   *
+   * What it does:
+   * Stores one pointer lane into one destination slot.
+   */
+  [[nodiscard]] void** StorePointerLaneJ(void** const outSlot, void* const value) noexcept
+  {
+    *outSlot = value;
+    return outSlot;
+  }
+
   void ReserveEngineRefCapacity(moho::AudioEngineRefVector& engines, const std::size_t requiredCount)
   {
     const std::size_t currentCount =
@@ -652,7 +1883,13 @@ namespace
     }
 
     const std::size_t targetCapacity = (std::max)(requiredCount, currentCapacity == 0u ? 4u : currentCapacity * 2u);
-    auto* const newStorage = static_cast<moho::AudioEngineRef*>(operator new[](targetCapacity * sizeof(moho::AudioEngineRef)));
+    if (targetCapacity > std::numeric_limits<std::uint32_t>::max()) {
+      throw std::bad_alloc{};
+    }
+
+    auto* const newStorage = static_cast<moho::AudioEngineRef*>(
+      AllocateEightByteElementArrayChecked(static_cast<std::uint32_t>(targetCapacity))
+    );
     if (currentCount != 0u) {
       std::memcpy(newStorage, engines.mStart, currentCount * sizeof(moho::AudioEngineRef));
     }
@@ -669,6 +1906,13 @@ namespace
     return *reinterpret_cast<const boost::SharedPtrLayoutView<moho::AudioEngine>*>(&value);
   }
 
+  /**
+   * Address: 0x004D9230 (FUN_004D9230)
+   *
+   * What it does:
+   * Copies one `shared_ptr<AudioEngine>` layout from one stored engine-ref
+   * lane and retains the shared control block when present.
+   */
   [[nodiscard]] boost::shared_ptr<moho::AudioEngine> CopyEngineRefShared(const moho::AudioEngineRef& ref)
   {
     boost::shared_ptr<moho::AudioEngine> result;
@@ -681,6 +1925,13 @@ namespace
     return result;
   }
 
+  /**
+   * Address: 0x004DB1D0 (FUN_004DB1D0)
+   *
+   * What it does:
+   * Appends one shared engine reference into the global sound-configuration
+   * engine vector, growing storage and retaining shared ownership as needed.
+   */
   void RegisterEngineRef(
     moho::SoundConfiguration& configuration, const boost::shared_ptr<moho::AudioEngine>& engineRef
   )
@@ -701,6 +1952,117 @@ namespace
       engineLayout.pi->add_ref_copy();
     }
     ++engines.mFinish;
+  }
+
+  /**
+   * Address: 0x004DB090 (FUN_004DB090)
+   *
+   * What it does:
+   * Stores one replacement `AudioEngineImpl*` lane and destroys the previously
+   * installed implementation object when present.
+   */
+  void ReplaceAudioEngineImplPointer(moho::AudioEngineImpl*& destination, moho::AudioEngineImpl* const replacement)
+  {
+    moho::AudioEngineImpl* const previous = destination;
+    destination = replacement;
+    if (previous == nullptr) {
+      return;
+    }
+
+    previous->~AudioEngineImpl();
+    operator delete(previous);
+  }
+
+  /**
+   * Address: 0x004DB900 (FUN_004DB900)
+   *
+   * What it does:
+   * Returns the process-global sound-configuration singleton lane.
+   */
+  [[nodiscard]] moho::SoundConfiguration* GetSoundConfigurationSingletonA() noexcept
+  {
+    return moho::sSoundConfiguration;
+  }
+
+  /**
+   * Address: 0x004DB910 (FUN_004DB910)
+   *
+   * What it does:
+   * Returns the process-global sound-configuration singleton lane.
+   */
+  [[nodiscard]] moho::SoundConfiguration* GetSoundConfigurationSingletonB() noexcept
+  {
+    return moho::sSoundConfiguration;
+  }
+
+  /**
+   * Address: 0x004DA890 (FUN_004DA890)
+   *
+   * What it does:
+   * Applies one mute/unmute transition for the `"Global"` category on one
+   * active engine implementation and stores/restores the cached global volume.
+   */
+  void ApplyGlobalMuteToEngine(moho::AudioEngineImpl& impl, const bool doMute)
+  {
+    if (impl.mInstance == nullptr || impl.mEngine == nullptr) {
+      return;
+    }
+
+    const float volume = doMute ? (impl.mGlobalCategoryVolume = impl.mEngine->GetVolume(kGlobalCategoryName), 0.0f)
+                                : impl.mGlobalCategoryVolume;
+    impl.mEngine->SetVolume(kGlobalCategoryName, volume);
+  }
+
+  /**
+   * Address: 0x004DDED0 (FUN_004DDED0)
+   *
+   * What it does:
+   * Destroys one contiguous range of audio sound-bank loader pointers.
+   */
+  void DestroyAudioSoundBankLoaderRange(void** const first, void** const last) noexcept
+  {
+    if (first == nullptr || last == nullptr) {
+      return;
+    }
+
+    for (void** cursor = first; cursor != last; ++cursor) {
+      auto* const loader = static_cast<AudioSoundBankLoader*>(*cursor);
+      if (loader == nullptr) {
+        continue;
+      }
+
+      delete loader;
+      *cursor = nullptr;
+    }
+  }
+
+  /**
+   * Address: 0x004DDF10 (FUN_004DDF10)
+   *
+   * What it does:
+   * Destroys one contiguous range of audio runtime handle objects through
+   * their deleting-destructor vtable lane.
+   */
+  void DestroyAudioRuntimeHandleRange(void** const first, void** const last) noexcept
+  {
+    if (first == nullptr || last == nullptr) {
+      return;
+    }
+
+    for (void** cursor = first; cursor != last; ++cursor) {
+      if (*cursor == nullptr) {
+        continue;
+      }
+
+      auto* const vtable = *reinterpret_cast<void***>(*cursor);
+      if (vtable == nullptr || vtable[0] == nullptr) {
+        continue;
+      }
+
+      using DeletingDtorFn = void(__thiscall*)(void*, std::uint8_t);
+      reinterpret_cast<DeletingDtorFn>(vtable[0])(*cursor, 1u);
+      *cursor = nullptr;
+    }
   }
 
   [[nodiscard]] Wm3::Vec3f NormalizeOrDefault(Wm3::Vec3f value, const Wm3::Vec3f& fallback)
@@ -1260,8 +2622,8 @@ namespace moho
   {
     auto* const freshConfiguration = new (std::nothrow) SoundConfiguration();
 
-    SoundConfiguration* const previousConfiguration = sSoundConfiguration;
-    sSoundConfiguration = freshConfiguration;
+    SoundConfiguration* previousConfiguration = freshConfiguration;
+    SwapSoundConfigurationSingletonPointer(previousConfiguration);
     if (previousConfiguration != nullptr) {
       previousConfiguration->~SoundConfiguration();
       ::operator delete(previousConfiguration);
@@ -1341,8 +2703,8 @@ namespace moho
    */
   void SND_Shutdown()
   {
-    SoundConfiguration* const configuration = sSoundConfiguration;
-    sSoundConfiguration = nullptr;
+    SoundConfiguration* configuration = nullptr;
+    SwapSoundConfigurationSingletonPointer(configuration);
     if (configuration == nullptr) {
       return;
     }
@@ -1360,7 +2722,11 @@ namespace moho
    */
   bool SND_Enabled()
   {
-    const SoundConfiguration* const configuration = sSoundConfiguration;
+    const SoundConfiguration* const configuration = GetSoundConfigurationSingletonA();
+    if (configuration == nullptr) {
+      return false;
+    }
+
     const AudioEngineRef* const begin = configuration->mEngines.mStart;
     return begin != nullptr && configuration->mEngines.mFinish != begin && configuration->mNoSound == 0u;
   }
@@ -1374,7 +2740,11 @@ namespace moho
    */
   void SND_Frame()
   {
-    SoundConfiguration* configuration = sSoundConfiguration;
+    SoundConfiguration* configuration = GetSoundConfigurationSingletonB();
+    if (configuration == nullptr) {
+      return;
+    }
+
     for (std::uint32_t index = 0;; ++index) {
       if (index >= configuration->EngineCount()) {
         break;
@@ -1383,11 +2753,30 @@ namespace moho
       if (AudioEngineImpl* const impl = configuration->EngineImplAt(index);
           impl != nullptr && impl->mInstance != nullptr) {
         impl->mInstance->DoWork();
-        configuration = sSoundConfiguration;
+        configuration = GetSoundConfigurationSingletonB();
       }
     }
 
     configuration->mTime.Reset();
+  }
+
+  /**
+   * Address: 0x004D8F90 (FUN_004D8F90)
+   *
+   * What it does:
+   * Issues one additional SND frame pass when `snd_ExtraDoWorkCalls` is
+   * enabled and the sound frame timer exceeded 100ms.
+   */
+  void SND_FrameExtraDoWorkTick()
+  {
+    SoundConfiguration* const configuration = GetSoundConfigurationSingletonA();
+    if (configuration == nullptr) {
+      return;
+    }
+
+    if (moho::snd_ExtraDoWorkCalls && configuration->mTime.ElapsedMilliseconds() > 100.0f) {
+      SND_Frame();
+    }
   }
 
   /**
@@ -1399,7 +2788,11 @@ namespace moho
    */
   void SND_Mute(const bool doMute)
   {
-    SoundConfiguration* configuration = sSoundConfiguration;
+    SoundConfiguration* configuration = GetSoundConfigurationSingletonB();
+    if (configuration == nullptr) {
+      return;
+    }
+
     for (std::uint32_t index = 0;; ++index) {
       if (index >= configuration->EngineCount()) {
         break;
@@ -1410,11 +2803,8 @@ namespace moho
         continue;
       }
 
-      const float volume = doMute
-        ? (impl->mGlobalCategoryVolume = impl->mEngine->GetVolume(kGlobalCategoryName), 0.0f)
-        : impl->mGlobalCategoryVolume;
-      impl->mEngine->SetVolume(kGlobalCategoryName, volume);
-      configuration = sSoundConfiguration;
+      ApplyGlobalMuteToEngine(*impl, doMute);
+      configuration = GetSoundConfigurationSingletonB();
     }
   }
 
@@ -1555,12 +2945,7 @@ namespace moho
     : mImpl(nullptr)
   {
     SoundConfiguration* const configuration = sSoundConfiguration;
-    AudioEngineImpl* const previousImpl = mImpl;
-    mImpl = new AudioEngineImpl(this, configuration);
-    if (previousImpl != nullptr) {
-      previousImpl->~AudioEngineImpl();
-      operator delete(previousImpl);
-    }
+    ReplaceAudioEngineImplPointer(mImpl, new AudioEngineImpl(this, configuration));
 
     if (configuration == nullptr || configuration->mNoSound != 0u || mImpl == nullptr) {
       return;
@@ -1766,17 +3151,7 @@ namespace moho
     mSettings.mMatrixCoefficients = nullptr;
 
     if (mHandles.mStart != nullptr) {
-      for (void** entry = mHandles.mStart; entry != mHandles.mFinish; ++entry) {
-        if (*entry == nullptr) {
-          continue;
-        }
-
-        auto* const vtable = *reinterpret_cast<void***>(*entry);
-        if (vtable != nullptr && vtable[0] != nullptr) {
-          using DestroyFn = void(__thiscall*)(void*, std::uint8_t);
-          reinterpret_cast<DestroyFn>(vtable[0])(*entry, 1u);
-        }
-      }
+      DestroyAudioRuntimeHandleRange(mHandles.mStart, mHandles.mFinish);
       operator delete(mHandles.mStart);
     }
     mHandles.mStart = nullptr;
@@ -1784,10 +3159,7 @@ namespace moho
     mHandles.mEnd = nullptr;
 
     if (mBanks.mStart != nullptr) {
-      for (void** entry = mBanks.mStart; entry != mBanks.mFinish; ++entry) {
-        auto* const loader = static_cast<AudioSoundBankLoader*>(*entry);
-        delete loader;
-      }
+      DestroyAudioSoundBankLoaderRange(mBanks.mStart, mBanks.mFinish);
       operator delete(mBanks.mStart);
     }
     mBanks.mStart = nullptr;
@@ -1956,7 +3328,7 @@ namespace moho
       return false;
     }
 
-    return FindMap1CategoryNode(mImpl->mMap1, category) != nullptr;
+    return CountPausedCategoryMatches(mImpl->mMap1, category) != 0;
   }
 
   /**

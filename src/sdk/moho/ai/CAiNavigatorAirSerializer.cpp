@@ -131,7 +131,7 @@ namespace
   }
 
   /**
-   * Address: 0x00BF6F40 (FUN_00BF6F40, cleanup_CAiNavigatorAirSerializer)
+    * Alias of FUN_00BF6F40 (non-canonical helper lane).
    *
    * What it does:
    * Unlinks recovered CAiNavigatorAir serializer helper node from intrusive

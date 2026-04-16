@@ -303,6 +303,25 @@ namespace gpg
     }
   };
 
+  /**
+   * Strict weak ordering for reflected references.
+   *
+   * The binary compares the reflected type lane first and only falls back to
+   * the underlying object pointer when the type lanes match.
+   */
+  struct RRefCompare
+  {
+    /**
+     * Address: 0x0094F730 (FUN_0094F730, gpg::RRefCompare::operator())
+     *
+     * What it does:
+     * Orders two reflected references lexicographically by reflected type lane
+     * and then by object pointer lane.
+     */
+    [[nodiscard]] bool operator()(const RRef& lhs, const RRef& rhs) const noexcept;
+  };
+  static_assert(sizeof(RRefCompare) == 0x1, "RRefCompare size must be 0x1");
+
   using TypeMap = std::map<const char*, RType*, CStrLess>;
   using TypeVec = msvc8::vector<RType*>;
   using TypeInfoMap = std::map<const std::type_info*, RType*, TypeInfoLess>;
@@ -331,6 +350,15 @@ namespace gpg
      * VFTable SLOT: 1
      */
     virtual RRef GetDerivedObjectRef() = 0;
+
+    /**
+     * Address: 0x008DD460 (FUN_008DD460, ?IsA@RObject@gpg@@QBE_NPAVRType@2@@Z_0)
+     *
+     * What it does:
+     * Returns whether this object's dynamic reflected type is derived from one
+     * requested target type lane.
+     */
+    [[nodiscard]] bool IsA(RType* type) const;
 
     /**
      * Address: 0x004012D0 (FUN_004012D0)
@@ -735,6 +763,15 @@ namespace gpg
   void PreRegisterRType(const std::type_info& typeInfo, RType* type);
 
   /**
+   * Address: 0x005DE010 (FUN_005DE010, preregister_CAcquireTargetTaskPointerTypeStartup)
+   *
+   * What it does:
+   * Preregisters the startup-owned pointer reflection descriptor for
+   * `moho::CAcquireTargetTask*`.
+   */
+  [[nodiscard]] RType* preregister_CAcquireTargetTaskPointerTypeStartup();
+
+  /**
    * Address: 0x008E0810 (FUN_008E0810, gpg::REF_RegisterAllTypes)
    * Address: 0x1001CEB0 (gpgcore.dll)
    *
@@ -744,6 +781,7 @@ namespace gpg
   void REF_RegisterAllTypes();
 
   /**
+   * Address: 0x008DD940 (FUN_008DD940, gpg::REF_GetTypeIndexed)
    * Address: 0x10018CB0 (gpgcore.dll)
    *
    * int
@@ -752,6 +790,14 @@ namespace gpg
    * Returns the type descriptor at an index in the global registration vector.
    */
   const RType* REF_GetTypeIndexed(int index);
+
+  /**
+   * Address: 0x008DF950 (FUN_008DF950, gpg::REF_GetTypeCount)
+   *
+   * What it does:
+   * Returns the total reflected type count stored in the global type map.
+   */
+  std::size_t REF_GetTypeCount();
 
   /**
    * Address: 0x008DF8A0
@@ -1758,6 +1804,16 @@ namespace gpg
   RRef* RRef_SimArmy_P(RRef* out, moho::SimArmy** value);
 
   /**
+   * Address: 0x0074FD80 (FUN_0074FD80)
+   *
+   * What it does:
+   * Builds and caches one pointer-type name lane (`"Type*"`) for
+   * `moho::SimArmy*`.
+   */
+  const char* BuildSimArmyPointerTypeName();
+  msvc8::string* BuildSimArmyPointerLexical(msvc8::string* out, moho::SimArmy*** slot);
+
+  /**
    * Address: 0x00544EE0 (FUN_00544EE0, gpg::RRef_LaunchInfoNew)
    *
    * What it does:
@@ -2108,6 +2164,16 @@ namespace gpg
    * Builds a reflected reference for one `moho::CDecalHandle*` slot.
    */
   RRef* RRef_CDecalHandle_P(RRef* out, moho::CDecalHandle** value);
+
+  /**
+   * Address: 0x0077EAB0 (FUN_0077EAB0)
+   *
+   * What it does:
+   * Builds and caches one pointer-type name lane (`"Type*"`) for
+   * `moho::CDecalHandle*`.
+   */
+  const char* BuildCDecalHandlePointerTypeName();
+  msvc8::string* BuildCDecalHandlePointerLexical(msvc8::string* out, moho::CDecalHandle*** slot);
 
   /**
    * Address: 0x0077E390 (FUN_0077E390, gpg::RRef_CDecalHandle)
@@ -2518,6 +2584,16 @@ namespace gpg
    * Builds a reflected reference for one `moho::Shield*` slot.
    */
   RRef* RRef_Shield_P(RRef* out, moho::Shield** value);
+
+  /**
+   * Address: 0x00750190 (FUN_00750190)
+   *
+   * What it does:
+   * Builds and caches one pointer-type name lane (`"Type*"`) for
+   * `moho::Shield*`.
+   */
+  const char* BuildShieldPointerTypeName();
+  msvc8::string* BuildShieldPointerLexical(msvc8::string* out, moho::Shield*** slot);
 
   /**
    * Address: 0x00758910 (FUN_00758910, gpg::RRef_IEffectManager)
@@ -3207,6 +3283,13 @@ namespace gpg
      */
     const char* StripPrefix(const char*) const;
 
+    /**
+     * Address: 0x008D9FD0 (FUN_008D9FD0)
+     *
+     * What it does:
+     * Scans the enum option table and returns the numeric value for a
+     * case-insensitive option-name match.
+     */
     bool GetEnumValue(const char*, int*) const;
 
     /**
@@ -3882,9 +3965,9 @@ namespace gpg
 
     /**
      * Address: 0x00421310 (FUN_00421310)
-     * Address: 0x00421620 (FUN_00421620, sub_421620 helper lane)
-     * Address: 0x00421660 (FUN_00421660, sub_421660 helper lane)
-     * Address: 0x00421670 (FUN_00421670, sub_421670 helper lane)
+      * Alias of FUN_00421620 (non-canonical helper lane).
+      * Alias of FUN_00421660 (non-canonical helper lane).
+      * Alias of FUN_00421670 (non-canonical helper lane).
      * Demangled: gpg::RPointerType_CLuaConOutputHandler::Init
      */
     void Init() override;

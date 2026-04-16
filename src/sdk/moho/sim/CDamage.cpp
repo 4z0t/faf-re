@@ -9,6 +9,9 @@
 
 #include "gpg/core/reflection/Reflection.h"
 #include "gpg/core/utils/Global.h"
+#include "gpg/core/utils/Logging.h"
+#include "moho/entity/EntityCollisionUpdater.h"
+#include "moho/entity/Shield.h"
 #include "moho/misc/InstanceCounter.h"
 #include "moho/misc/StatItem.h"
 #include "moho/sim/CDamageEMethodTypeInfo.h"
@@ -96,6 +99,60 @@ namespace
     LuaPlus::LuaObject scriptFactory{};
     moho::func_CreateLuaCDamage(&scriptFactory, sim->mLuaState);
     return scriptFactory;
+  }
+
+  /**
+   * Address: 0x00736DE0 (FUN_00736DE0, sub_736DE0)
+   *
+   * What it does:
+   * Returns true when `entity` lies inside at least one active shield
+   * collision primitive in `sim`.
+   */
+  [[maybe_unused]] bool EntityOverlapsAnyShield(moho::Sim* const sim, moho::Entity* const entity)
+  {
+    if (sim == nullptr || entity == nullptr) {
+      return false;
+    }
+
+    for (moho::Shield* const shield : sim->mShields) {
+      if (shield == nullptr || shield->CollisionExtents == nullptr) {
+        gpg::Logf("invalid shield or missing collision primitive!");
+        continue;
+      }
+
+      if (shield->CollisionExtents->PointInShape(&entity->Position)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Address: 0x00739BB0 (FUN_00739BB0)
+   *
+   * What it does:
+   * Removes one shield entry from the active damage-iteration list and returns
+   * the next iterator lane.
+   */
+  [[maybe_unused]] msvc8::list<moho::Shield*>::iterator RemoveDamageShieldEntry(
+    msvc8::list<moho::Shield*>& shields,
+    const msvc8::list<moho::Shield*>::iterator current
+  )
+  {
+    return shields.erase(current);
+  }
+
+  /**
+   * Address: 0x00739DD0 (FUN_00739DD0)
+   *
+   * What it does:
+   * Clears the temporary shield-iteration list used by the damage path and
+   * releases its owned entries.
+   */
+  [[maybe_unused]] void ResetDamageShieldIterationList(msvc8::list<moho::Shield*>& shields)
+  {
+    shields.clear();
   }
 } // namespace
 

@@ -6,8 +6,10 @@
 #include <new>
 #include <string>
 #include <typeinfo>
+#include <vector>
 
 #include "gpg/core/containers/String.h"
+#include "gpg/core/containers/ReadArchive.h"
 #include "gpg/core/reflection/Reflection.h"
 #include "moho/lua/CScrLuaBinder.h"
 #include "moho/lua/CScrLuaInitForm.h"
@@ -37,6 +39,15 @@
 #include "moho/unit/core/Unit.h"
 #include "moho/unit/CUnitCommand.h"
 
+namespace gpg
+{
+  class SerConstructResult
+  {
+  public:
+    void SetUnowned(const RRef& ref, unsigned int flags);
+  };
+} // namespace gpg
+
 namespace moho
 {
   template <>
@@ -61,6 +72,7 @@ namespace
 {
   using moho::ESquadClass;
   using moho::EUnitState;
+  using moho::CSquad;
   using moho::SEntitySetTemplateUnit;
   using moho::Unit;
 
@@ -123,6 +135,90 @@ namespace
   constexpr const char* kExpectedGameObjectError = "Expected a game object. (Did you call with '.' instead of ':'?)";
   constexpr const char* kIncorrectGameObjectTypeError =
     "Incorrect type of game object.  (Did you call with '.' instead of ':'?)";
+
+  struct PlatoonPriorityEntry
+  {
+    std::int32_t payload = 0; // +0x00
+    float priority = 0.0f; // +0x04
+  };
+  static_assert(sizeof(PlatoonPriorityEntry) == 0x8, "PlatoonPriorityEntry size must be 0x8");
+
+  struct PlatoonUnitSearchEntry
+  {
+    moho::Unit* unit = nullptr; // +0x00
+    float distanceSq = 0.0f; // +0x04
+  };
+  static_assert(sizeof(PlatoonUnitSearchEntry) == 0x8, "PlatoonUnitSearchEntry size must be 0x8");
+
+  [[nodiscard]] std::int32_t InsertPlatoonPriorityEntryByPromotingParents(
+    PlatoonPriorityEntry* const heap,
+    int insertionIndex,
+    const int lowerBoundIndex,
+    const std::int32_t payload,
+    const float priority
+  ) noexcept
+  {
+    int parentIndex = (insertionIndex - 1) / 2;
+    while (lowerBoundIndex < insertionIndex) {
+      if (priority <= heap[parentIndex].priority) {
+        break;
+      }
+
+      heap[insertionIndex] = heap[parentIndex];
+      insertionIndex = parentIndex;
+      parentIndex = (parentIndex - 1) / 2;
+    }
+
+    heap[insertionIndex].payload = payload;
+    heap[insertionIndex].priority = priority;
+    return payload;
+  }
+
+  /**
+   * Address: 0x00734350 (FUN_00734350)
+   *
+   * What it does:
+   * Sifts one heap gap down through max-priority children, then reinserts the
+   * pending `{payload, priority}` pair via parent-promotion into the bounded
+   * lane used by platoon target-priority sorting.
+   */
+  [[maybe_unused]] [[nodiscard]] std::int32_t SiftDownPlatoonPriorityEntryAndReinsert(
+    int startIndex,
+    const int heapSize,
+    PlatoonPriorityEntry* const heap,
+    const std::int32_t payload,
+    const float priority
+  ) noexcept
+  {
+    const int originalIndex = startIndex;
+    int childIndex = (startIndex * 2) + 2;
+    bool childEqualsHeapBoundary = (childIndex == heapSize);
+
+    while (childIndex < heapSize) {
+      const int leftChildIndex = childIndex - 1;
+      if (heap[leftChildIndex].priority > heap[childIndex].priority) {
+        childIndex = leftChildIndex;
+      }
+
+      heap[startIndex] = heap[childIndex];
+      startIndex = childIndex;
+      childIndex = (childIndex * 2) + 2;
+      childEqualsHeapBoundary = (childIndex == heapSize);
+    }
+
+    if (childEqualsHeapBoundary) {
+      heap[startIndex] = heap[heapSize - 1];
+      startIndex = heapSize - 1;
+    }
+
+    return InsertPlatoonPriorityEntryByPromotingParents(
+      heap,
+      startIndex,
+      originalIndex,
+      payload,
+      priority
+    );
+  }
 
   struct CSquadRuntimeView
   {
@@ -281,6 +377,70 @@ namespace
         (void)outSet.AddUnit(DecodeSquadUnit(*unitSlot));
       }
     }
+  }
+
+  /**
+   * Address: 0x0072A210 (FUN_0072A210, sub_72A210)
+   *
+   * What it does:
+   * Reads the platoon's owned squad pointers from the archive and appends each
+   * recovered squad into the platoon's squad storage until the archive returns
+   * a null pointer lane.
+   */
+  [[maybe_unused]] [[nodiscard]] gpg::ReadArchive* ReadPlatoonSquadsFromArchive(
+    gpg::ReadArchive* const archive,
+    moho::CPlatoon* const platoon
+  )
+  {
+    if (archive == nullptr || platoon == nullptr) {
+      return archive;
+    }
+
+    moho::Entity* loadedEntity = nullptr;
+    gpg::RRef ownerRef{};
+    archive->ReadPointerOwned_Entity(&loadedEntity, &ownerRef);
+    while (loadedEntity != nullptr) {
+      platoon->mSquadList.PushBack(reinterpret_cast<moho::CSquad*>(loadedEntity));
+
+      loadedEntity = nullptr;
+      ownerRef = {};
+      archive->ReadPointerOwned_Entity(&loadedEntity, &ownerRef);
+    }
+
+    return archive;
+  }
+
+  /**
+   * Address: 0x00733480 (FUN_00733480, sub_733480)
+   *
+   * What it does:
+   * Appends one platoon unit-search entry to the bounded result lane used by
+   * `FormPlatoon()` candidate filtering.
+   */
+  [[maybe_unused]] void AppendPlatoonUnitSearchEntry(
+    std::vector<PlatoonUnitSearchEntry>& entries,
+    moho::Unit* const unit,
+    const float distanceSq
+  )
+  {
+    entries.push_back(PlatoonUnitSearchEntry{unit, distanceSq});
+  }
+
+  /**
+   * Address: 0x00723A50 (FUN_00723A50, copy_CSquadUnits_into_EntitySet)
+   *
+   * What it does:
+   * Copy-constructs destination `SEntitySetTemplateUnit` from one squad's
+   * `mUnits` lane and returns destination.
+   */
+  [[nodiscard]] SEntitySetTemplateUnit*
+  CopyCSquadUnitsIntoEntitySet(SEntitySetTemplateUnit* const destination, const CSquad* const squad)
+  {
+    if (destination == nullptr || squad == nullptr) {
+      return destination;
+    }
+
+    return ::new (destination) SEntitySetTemplateUnit(squad->mUnits);
   }
 
   enum class PlatoonThreatType : std::int32_t
@@ -675,6 +835,38 @@ namespace moho
   }
 
   /**
+   * Address: 0x00724BA0 (FUN_00724BA0, Moho::CPlatoon::CPlatoon)
+   */
+  CPlatoon::CPlatoon()
+    : CScriptObject()
+    , mSim(nullptr)
+    , mArmy(nullptr)
+    , mUnknown_0x03C(0u)
+    , mSquadList()
+    , mName()
+    , mPlan()
+    , mUniqueName()
+    , mFormation()
+    , mDisbandOnIdle(0u)
+    , mPad_0x0E1{0u, 0u, 0u}
+    , mLifetimeStat1(0)
+    , mLifetimeStat2(0)
+    , mLifetimeStat3(0.0f)
+    , mLifetimeStat4(0.0f)
+    , mLuaUnitList()
+    , mHasLuaList(0u)
+    , mPad_0x109{0u, 0u, 0u, 0u, 0u, 0u, 0u}
+  {
+    if (StatItem* const statItem = InstanceCounter<CPlatoon>::GetStatItem(); statItem != nullptr) {
+#if defined(_WIN32)
+      InterlockedExchangeAdd(reinterpret_cast<volatile long*>(&statItem->mPrimaryValueBits), 1);
+#else
+      statItem->mPrimaryValueBits += 1;
+#endif
+    }
+  }
+
+  /**
    * Address: 0x00724CC0 (FUN_00724CC0, Moho::CPlatoon::CPlatoon)
    */
   CPlatoon::CPlatoon(Sim* const sim, CArmyImpl* const army, const char* const platoonName, const char* const aiPlan)
@@ -720,6 +912,17 @@ namespace moho
 
     const char* planArg = mPlan.c_str();
     CallbackStr("OnCreate", &planArg);
+  }
+
+  /**
+   * Address: 0x0072A0D0 (FUN_0072A0D0, sub_72A0D0)
+   */
+  void CPlatoon::ConstructForSerializer(gpg::SerConstructResult* const result)
+  {
+    auto* const object = new (std::nothrow) CPlatoon();
+    gpg::RRef objectRef{};
+    gpg::RRef_CPlatoon(&objectRef, object);
+    result->SetUnowned(objectRef, 0u);
   }
 
   /**
@@ -909,6 +1112,45 @@ namespace moho
   }
 
   /**
+   * Address: 0x00725280 (FUN_00725280, sub_725280)
+   *
+   * What it does:
+   * Finds the first squad lane matching `squadClass`, appends every entry in
+   * `units` into that squad's entity set, and clears the Lua unit-list cache
+   * validity flag on this platoon.
+   */
+  void CPlatoon::AppendUnitsToSquad(const ESquadClass squadClass, const SEntitySetTemplateUnit& units)
+  {
+    auto& runtimeView = *reinterpret_cast<CPlatoonRuntimeView*>(this);
+    for (CSquadRuntimeView** squadLane = runtimeView.mSquadStart; squadLane != runtimeView.mSquadEnd; ++squadLane) {
+      CSquadRuntimeView* const squadView = *squadLane;
+      if (squadView == nullptr || squadView->mSquadClass != squadClass) {
+        continue;
+      }
+
+      reinterpret_cast<CSquad*>(squadView)->mUnits.AddRange(units.mVec.begin(), units.mVec.end());
+      break;
+    }
+
+    runtimeView.mHasLuaList = 0u;
+  }
+
+  /**
+   * Address: 0x007252D0 (FUN_007252D0, sub_7252D0)
+   *
+   * What it does:
+   * Builds a one-unit temporary set around `unit`, forwards into
+   * `AppendUnitsToSquad`, and preserves the Lua unit-list cache invalidation
+   * side effect for this platoon.
+   */
+  void CPlatoon::AppendUnitToSquad(const ESquadClass squadClass, Unit* const unit)
+  {
+    SEntitySetTemplateUnit singleUnitSet{};
+    (void)singleUnitSet.AddUnit(unit);
+    AppendUnitsToSquad(squadClass, singleUnitSet);
+  }
+
+  /**
    * Address: 0x00729F90 (FUN_00729F90, Moho::CPlatoon::SquadHasState)
    *
    * What it does:
@@ -1054,6 +1296,39 @@ namespace moho
 
     const char* callbackArg = normalizedPlan;
     scriptObject->CallbackStr("OnCreate", &callbackArg);
+  }
+
+  /**
+   * Address: 0x0072B720 (FUN_0072B720, Moho::CPlatoon::GetArmy)
+   *
+   * What it does:
+   * Returns this platoon's owning army lane.
+   */
+  IArmy* CPlatoon::GetArmy() const
+  {
+    return mArmy;
+  }
+
+  /**
+   * Address: 0x0072B7A0 (FUN_0072B7A0, Moho::CPlatoon::GetLifetimeStat1)
+   *
+   * What it does:
+   * Returns the first integer lifetime-stat lane.
+   */
+  std::int32_t CPlatoon::GetLifetimeStat1() const
+  {
+    return mLifetimeStat1;
+  }
+
+  /**
+   * Address: 0x0072B7B0 (FUN_0072B7B0, Moho::CPlatoon::GetLifetimeStat2)
+   *
+   * What it does:
+   * Returns the second integer lifetime-stat lane.
+   */
+  std::int32_t CPlatoon::GetLifetimeStat2() const
+  {
+    return mLifetimeStat2;
   }
 
   /**

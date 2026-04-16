@@ -344,7 +344,7 @@ namespace
   }
 
   /**
-   * Address: 0x00638770 (FUN_00638770, CCollisionManipulatorTypeInfo::newRefFunc_)
+    * Alias of FUN_00638770 (non-canonical helper lane).
    */
   [[nodiscard]] gpg::RRef CreateCollisionManipulatorRefOwned()
   {
@@ -360,7 +360,7 @@ namespace
   }
 
   /**
-   * Address: 0x00638830 (FUN_00638830, CCollisionManipulatorTypeInfo::ctorRefFunc_)
+    * Alias of FUN_00638830 (non-canonical helper lane).
    */
   [[nodiscard]] gpg::RRef ConstructCollisionManipulatorRefInPlace(void* objectStorage)
   {

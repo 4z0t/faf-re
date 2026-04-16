@@ -172,7 +172,7 @@ namespace
   }
 
   /**
-   * Address: 0x004081E0 (FUN_004081E0, gpg::ReadArchive::ReadPointer_STaskEventLinkage)
+    * Alias of FUN_004081E0 (non-canonical helper lane).
    *
    * What it does:
    * Reads one tracked pointer lane and upcasts it to `STaskEventLinkage`
@@ -204,7 +204,7 @@ namespace
   }
 
   /**
-   * Address: 0x00407A50 (FUN_00407A50, gpg::ReadArchive::ReadPointerOwned_STaskEventLinkage)
+    * Alias of FUN_00407A50 (non-canonical helper lane).
    *
    * What it does:
    * Reads one pointer lane, enforces owned-pointer transition

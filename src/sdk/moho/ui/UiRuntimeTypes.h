@@ -296,6 +296,13 @@ namespace moho
    * mode is active.
    */
   extern bool ui_DisableCursorFixing;
+  /**
+   * Address: 0x010A63EE (?ui_WindowedAlwaysShowsCursor@Moho@@3_NA)
+   *
+   * What it does:
+   * Forces cursor visibility when the primary render head runs fullscreen.
+   */
+  extern bool ui_WindowedAlwaysShowsCursor;
   extern CScriptObject* sWldUIProvider;
 
   enum EMauiEventType : std::int32_t
@@ -566,7 +573,14 @@ namespace moho
      */
     void ResetToDefault();
 
-    virtual ~CMauiCursor() = default;
+    /**
+     * Address: 0x0078CBF0 (FUN_0078CBF0, Moho::CMauiCursor::~CMauiCursor body)
+     *
+     * What it does:
+     * Releases active/default cursor texture weak-owner lanes and destroys
+     * the embedded script object runtime base.
+     */
+    virtual ~CMauiCursor();
   };
 
   struct CMauiCursorRuntimeView
@@ -954,6 +968,14 @@ namespace moho
     [[nodiscard]] float GetAlpha();
 
     /**
+     * Address: 0x00786450 (FUN_00786450, Moho::CMauiControl::IsInvisible)
+     *
+     * What it does:
+     * Returns whether this control is currently marked invisible.
+     */
+    [[nodiscard]] bool IsInvisible();
+
+    /**
      * Address: 0x007863F0 (FUN_007863F0, Moho::CMauiControl::SetAlpha)
      *
      * What it does:
@@ -1257,6 +1279,14 @@ namespace moho
     void MoveCaretLeft(int amount);
 
     /**
+     * Address: 0x00791270 (FUN_00791270, Moho::CMauiEdit::MoveCaretRight)
+     *
+     * What it does:
+     * Moves caret right by `amount` UTF-8 characters via `SetCaretPosition`.
+     */
+    void MoveCaretRight(int amount);
+
+    /**
      * Address: 0x00791290 (FUN_00791290, Moho::CMauiEdit::MoveSelectionLeft)
      *
      * What it does:
@@ -1366,6 +1396,14 @@ namespace moho
      * Scans descendants and returns maximum control depth lane.
      */
     [[nodiscard]] float GetTopmostDepth();
+
+    /**
+     * Address: 0x007966F0 (FUN_007966F0, Moho::CMauiFrame::DumpGraph)
+     *
+     * What it does:
+     * Walks this frame subtree depth-first and calls `Dump()` for each control.
+     */
+    void DumpGraph();
 
     /**
      * Address: 0x00796550 (FUN_00796550, Moho::CMauiFrame::SetBounds)
@@ -1536,9 +1574,7 @@ namespace moho
   {
   public:
     /**
-     * Address context: constructor path in `cfunc_InternalCreateGroupL`
-     * (`FUN_00797390`) allocates one `CMauiGroup` and initializes it through
-     * `CMauiControl(luaObject, parent, "group")`.
+     * Address: 0x00797280 (FUN_00797280, ??0CMauiGroup@Moho@@QAE@@Z)
      *
      * What it does:
      * Constructs one group control from Lua object + parent lanes.
@@ -1712,7 +1748,14 @@ namespace moho
      */
     void Dump() override;
 
-    virtual ~CMauiItemList() = default;
+    /**
+     * Address: 0x007994C0 (FUN_007994C0, sub_7994C0)
+     *
+     * What it does:
+     * Releases list-item string storage and one intrusive font reference, then
+     * continues base `CMauiControl` teardown.
+     */
+    ~CMauiItemList() override;
   };
 
   class CMauiMesh : public CMauiControl
@@ -1763,7 +1806,7 @@ namespace moho
     void Dump() override;
 
     /**
-     * Address: 0x0079E930 (FUN_0079E930, cfunc_CMauiMeshSetOrientationL)
+       * Address: 0x0079E930 (FUN_0079E930)
      *
      * What it does:
      * Stores one new mesh orientation quaternion and marks this mesh as
@@ -1771,7 +1814,14 @@ namespace moho
      */
     void SetOrientation(const Wm3::Quaternionf& orientation);
 
-    virtual ~CMauiMesh() = default;
+    /**
+     * Address: 0x0079DE70 (FUN_0079DE70, Moho::CMauiMesh::dtr)
+     *
+     * What it does:
+     * Releases the mesh preview texture shared-pointer lane and continues
+     * base `CMauiControl` teardown.
+     */
+    ~CMauiMesh() override;
   };
 
   class CMauiMovie : public CMauiControl
@@ -1821,7 +1871,7 @@ namespace moho
     void OnMinimized(bool minimized) override;
 
     /**
-     * Address: 0x0079F8F0 (FUN_0079F8F0, cfunc_CMauiMovieLoopL)
+       * Address: 0x0079F8F0 (FUN_0079F8F0)
      *
      * What it does:
      * Updates movie looping state used by playback runtime.
@@ -1829,7 +1879,7 @@ namespace moho
     void Loop(bool shouldLoop);
 
     /**
-     * Address: 0x0079FA40 (FUN_0079FA40, cfunc_CMauiMoviePlayL)
+       * Address: 0x0079FA40 (FUN_0079FA40)
      *
      * What it does:
      * Starts movie playback when an internal movie resource is attached.
@@ -1837,7 +1887,7 @@ namespace moho
     void Play();
 
     /**
-     * Address: 0x0079FBA0 (FUN_0079FBA0, cfunc_CMauiMovieStopL)
+       * Address: 0x0079FBA0 (FUN_0079FBA0)
      *
      * What it does:
      * Stops movie playback when an internal movie resource is attached.
@@ -1845,7 +1895,7 @@ namespace moho
     void Stop();
 
     /**
-     * Address: 0x0079FCF0 (FUN_0079FCF0, cfunc_CMauiMovieIsLoadedL)
+       * Address: 0x0079FCF0 (FUN_0079FCF0)
      *
      * What it does:
      * Returns whether an internal movie resource is attached and loaded.
@@ -1853,7 +1903,7 @@ namespace moho
     [[nodiscard]] bool IsLoaded() const;
 
     /**
-     * Address: 0x0079FE50 (FUN_0079FE50, cfunc_CMauiMovieGetNumFramesL)
+       * Address: 0x0079FE50 (FUN_0079FE50)
      *
      * What it does:
      * Returns frame count from the attached movie resource.
@@ -1861,7 +1911,7 @@ namespace moho
     [[nodiscard]] std::int32_t GetNumFrames() const;
 
     /**
-     * Address: 0x0079FFA0 (FUN_0079FFA0, cfunc_CMauiMovieGetFrameRateL)
+       * Address: 0x0079FFA0 (FUN_0079FFA0)
      *
      * What it does:
      * Returns playback frame rate from the attached movie resource.
@@ -2808,8 +2858,40 @@ namespace moho
     "CUIMapPreviewRuntimeView::mTexture offset must be 0x11C"
   );
 
+  /**
+   * Address: 0x008C65B0 (FUN_008C65B0, Moho::USER_GetLuaState)
+   *
+   * What it does:
+   * Lazily initializes and returns the process user Lua state, wiring the user
+   * task stage, script-disk watcher task, and core/user init-form execution.
+   */
   [[nodiscard]] LuaPlus::LuaState* USER_GetLuaState();
+
+  /**
+   * Address: 0x0083CD30 (FUN_0083CD30, Moho::MAUI_StartMainScript)
+   *
+   * What it does:
+   * Imports `/lua/ui/uimain.lua`, resolves `SetupUI`, and executes the entry
+   * callback against the active UI Lua state.
+   */
   [[nodiscard]] bool MAUI_StartMainScript();
+
+  /**
+   * Address: 0x0083D810 (FUN_0083D810, Moho::MAUI_ToggleConsole)
+   *
+   * What it does:
+   * Imports `/lua/ui/uimain.lua`, resolves `ToggleConsole`, and executes the
+   * callback against the active UI Lua state.
+   */
+  void MAUI_ToggleConsole();
+
+  /**
+   * Address: 0x0078CEF0 (FUN_0078CEF0, sub_78CEF0)
+   *
+   * What it does:
+   * Commits pending cursor texture/visibility state to the D3D device when
+   * the cursor default/show flags have changed.
+   */
   void MAUI_UpdateCursor(CMauiCursor* cursor);
   void MAUI_ReleaseCursor(CMauiCursor* cursor);
 
@@ -5790,7 +5872,7 @@ namespace moho
   CScrLuaInitForm* func_CMauiMeshSetOrientation_LuaFuncDef();
 
   /**
-   * Address: 0x0079E930 (FUN_0079E930, cfunc_CMauiMeshSetOrientationL)
+    * Alias of FUN_0079E930 (non-canonical helper lane).
    *
    * What it does:
    * Reads one `CMauiMesh` plus quaternion arg and stores mesh orientation.
@@ -5840,7 +5922,7 @@ namespace moho
   CScrLuaInitForm* func_CMauiMovieLoop_LuaFuncDef();
 
   /**
-   * Address: 0x0079F8F0 (FUN_0079F8F0, cfunc_CMauiMovieLoopL)
+    * Alias of FUN_0079F8F0 (non-canonical helper lane).
    *
    * What it does:
    * Reads one `CMauiMovie` plus bool and updates loop state.
@@ -5864,7 +5946,7 @@ namespace moho
   CScrLuaInitForm* func_CMauiMoviePlay_LuaFuncDef();
 
   /**
-   * Address: 0x0079FA40 (FUN_0079FA40, cfunc_CMauiMoviePlayL)
+    * Alias of FUN_0079FA40 (non-canonical helper lane).
    *
    * What it does:
    * Reads one `CMauiMovie` and starts playback.
@@ -5888,7 +5970,7 @@ namespace moho
   CScrLuaInitForm* func_CMauiMovieStop_LuaFuncDef();
 
   /**
-   * Address: 0x0079FBA0 (FUN_0079FBA0, cfunc_CMauiMovieStopL)
+    * Alias of FUN_0079FBA0 (non-canonical helper lane).
    *
    * What it does:
    * Reads one `CMauiMovie` and stops playback.
@@ -5913,7 +5995,7 @@ namespace moho
   CScrLuaInitForm* func_CMauiMovieIsLoaded_LuaFuncDef();
 
   /**
-   * Address: 0x0079FCF0 (FUN_0079FCF0, cfunc_CMauiMovieIsLoadedL)
+    * Alias of FUN_0079FCF0 (non-canonical helper lane).
    *
    * What it does:
    * Reads one `CMauiMovie` and returns its load state.
@@ -5938,7 +6020,7 @@ namespace moho
   CScrLuaInitForm* func_CMauiMovieGetNumFrames_LuaFuncDef();
 
   /**
-   * Address: 0x0079FE50 (FUN_0079FE50, cfunc_CMauiMovieGetNumFramesL)
+    * Alias of FUN_0079FE50 (non-canonical helper lane).
    *
    * What it does:
    * Reads one `CMauiMovie` and returns frame count.
@@ -5963,7 +6045,7 @@ namespace moho
   CScrLuaInitForm* func_CMauiMovieGetFrameRate_LuaFuncDef();
 
   /**
-   * Address: 0x0079FFA0 (FUN_0079FFA0, cfunc_CMauiMovieGetFrameRateL)
+    * Alias of FUN_0079FFA0 (non-canonical helper lane).
    *
    * What it does:
    * Reads one `CMauiMovie` and returns frame rate.

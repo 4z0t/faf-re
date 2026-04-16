@@ -27,8 +27,71 @@
 
 namespace moho
 {
+  [[nodiscard]] float REN_GetSimDeltaSeconds();
+}
+
+namespace moho
+{
   float ren_MeshDissolve = 0.0f;
   float ren_MeshDissolveCutoff = 0.0f;
+
+  /**
+   * Address: 0x007E5150 (FUN_007E5150, boost::shared_ptr_MeshMaterial::shared_ptr_MeshMaterial)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<MeshMaterial>` from one raw material pointer
+   * lane.
+   */
+  boost::shared_ptr<MeshMaterial>* ConstructSharedMeshMaterialFromRaw(
+    boost::shared_ptr<MeshMaterial>* const outMaterial,
+    MeshMaterial* const material
+  )
+  {
+    return ::new (outMaterial) boost::shared_ptr<MeshMaterial>(material);
+  }
+
+  /**
+   * Address: 0x007E5420 (FUN_007E5420, boost::shared_ptr_Mesh::shared_ptr_Mesh)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<Mesh>` from one raw mesh pointer lane.
+   */
+  boost::shared_ptr<Mesh>* ConstructSharedMeshFromRaw(
+    boost::shared_ptr<Mesh>* const outMesh,
+    Mesh* const mesh
+  )
+  {
+    return ::new (outMesh) boost::shared_ptr<Mesh>(mesh);
+  }
+
+  /**
+   * Address: 0x007E6280 (FUN_007E6280, boost::shared_ptr_MeshBatch::shared_ptr_MeshBatch)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<MeshBatch>` from one raw batch pointer lane.
+   */
+  boost::shared_ptr<MeshBatch>* ConstructSharedMeshBatchFromRaw(
+    boost::shared_ptr<MeshBatch>* const outBatch,
+    MeshBatch* const batch
+  )
+  {
+    return ::new (outBatch) boost::shared_ptr<MeshBatch>(batch);
+  }
+
+  /**
+   * Address: 0x00832060 (FUN_00832060, boost::shared_ptr_MeshInstance::shared_ptr_MeshInstance)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<MeshInstance>` from one raw mesh-instance
+   * pointer lane.
+   */
+  boost::shared_ptr<MeshInstance>* ConstructSharedMeshInstanceFromRaw(
+    boost::shared_ptr<MeshInstance>* const outMeshInstance,
+    MeshInstance* const meshInstance
+  )
+  {
+    return ::new (outMeshInstance) boost::shared_ptr<MeshInstance>(meshInstance);
+  }
 
   /**
    * Address: 0x007E51E0 (FUN_007E51E0, boost::shared_ptr_MeshBatch::operator=)
@@ -859,11 +922,17 @@ namespace
     tree.mSize = 0;
   }
 
+  /**
+   * Address: 0x00501760 (FUN_00501760, sub_501760)
+   *
+   * What it does:
+   * Clears one spatial-map tree node range, frees the sentinel node, and
+   * resets head/size lanes to null/zero.
+   */
   void DestroySpatialMapTree(moho::SpatialMapTree& tree)
   {
     moho::SpatialMapNode* const head = tree.mHead;
     if (head == nullptr) {
-      tree.mAllocatorCookie = nullptr;
       tree.mSize = 0;
       return;
     }
@@ -871,7 +940,6 @@ namespace
     EraseSpatialMapRange(tree, head->mLeft, head);
 
     delete head;
-    tree.mAllocatorCookie = nullptr;
     tree.mHead = nullptr;
     tree.mSize = 0;
   }
@@ -1436,6 +1504,13 @@ namespace
     }
   }
 
+  /**
+   * Address: 0x00502C60 (FUN_00502C60, Spatial shard AABB leaf collect helper)
+   *
+   * What it does:
+   * Scans one leaf `SpatialShardData` lane and appends all entity owners whose
+   * node AABBs intersect the query `bounds` for requested type masks.
+   */
   void CollectInBoxFromLeafData(
     const Wm3::AxisAlignedBox3f& bounds,
     moho::SpatialShardData& data,
@@ -1443,7 +1518,7 @@ namespace
     gpg::fastvector<moho::UserEntity*>& destination
   )
   {
-    if (SpatialShardDataHasNoRequestedType(data, type) || !AxisAlignedBoxesIntersect(data.mBounds, bounds)) {
+    if (SpatialShardDataHasNoRequestedType(data, type) || !AxisAlignedBoxesIntersect(bounds, data.mBounds)) {
       return;
     }
 
@@ -1451,27 +1526,26 @@ namespace
       data.RecalculateBounds();
     }
 
-    const bool boundsContainData = AxisAlignedBoxContains(bounds, data.mBounds);
     const std::uint32_t typeBits = EntityTypeBits(type);
 
-    const auto intersectsOrContained = [&bounds, boundsContainData](const Wm3::AxisAlignedBox3f& nodeBox) {
-      return boundsContainData || AxisAlignedBoxesIntersect(nodeBox, bounds);
+    const auto intersectsQuery = [&bounds](const Wm3::AxisAlignedBox3f& nodeBox) {
+      return AxisAlignedBoxesIntersect(nodeBox, bounds);
     };
 
     if ((typeBits & kSpatialEntityTypeUnit) != 0u) {
-      CollectTreeNodes(data.mMapUnits, destination, intersectsOrContained);
+      CollectTreeNodes(data.mMapUnits, destination, intersectsQuery);
     }
 
     if ((typeBits & kSpatialEntityTypeProjectile) != 0u) {
-      CollectTreeNodes(data.mMapProjectiles, destination, intersectsOrContained);
+      CollectTreeNodes(data.mMapProjectiles, destination, intersectsQuery);
     }
 
     if ((typeBits & kSpatialEntityTypeProp) != 0u) {
-      CollectTreeNodes(data.mMapProps, destination, intersectsOrContained);
+      CollectTreeNodes(data.mMapProps, destination, intersectsQuery);
     }
 
     if ((typeBits & kSpatialEntityTypeEntity) != 0u) {
-      CollectTreeNodes(data.mMapEntities, destination, intersectsOrContained);
+      CollectTreeNodes(data.mMapEntities, destination, intersectsQuery);
     }
   }
 
@@ -1803,7 +1877,7 @@ namespace
   }
 
   /**
-   * Address: 0x00501D80 (FUN_00501D80, Moho::SpatialDB_MeshInstance::SpatialDB_MeshInstance)
+    * Alias of FUN_00501D80 (non-canonical helper lane).
    *
    * What it does:
    * Initializes one spatial-db mesh storage view: resets shard vector lanes,
@@ -1830,7 +1904,7 @@ namespace
   }
 
   /**
-   * Address: 0x00501E50 (FUN_00501E50, Moho::SpatialDB_MeshInstance::~SpatialDB_MeshInstance)
+    * Alias of FUN_00501E50 (non-canonical helper lane).
    *
    * What it does:
    * Releases shard allocations, destroys map/sentinel storage, tears down
@@ -2477,18 +2551,32 @@ namespace
     tree.size = 0;
   }
 
-  void DestroyMeshCacheTree(moho::MeshRendererMeshCacheTree& tree) noexcept
+  /**
+   * Address: 0x007DF2D0 (FUN_007DF2D0, sub_7DF2D0)
+   *
+   * What it does:
+   * Releases one mesh-cache RB-tree storage lane by erasing all entries,
+   * deleting the head sentinel, and zeroing `{head,size}`.
+   */
+  std::int32_t ReleaseMeshCacheTreeStorage(moho::MeshRendererMeshCacheTree* const tree) noexcept
   {
-    if (!tree.head) {
-      tree.size = 0;
-      tree.proxy = nullptr;
-      return;
+    if (tree == nullptr) {
+      return 0;
     }
 
-    ResetMeshCacheTree(tree);
-    DestroyMeshCacheNode(tree.head);
-    tree.head = nullptr;
-    tree.size = 0;
+    if (tree->head != nullptr) {
+      ResetMeshCacheTree(*tree);
+      DestroyMeshCacheNode(tree->head);
+    }
+
+    tree->head = nullptr;
+    tree->size = 0u;
+    return 0;
+  }
+
+  void DestroyMeshCacheTree(moho::MeshRendererMeshCacheTree& tree) noexcept
+  {
+    (void)ReleaseMeshCacheTreeStorage(&tree);
     tree.proxy = nullptr;
   }
 
@@ -2545,18 +2633,32 @@ namespace
     tree.size = 0;
   }
 
-  void DestroyMeshBatchTree(moho::MeshBatchBucketTree& tree) noexcept
+  /**
+   * Address: 0x007E2B20 (FUN_007E2B20, sub_7E2B20)
+   *
+   * What it does:
+   * Releases one mesh-batch RB-tree storage lane by erasing all entries,
+   * deleting the head sentinel, and zeroing `{head,size}`.
+   */
+  std::int32_t ReleaseMeshBatchTreeStorage(moho::MeshBatchBucketTree* const tree) noexcept
   {
-    if (!tree.head) {
-      tree.size = 0;
-      tree.proxy = nullptr;
-      return;
+    if (tree == nullptr) {
+      return 0;
     }
 
-    ResetMeshBatchTree(tree);
-    delete tree.head;
-    tree.head = nullptr;
-    tree.size = 0;
+    if (tree->head != nullptr) {
+      ResetMeshBatchTree(*tree);
+      delete tree->head;
+    }
+
+    tree->head = nullptr;
+    tree->size = 0u;
+    return 0;
+  }
+
+  void DestroyMeshBatchTree(moho::MeshBatchBucketTree& tree) noexcept
+  {
+    (void)ReleaseMeshBatchTreeStorage(&tree);
     tree.proxy = nullptr;
   }
 
@@ -3143,7 +3245,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00501F50 (FUN_00501F50, Moho::SpatialDB_MeshInstance::SpatialDB_MeshInstance)
+    * Alias of FUN_00501F50 (non-canonical helper lane).
    *
    * What it does:
    * Rebuilds embedded top-level shard lanes for one map-size update.
@@ -3568,6 +3670,28 @@ namespace moho
   }
 
   /**
+   * Address: 0x007DC7A0 (FUN_007DC7A0, ??0MeshLOD@Moho@@IAE@XZ)
+   *
+   * What it does:
+   * Initializes one empty runtime LOD lane with default cutoff/material state
+   * and null shared-resource handles.
+   */
+  MeshLOD::MeshLOD()
+    : useDissolve(0)
+    , cutoff(1000.0f)
+    , mat()
+    , previousResource()
+    , res()
+    , scrolling(0)
+    , occlude(0)
+    , silhouette(0)
+    , pad_AF(0)
+    , lodBlueprintCopy()
+    , staticBatch()
+    , dynamicBatch()
+  {}
+
+  /**
    * Address: 0x007DC8C0 (FUN_007DC8C0,
    * ??0MeshLOD@Moho@@QAE@V?$shared_ptr@VRScmResource@Moho@@@boost@@ABVRMeshBlueprintLOD@1@V?$shared_ptr@VMeshMaterial@Moho@@@3@PAVCResourceWatcher@1@@Z)
    *
@@ -3655,6 +3779,17 @@ namespace moho
   }
 
   /**
+   * Address: 0x007DD5D0 (FUN_007DD5D0, ?SetCutoff@MeshLOD@Moho@@QAEXM@Z)
+   *
+   * What it does:
+   * Stores one LOD cutoff distance threshold.
+   */
+  void MeshLOD::SetCutoff(const float cutoffValue)
+  {
+    cutoff = cutoffValue;
+  }
+
+  /**
    * Address: 0x007DCED0 (FUN_007DCED0)
    *
    * What it does:
@@ -3696,15 +3831,26 @@ namespace moho
   }
 
   /**
-   * Address: 0x007DD680 (FUN_007DD680,
-   * ??0Mesh@Moho@@QAE@PBVRMeshBlueprint@1@V?$shared_ptr@VMeshMaterial@Moho@@@boost@@@Z)
+   * Address: 0x007DD5E0 (FUN_007DD5E0, ??0Mesh@Moho@@IAE@XZ)
+   *
+   * What it does:
+   * Initializes base mesh lanes and clears resource/material/LOD ownership.
    */
-  Mesh::Mesh(const RMeshBlueprint* const blueprint, const boost::shared_ptr<MeshMaterial> materialArg)
+  Mesh::Mesh()
     : bp(nullptr)
     , material()
     , unk2C(0)
     , lods()
     , unk3C(0)
+  {
+  }
+
+  /**
+   * Address: 0x007DD680 (FUN_007DD680,
+   * ??0Mesh@Moho@@QAE@PBVRMeshBlueprint@1@V?$shared_ptr@VMeshMaterial@Moho@@@boost@@@Z)
+   */
+  Mesh::Mesh(const RMeshBlueprint* const blueprint, const boost::shared_ptr<MeshMaterial> materialArg)
+    : Mesh()
   {
     Load(blueprint, materialArg);
   }
@@ -3717,11 +3863,7 @@ namespace moho
    * Initializes one mesh with a pre-resolved resource/material LOD lane.
    */
   Mesh::Mesh(const boost::shared_ptr<RScmResource> resourceArg, const boost::shared_ptr<MeshMaterial> materialArg)
-    : bp(nullptr)
-    , material()
-    , unk2C(0)
-    , lods()
-    , unk3C(0)
+    : Mesh()
   {
     (void)CreateLOD(resourceArg, materialArg);
   }
@@ -3821,6 +3963,17 @@ namespace moho
   }
 
   /**
+   * Address: 0x007DD930 (FUN_007DD930, Moho::Mesh::GetSortOrder)
+   *
+   * What it does:
+   * Returns the mesh blueprint sort-order lane when present, else `0.0f`.
+   */
+  float Mesh::GetSortOrder() const
+  {
+    return bp != nullptr ? bp->mSortOrder : 0.0f;
+  }
+
+  /**
    * Address: 0x007DD950 (FUN_007DD950, ?GetResource@Mesh@Moho@@QBE?AV?$shared_ptr@VRScmResource@Moho@@@boost@@H@Z)
    */
   boost::shared_ptr<RScmResource> Mesh::GetResource(const std::int32_t /*lodIndex*/) const
@@ -3876,6 +4029,29 @@ namespace moho
     }
 
     return nullptr;
+  }
+
+  /**
+   * Address: 0x007DDA20 (FUN_007DDA20, ?GetMaxCutoff@Mesh@Moho@@QBEMXZ)
+   *
+   * What it does:
+   * Returns the cutoff value from the last loaded mesh LOD, or zero when no
+   * LODs are available.
+   */
+  float Mesh::GetMaxCutoff() const
+  {
+    MeshLOD* const* const begin = lods.begin();
+    if (begin == nullptr) {
+      return 0.0f;
+    }
+
+    MeshLOD* const* const end = lods.end();
+    if (begin == end) {
+      return 0.0f;
+    }
+
+    const MeshLOD* const lastLod = *(end - 1);
+    return lastLod != nullptr ? lastLod->cutoff : 0.0f;
   }
 
   /**
@@ -3937,6 +4113,19 @@ namespace moho
 
   std::uint8_t MeshInstance::sFrameCounter = 0;
   float MeshInstance::sCurrentInterpolant = 0.0f;
+
+  /**
+   * Address: 0x007DE6A0 (FUN_007DE6A0, ?SetCurrentInterpolant@MeshInstance@Moho@@SAXM@Z)
+   *
+   * What it does:
+   * Advances the global mesh frame counter and snapshots the current render
+   * frame interpolation value.
+   */
+  void MeshInstance::SetCurrentInterpolant()
+  {
+    ++sFrameCounter;
+    sCurrentInterpolant = REN_GetSimDeltaSeconds();
+  }
 
   /**
    * Address: 0x007DE060 (FUN_007DE060,
@@ -4055,6 +4244,119 @@ namespace moho
   }
 
   /**
+   * Address: 0x007DE6C0 (FUN_007DE6C0, ?Cull@MeshInstance@Moho@@QAEX_N@Z)
+   *
+   * What it does:
+   * Stores one per-instance hidden/cull visibility flag.
+   */
+  void MeshInstance::Cull(const bool hidden)
+  {
+    isHidden = hidden ? 1u : 0u;
+  }
+
+  /**
+   * Address: 0x007DE6D0 (FUN_007DE6D0, ?Reflect@MeshInstance@Moho@@QAEX_N@Z)
+   *
+   * What it does:
+   * Clears one per-instance reflection-visibility flag.
+   */
+  void MeshInstance::Reflect([[maybe_unused]] const bool reflected)
+  {
+    isReflected = 0u;
+  }
+
+  /**
+   * Address: 0x007DE880 (FUN_007DE880, ?SetParameter@MeshInstance@Moho@@QAEXW4PARAM@MeshMaterial@2@M@Z)
+   *
+   * What it does:
+   * Writes one shader parameter lane selected by `MeshMaterial::PARAM`.
+   */
+  void MeshInstance::SetParameter(const MeshMaterial::PARAM parameter, const float value)
+  {
+    switch (parameter) {
+    case MeshMaterial::PARAM_GENERIC:
+      parameters = value;
+      break;
+    case MeshMaterial::PARAM_FRACTION_COMPLETE:
+      fractionCompleteParameter = value;
+      break;
+    case MeshMaterial::PARAM_FRACTION_HEALTH:
+      fractionHealthParameter = value;
+      break;
+    case MeshMaterial::PARAM_LIFETIME:
+      lifetimeParameter = value;
+      break;
+    case MeshMaterial::PARAM_AUXILIARY:
+      auxiliaryParameter = value;
+      break;
+    default:
+      break;
+    }
+  }
+
+  /**
+   * Address: 0x007DE850 (FUN_007DE850, ?SetInterpolantScale@MeshInstance@Moho@@QAEXM@Z)
+   *
+   * What it does:
+   * Stores one per-instance interpolation scale and invalidates cached
+   * interpolant lane for refresh.
+   */
+  void MeshInstance::SetInterpolantScale(const float interpolantScale)
+  {
+    uniformScale = interpolantScale;
+    frameCounter = static_cast<std::int8_t>(sFrameCounter);
+    currInterpolant = -1.0f;
+  }
+
+  /**
+   * Address: 0x007DE8C0 (FUN_007DE8C0, ?SetScale@MeshInstance@Moho@@QAEXABV?$Vector3@M@Wm3@@@Z)
+   *
+   * What it does:
+   * Stores one per-instance render scale vector.
+   */
+  void MeshInstance::SetScale(const Wm3::Vec3f& scaleArg)
+  {
+    scale = scaleArg;
+  }
+
+  /**
+   * Address: 0x007DE8E0 (FUN_007DE8E0, ?SetColor@MeshInstance@Moho@@QAEXI@Z)
+   *
+   * What it does:
+   * Stores one packed per-instance color value.
+   */
+  void MeshInstance::SetColor(const std::uint32_t colorArg)
+  {
+    color = static_cast<std::int32_t>(colorArg);
+  }
+
+  /**
+   * Address: 0x007DE900 (FUN_007DE900, ?SetScroll@MeshInstance@Moho@@QAEXABV?$Vector2@M@Wm3@@0@Z)
+   *
+   * What it does:
+   * Stores two texture-scroll vector lanes for this mesh instance.
+   */
+  void MeshInstance::SetScroll(const Wm3::Vec2f& scroll1Arg, const Wm3::Vec2f& scroll2Arg)
+  {
+    scroll1 = scroll1Arg;
+    scroll2 = scroll2Arg;
+  }
+
+  /**
+   * Address: 0x007DF140 (FUN_007DF140, ?ResetBatches@MeshInstance@Moho@@QAEXXZ)
+   *
+   * What it does:
+   * Resets mesh LOD batch handles for this instance when a mesh owner exists.
+   */
+  void MeshInstance::ResetBatches()
+  {
+    Mesh* const meshObject = mesh.get();
+    if (meshObject != nullptr) {
+      meshObject->ResetBatches();
+    }
+  }
+
+  /**
    * Address: 0x007DE890 (FUN_007DE890, ?SetDissolve@MeshInstance@Moho@@QAEXM@Z)
    *
    * What it does:
@@ -4098,6 +4400,33 @@ namespace moho
     frameCounter = static_cast<std::int8_t>(sFrameCounter);
     currInterpolant = -1.0f;
     boundsValid = 1;
+  }
+
+  /**
+   * Address: 0x007DE6E0 (FUN_007DE6E0, ?LockPose@MeshInstance@Moho@@QAEX_N@Z)
+   *
+   * What it does:
+   * Toggles static-pose lock state; when locking, snapshots `curPose` into
+   * `endPose`, and when unlocking, invalidates interpolation cache lanes.
+   */
+  void MeshInstance::LockPose(const bool lockPose)
+  {
+    const std::uint8_t lockValue = lockPose ? 1u : 0u;
+    if (isLocked == lockValue) {
+      return;
+    }
+
+    isLocked = lockValue;
+    if (lockValue != 0u) {
+      CAniPose* const endPoseValue = endPose.get();
+      if (endPoseValue != nullptr) {
+        endPoseValue->CopyPose(curPose.get(), true);
+      }
+      return;
+    }
+
+    frameCounter = static_cast<std::int8_t>(sFrameCounter);
+    currInterpolant = -1.0f;
   }
 
   /**
@@ -4424,6 +4753,17 @@ namespace moho
     ResetMeshBatchTree(meshes);
   }
 
+  /**
+   * Address: 0x007DF510 (FUN_007DF510, ?UpdateMapSize@MeshRenderer@Moho@@QAEXHH@Z)
+   *
+   * What it does:
+   * Resizes renderer-owned mesh spatial-db storage for current map dimensions.
+   */
+  void MeshRenderer::UpdateMapSize(const std::int32_t width, const std::int32_t height)
+  {
+    meshSpatialDb.ResizeStorageForMap(width, height);
+  }
+
   boost::shared_ptr<Mesh> MeshRenderer::FindOrCreateMesh(
     const RMeshBlueprint* const blueprint, const boost::shared_ptr<MeshMaterial> materialArg
   )
@@ -4499,6 +4839,47 @@ namespace moho
     RemoveLinkFromList(instanceLink);
     InsertLinkBefore(&instanceListHead, instanceLink);
     return instance;
+  }
+
+  /**
+   * Address: 0x007E0380 (FUN_007E0380, ?RenderCartographic@MeshRenderer@Moho@@QAEXMMMABVGeomCamera3@2@@Z)
+   *
+   * What it does:
+   * Forwards cartographic rendering to the batch-map overload using this
+   * renderer's persistent `meshes` tree.
+   */
+  void MeshRenderer::RenderCartographic(
+    const float projectionScaleX,
+    const float projectionScaleY,
+    const float projectionScaleZ,
+    const GeomCamera3& camera
+  )
+  {
+    RenderCartographic(projectionScaleX, projectionScaleY, projectionScaleZ, camera, meshes);
+  }
+
+  /**
+   * Address: 0x007E0820 (FUN_007E0820, ?RenderDepth@MeshRenderer@Moho@@QAEXABVGeomCamera3@2@@Z)
+   *
+   * What it does:
+   * Forwards depth rendering to the batch-map overload using this renderer's
+   * persistent `meshes` tree.
+   */
+  void MeshRenderer::RenderDepth(const GeomCamera3& camera)
+  {
+    RenderDepth(camera, meshes);
+  }
+
+  /**
+   * Address: 0x007E11A0 (FUN_007E11A0, ?Render@MeshRenderer@Moho@@QAEXIABVGeomCamera3@2@PAVShadow@2@@Z)
+   *
+   * What it does:
+   * Forwards one standard render call to the batch-map overload using this
+   * renderer's persistent `meshes` tree.
+   */
+  void MeshRenderer::Render(const std::int32_t meshFlags, const GeomCamera3& camera, Shadow* const shadow)
+  {
+    Render(meshFlags, camera, shadow, meshes);
   }
 
   /**

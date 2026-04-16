@@ -773,7 +773,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00695740 (FUN_00695740, func_MotorFallDownWhack_LuaFuncDef)
+    * Alias of FUN_00695740 (non-canonical helper lane).
    *
    * What it does:
    * Publishes `MotorFallDown:Whack()` into the sim Lua init set.

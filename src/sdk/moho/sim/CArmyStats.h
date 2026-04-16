@@ -208,6 +208,25 @@ namespace moho
     [[nodiscard]] std::int32_t UpdateUnitStat(const char* statPath, const std::int32_t* delta);
 
     /**
+     * Address: 0x00593220 (FUN_00593220, func_SetUnitStat)
+     *
+     * What it does:
+     * Resolves one stat item by path, coerces it to integer type, and
+     * atomically replaces the integer counter lane with `*value`.
+     */
+    [[nodiscard]] std::int32_t SetUnitStat(const char* statPath, const std::int32_t* value);
+
+    /**
+     * Address: 0x005931E0 (FUN_005931E0, Moho::CArmyStats::SetIntStatAtomic)
+     *
+     * What it does:
+     * Resolves one stat item by path, coerces it to integer storage, and
+     * atomically replaces the counter lane with `*value`, returning the
+     * previous value on success.
+     */
+    [[nodiscard]] std::int32_t SetIntStatAtomic(const char* statPath, const std::int32_t* value);
+
+    /**
      * Address: 0x005932C0 (FUN_005932C0, sub_5932C0)
      *
      * What it does:
@@ -292,7 +311,22 @@ namespace moho
      */
     [[nodiscard]] ArmyNameIndexNode* EraseNameIndexNodeAndAdvance(ArmyNameIndexNode* node);
 
+    /**
+     * Address: 0x0070DDC0 (FUN_0070DDC0, CArmyStats name-index tree cleanup)
+     *
+     * What it does:
+     * Destroys all name-index nodes, frees the sentinel head, and resets the
+     * name-index runtime lane.
+     */
     void DestroyNameIndexTree();
+
+    /**
+     * Address: 0x007015C0 (FUN_007015C0, CArmyStats auxiliary trigger-list cleanup)
+     *
+     * What it does:
+     * Destroys all trigger-list nodes, frees the sentinel head, and resets the
+     * auxiliary trigger runtime lane.
+     */
     void DestroyAuxList();
 
   public:

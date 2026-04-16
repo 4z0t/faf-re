@@ -15954,6 +15954,78 @@
     return 3;
   }
 
+  struct MwsfdFrameInfoToSfdInputView
+  {
+    std::int32_t lane00;        // +0x00
+    std::int32_t lane04;        // +0x04
+    std::int32_t bufferFormat;  // +0x08
+    std::int32_t lane0C;        // +0x0C
+    std::int32_t lane10;        // +0x10
+    std::int32_t lane14;        // +0x14
+    std::int32_t lane18;        // +0x18
+    std::int32_t pictureType;   // +0x1C
+    std::int32_t lane20;        // +0x20
+    std::int32_t lane24;        // +0x24
+    std::int32_t lane28;        // +0x28
+    std::int32_t lane2C;        // +0x2C
+    std::int32_t lane30;        // +0x30
+    std::int32_t lane34;        // +0x34
+    std::int32_t lane38;        // +0x38
+    std::int32_t lane3C;        // +0x3C
+    std::int32_t lane40;        // +0x40
+  };
+
+  struct MwsfdFrameInfoToSfdOutputView
+  {
+    std::int32_t lane00;  // +0x00
+    std::int32_t lane04;  // +0x04
+    std::int32_t lane08;  // +0x08
+    std::int32_t lane0C;  // +0x0C
+    std::int32_t lane10;  // +0x10
+    std::int32_t lane14;  // +0x14
+    std::int32_t lane18;  // +0x18
+    std::int32_t lane1C;  // +0x1C
+    std::int32_t lane20;  // +0x20
+    std::int32_t lane24;  // +0x24
+    std::int32_t lane28;  // +0x28
+    std::int32_t lane2C;  // +0x2C
+  };
+
+  static_assert(sizeof(MwsfdFrameInfoToSfdInputView) == 0x44, "MwsfdFrameInfoToSfdInputView size must be 0x44");
+  static_assert(offsetof(MwsfdFrameInfoToSfdInputView, pictureType) == 0x1C, "MwsfdFrameInfoToSfdInputView::pictureType offset must be 0x1C");
+  static_assert(sizeof(MwsfdFrameInfoToSfdOutputView) == 0x30, "MwsfdFrameInfoToSfdOutputView size must be 0x30");
+
+  /**
+   * Address: 0x00ACA5E0 (FUN_00ACA5E0, _mwl_convFrmInfToSFD)
+   *
+   * What it does:
+   * Converts one MWSFD frame-info lane block into the SFD frame-info lane
+   * order, remapping buffer-format and picture-type enums through the
+   * `mwl_conv*ToSFD` helpers.
+   */
+  std::int32_t mwl_convFrmInfToSFD(
+    const MwsfdFrameInfoToSfdInputView* const source,
+    MwsfdFrameInfoToSfdOutputView* const destination
+  )
+  {
+    const std::int32_t sfdBufferFormat = mwl_convBufFmtToSFD(source->bufferFormat);
+    const std::int32_t sfdPictureType = mwl_convPtypeToSFD(source->pictureType);
+
+    destination->lane20 = source->lane00;
+    destination->lane04 = source->lane10;
+    destination->lane08 = source->lane14;
+    destination->lane14 = source->lane28;
+    destination->lane0C = source->lane18;
+    destination->lane10 = sfdPictureType;
+    destination->lane18 = source->lane2C;
+    destination->lane2C = source->lane30;
+    destination->lane00 = source->lane0C;
+    destination->lane1C = sfdBufferFormat;
+    destination->lane24 = source->lane3C;
+    destination->lane28 = source->lane40;
+    return source->lane3C;
+  }
+
   /**
    * Address: 0x00AC6880 (FUN_00AC6880, _mwsfsfx_CnvFrmFmtTypeToSfx)
    *

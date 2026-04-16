@@ -14,6 +14,7 @@
 #include "gpg/core/containers/String.h"
 #include "gpg/core/containers/WriteArchive.h"
 #include "moho/ai/CAiPathNavigator.h"
+#include "moho/misc/Listener.h"
 #include "moho/resource/blueprints/RUnitBlueprint.h"
 #include "moho/sim/CArmyImpl.h"
 #include "moho/sim/COGrid.h"
@@ -30,10 +31,18 @@ namespace moho
   public:
     [[nodiscard]] const char* GetName() const override;
   };
+
+  class RListenerRType_NavPath final : public gpg::RType
+  {
+  public:
+    [[nodiscard]] const char* GetName() const override;
+  };
 } // namespace moho
 
 namespace
 {
+  using PathCellVector = msvc8::vector<moho::HPathCell>;
+
   struct RectHistoryNode
   {
     RectHistoryNode* next;
@@ -311,6 +320,84 @@ const char* moho::RBroadcasterRType_NavPath::GetName() const
   }
 
   return gBroadcasterNavPathTypeName.c_str();
+}
+
+/**
+ * Address: 0x00763850 (FUN_00763850)
+ *
+ * What it does:
+ * Serializes one reflected `vector<HPathCell>` payload by writing count and
+ * then each path-cell element lane.
+ */
+[[maybe_unused]] void SerializePathCellVectorArchive(
+  gpg::WriteArchive* const archive,
+  const int objectPtr,
+  const int,
+  gpg::RRef* const ownerRef
+)
+{
+  if (archive == nullptr) {
+    return;
+  }
+
+  const auto* const vectorObject = reinterpret_cast<const PathCellVector*>(
+    static_cast<std::uintptr_t>(static_cast<std::uint32_t>(objectPtr))
+  );
+
+  const unsigned int count = vectorObject != nullptr ? static_cast<unsigned int>(vectorObject->size()) : 0u;
+  archive->WriteUInt(count);
+  if (count == 0u || vectorObject == nullptr) {
+    return;
+  }
+
+  gpg::RType* const pathCellType = CachedPathCellType();
+  GPG_ASSERT(pathCellType != nullptr);
+  if (!pathCellType) {
+    return;
+  }
+
+  const gpg::RRef owner = ownerRef ? *ownerRef : gpg::RRef{};
+  for (unsigned int i = 0; i < count; ++i) {
+    archive->Write(pathCellType, const_cast<moho::HPathCell*>(&(*vectorObject)[static_cast<std::size_t>(i)]), owner);
+  }
+}
+
+/**
+ * Address: 0x00763F50 (FUN_00763F50, preregister_RBroadcasterRType_NavPath)
+ *
+ * What it does:
+ * Constructs/preregisters RTTI metadata for `moho::Broadcaster`.
+ */
+[[nodiscard]] gpg::RType* preregister_RBroadcasterRType_NavPath()
+{
+  static RBroadcasterRType_NavPath typeInfo;
+  gpg::PreRegisterRType(typeid(Broadcaster), &typeInfo);
+  return &typeInfo;
+}
+
+/**
+ * What it does:
+ * Returns the lexical type label for `Listener<NavPath>`.
+ */
+const char* moho::RListenerRType_NavPath::GetName() const
+{
+  return "Listener<NavPath>";
+}
+
+/**
+ * Address: 0x00763FB0 (FUN_00763FB0, preregister_RListenerRType_NavPath)
+ *
+ * What it does:
+ * Constructs/preregisters RTTI metadata for
+ * `moho::Listener<const moho::SNavPath&>`.
+ */
+[[nodiscard]] gpg::RType* preregister_RListenerRType_NavPath()
+{
+  using NavPathListener = Listener<const SNavPath&>;
+
+  static RListenerRType_NavPath typeInfo;
+  gpg::PreRegisterRType(typeid(NavPathListener), &typeInfo);
+  return &typeInfo;
 }
 
 gpg::RType* CAiPathFinder::sType = nullptr;

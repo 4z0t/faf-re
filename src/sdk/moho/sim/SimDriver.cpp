@@ -23,6 +23,90 @@ namespace
   ISTIDriver* gActiveSimDriver = nullptr;
   StatItem* gEngineStatSimSync = nullptr;
 
+  struct LegacyGeomCameraVectorSlot
+  {
+    std::uint32_t mProxyLane; // +0x00
+    GeomCamera3* mFirst; // +0x04
+    GeomCamera3* mLast; // +0x08
+    GeomCamera3* mEnd; // +0x0C
+  };
+  static_assert(sizeof(LegacyGeomCameraVectorSlot) == 0x10, "LegacyGeomCameraVectorSlot size must be 0x10");
+  static_assert(offsetof(LegacyGeomCameraVectorSlot, mFirst) == 0x04, "LegacyGeomCameraVectorSlot::mFirst offset must be 0x04");
+  static_assert(offsetof(LegacyGeomCameraVectorSlot, mLast) == 0x08, "LegacyGeomCameraVectorSlot::mLast offset must be 0x08");
+  static_assert(offsetof(LegacyGeomCameraVectorSlot, mEnd) == 0x0C, "LegacyGeomCameraVectorSlot::mEnd offset must be 0x0C");
+
+  struct LegacyStringVectorSlot
+  {
+    std::uint32_t mProxyLane; // +0x00
+    msvc8::string* mFirst; // +0x04
+    msvc8::string* mLast; // +0x08
+    msvc8::string* mEnd; // +0x0C
+  };
+  static_assert(sizeof(LegacyStringVectorSlot) == 0x10, "LegacyStringVectorSlot size must be 0x10");
+  static_assert(offsetof(LegacyStringVectorSlot, mFirst) == 0x04, "LegacyStringVectorSlot::mFirst offset must be 0x04");
+  static_assert(offsetof(LegacyStringVectorSlot, mLast) == 0x08, "LegacyStringVectorSlot::mLast offset must be 0x08");
+  static_assert(offsetof(LegacyStringVectorSlot, mEnd) == 0x0C, "LegacyStringVectorSlot::mEnd offset must be 0x0C");
+
+  void DestroyLegacyStringPayloadRange(msvc8::string* begin, msvc8::string* end)
+  {
+    while (begin != end) {
+      begin->tidy(true, 0u);
+      ++begin;
+    }
+  }
+
+  /**
+   * Address: 0x00740700 (FUN_00740700, sub_740700)
+   *
+   * What it does:
+   * Destroys one legacy `GeomCamera3` vector lane and releases its backing
+   * heap storage, preserving the leading proxy lane.
+   */
+  [[maybe_unused]] void DestroyLegacyGeomCameraVectorSlot(LegacyGeomCameraVectorSlot* const slot)
+  {
+    if (slot == nullptr) {
+      return;
+    }
+
+    GeomCamera3* cursor = slot->mFirst;
+    if (cursor != nullptr) {
+      while (cursor != slot->mLast) {
+        cursor->~GeomCamera3();
+        ++cursor;
+      }
+      ::operator delete(slot->mFirst);
+    }
+
+    slot->mFirst = nullptr;
+    slot->mLast = nullptr;
+    slot->mEnd = nullptr;
+  }
+
+  /**
+   * Address: 0x00741F70 (FUN_00741F70, sub_741F70)
+   *
+   * What it does:
+   * Destroys each legacy string-vector lane in `[begin,end)`, releases each
+   * lane's element storage, and clears the three range pointers.
+   */
+  [[maybe_unused]] void DestroyLegacyStringVectorRange(
+    LegacyStringVectorSlot* begin,
+    LegacyStringVectorSlot* const end
+  )
+  {
+    while (begin != end) {
+      if (begin->mFirst != nullptr) {
+        DestroyLegacyStringPayloadRange(begin->mFirst, begin->mLast);
+        ::operator delete(begin->mFirst);
+      }
+
+      begin->mFirst = nullptr;
+      begin->mLast = nullptr;
+      begin->mEnd = nullptr;
+      ++begin;
+    }
+  }
+
   boost::mutex& DriverMutexRef(SDriverMutex& lockCell)
   {
     if (lockCell.lock == nullptr) {
@@ -147,12 +231,30 @@ void SSyncData::QueuePendingCommandEventRemoval(const CmdId commandId)
   mPendingCommandEventRemovals.push_back(commandId);
 }
 
+/**
+ * Address: 0x005C38E0 (FUN_005C38E0)
+ *
+ * What it does:
+ * Appends one unit-create sync packet to `syncData->mNewUnits` and returns
+ * the inserted element pointer.
+ */
+SCreateUnitParams* moho::QueueCreateUnitParams(SSyncData* const syncData, const SCreateUnitParams& params)
+{
+  if (!syncData) {
+    return nullptr;
+  }
+
+  syncData->mNewUnits.push_back(params);
+  if (syncData->mNewUnits.empty()) {
+    return nullptr;
+  }
+
+  return &syncData->mNewUnits.back();
+}
+
 SSyncDataQueue::~SSyncDataQueue()
 {
-  ClearAndDelete();
-  delete[] map;
-  map = nullptr;
-  mapSize = 0;
+  ReleaseOwnedSlotsAndReset();
 }
 
 bool SSyncDataQueue::Empty() const
@@ -168,7 +270,7 @@ void SSyncDataQueue::PushBack(SSyncData* data)
 
   if (size >= mapSize) {
     const uint32_t newCap = (mapSize == 0) ? 8u : mapSize * 2u;
-    auto** newMap = new SSyncData*[newCap];
+    auto** newMap = static_cast<SSyncData**>(::operator new(static_cast<std::size_t>(newCap) * sizeof(SSyncData*)));
     for (uint32_t i = 0; i < newCap; ++i) {
       newMap[i] = nullptr;
     }
@@ -177,7 +279,7 @@ void SSyncDataQueue::PushBack(SSyncData* data)
       newMap[i] = map[(head + i) % mapSize];
     }
 
-    delete[] map;
+    ::operator delete(static_cast<void*>(map));
     map = newMap;
     mapSize = newCap;
     head = 0;
@@ -203,6 +305,38 @@ SSyncData* SSyncDataQueue::PopFront()
   }
 
   return out;
+}
+
+/**
+ * Address: 0x007411A0 (FUN_007411A0)
+ *
+ * What it does:
+ * Drains queue-size bookkeeping, destroys every non-null queue slot payload in
+ * the backing map, releases map storage, and resets queue ownership lanes.
+ */
+void SSyncDataQueue::ReleaseOwnedSlotsAndReset()
+{
+  while (size != 0u) {
+    const uint32_t nextSize = size - 1u;
+    size = nextSize;
+    if (nextSize == 0u) {
+      head = 0u;
+    }
+  }
+
+  if (map != nullptr) {
+    for (uint32_t slot = mapSize; slot != 0u; --slot) {
+      SSyncData* const queuedPayload = map[slot - 1u];
+      if (queuedPayload != nullptr) {
+        delete queuedPayload;
+      }
+    }
+
+    ::operator delete(static_cast<void*>(map));
+  }
+
+  map = nullptr;
+  mapSize = 0u;
 }
 
 void SSyncDataQueue::ClearAndDelete()

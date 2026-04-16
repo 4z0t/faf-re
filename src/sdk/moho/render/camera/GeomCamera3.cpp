@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "legacy/containers/Vector.h"
 #include "moho/sim/STIMap.h"
 
 namespace
@@ -184,6 +185,50 @@ namespace
     const Wm3::Plane3f defaultPlane{};
     camera->solid1.ResizePlanes(kFrustumPlaneCount, defaultPlane);
     camera->solid2.ResizePlanes(kFrustumPlaneCount, defaultPlane);
+  }
+
+  /**
+   * Address: 0x00742BF0 (FUN_00742BF0, func_CpyCamera)
+   *
+   * What it does:
+   * Copies full geometric camera state except local solid/viewport flag lanes.
+   */
+  [[nodiscard]] moho::GeomCamera3* CopyGeomCameraStatePreservingFlags(
+    moho::GeomCamera3* const destination, const moho::GeomCamera3& source
+  )
+  {
+    destination->tranform.orient_.x = source.tranform.orient_.x;
+    destination->tranform.orient_.y = source.tranform.orient_.y;
+    destination->tranform.orient_.z = source.tranform.orient_.z;
+    destination->tranform.orient_.w = source.tranform.orient_.w;
+    destination->tranform.pos_ = source.tranform.pos_;
+
+    destination->projection = source.projection;
+    destination->view = source.view;
+    destination->viewProjection = source.viewProjection;
+    destination->inverseProjection = source.inverseProjection;
+    destination->inverseView = source.inverseView;
+    destination->inverseViewProjection = source.inverseViewProjection;
+    destination->solid1 = source.solid1;
+    destination->solid2 = source.solid2;
+    destination->lodScale = source.lodScale;
+    destination->viewport = source.viewport;
+    return destination;
+  }
+
+  /**
+   * Address: 0x007AEB10 (FUN_007AEB10, helper lane behind CAM_GetAllCameras)
+   *
+   * What it does:
+   * Appends one `GeomCamera3` view to a legacy vector and returns the new end
+   * cursor after any buffer growth has completed.
+   */
+  [[maybe_unused, nodiscard]] moho::GeomCamera3* AppendGeomCameraViewAndReturnEnd(
+    msvc8::vector<moho::GeomCamera3>& cameras, const moho::GeomCamera3& camera
+  )
+  {
+    cameras.push_back(camera);
+    return cameras.empty() ? nullptr : &cameras[0] + cameras.size();
   }
 
   [[nodiscard]] moho::VMatrix4 BuildLookAtMatrix(
@@ -366,24 +411,7 @@ namespace moho
    */
   GeomCamera3& GeomCamera3::operator=(const GeomCamera3& rhs)
   {
-    tranform.orient_.x = rhs.tranform.orient_.x;
-    tranform.orient_.y = rhs.tranform.orient_.y;
-    tranform.orient_.z = rhs.tranform.orient_.z;
-    tranform.orient_.w = rhs.tranform.orient_.w;
-    tranform.pos_ = rhs.tranform.pos_;
-
-    projection = rhs.projection;
-    view = rhs.view;
-    viewProjection = rhs.viewProjection;
-    inverseProjection = rhs.inverseProjection;
-    inverseView = rhs.inverseView;
-    inverseViewProjection = rhs.inverseViewProjection;
-
-    solid1 = rhs.solid1;
-    solid2 = rhs.solid2;
-
-    lodScale = rhs.lodScale;
-    viewport = rhs.viewport;
+    (void)CopyGeomCameraStatePreservingFlags(this, rhs);
     return *this;
   }
 
@@ -403,7 +431,7 @@ namespace moho
     const GeomCamera3* source = sourceBegin;
     GeomCamera3* destination = destinationBegin;
     while (source != sourceEnd) {
-      *destination = *source;
+      (void)CopyGeomCameraStatePreservingFlags(destination, *source);
       ++source;
       ++destination;
     }
@@ -684,6 +712,60 @@ namespace moho
   )
   {
     *dest = BuildLookAtMatrix(eye, target, up);
+    return dest;
+  }
+
+  /**
+   * Address: 0x004EF930 (FUN_004EF930, ?VEC_LookAtViewMatrix@Moho@@YA?AUVMatrix4@1@ABV?$Vector3@M@Wm3@@00@Z)
+   *
+   * What it does:
+   * Builds one camera view matrix from `eye`/`target`/`up` by transposing the
+   * orientation rows from `VEC_LookAtMatrix` and composing translated row-3
+   * lanes (`-dot(position, basisAxis)`).
+   */
+  VMatrix4* VEC_LookAtViewMatrix(
+    const Wm3::Vector3f& eye,
+    const Wm3::Vector3f& target,
+    VMatrix4* const dest,
+    const Wm3::Vector3f& up
+  )
+  {
+    VMatrix4 lookAt{};
+    const VMatrix4* const source = VEC_LookAtMatrix(eye, target, &lookAt, up);
+
+    const float m00 = source->r[0].x;
+    const float m01 = source->r[0].y;
+    const float m02 = source->r[0].z;
+    const float m10 = source->r[1].x;
+    const float m11 = source->r[1].y;
+    const float m12 = source->r[1].z;
+    const float m20 = source->r[2].x;
+    const float m21 = source->r[2].y;
+    const float m22 = source->r[2].z;
+    const float m30 = source->r[3].x;
+    const float m31 = source->r[3].y;
+    const float m32 = source->r[3].z;
+
+    dest->r[0].x = m00;
+    dest->r[0].y = m10;
+    dest->r[0].z = m20;
+    dest->r[0].w = 0.0f;
+
+    dest->r[1].x = m01;
+    dest->r[1].y = m11;
+    dest->r[1].z = m21;
+    dest->r[1].w = 0.0f;
+
+    dest->r[2].x = m02;
+    dest->r[2].y = m12;
+    dest->r[2].z = m22;
+    dest->r[2].w = 0.0f;
+
+    dest->r[3].x = -((m32 * m02) + (m31 * m01) + (m30 * m00));
+    dest->r[3].y = -((m32 * m12) + (m31 * m11) + (m30 * m10));
+    dest->r[3].z = -((m32 * m22) + (m31 * m21) + (m30 * m20));
+    dest->r[3].w = 1.0f;
+
     return dest;
   }
 

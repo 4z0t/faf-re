@@ -1,15 +1,19 @@
-﻿#include "moho/ui/UiRuntimeTypes.h"
+#include "moho/ui/UiRuntimeTypes.h"
 
 #include <Windows.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdlib>
 #include <cstdint>
 #include <exception>
 #include <limits>
+#include <memory>
 #include <new>
 #include <string>
 #include <stdexcept>
+#include <type_traits>
 #include <typeinfo>
 #include <vector>
 
@@ -21,11 +25,13 @@
 #include "gpg/gal/DeviceContext.hpp"
 #include "moho/containers/TDatList.h"
 #include "moho/lua/CScrLuaBinder.h"
+#include "moho/lua/CScrLuaInitForm.h"
 #include "moho/lua/CScrLuaObjectFactory.h"
 #include "moho/lua/SCR_FromLua.h"
 #include "moho/lua/SCR_ToLua.h"
 #include "moho/mesh/Mesh.h"
 #include "moho/misc/ID3DDeviceResources.h"
+#include "moho/misc/ScrDebugHooks.h"
 #include "moho/app/WinApp.h"
 #include "moho/net/CGpgNetInterface.h"
 #include "moho/resource/RResId.h"
@@ -44,6 +50,9 @@
 #include "moho/sim/CWldSession.h"
 #include "moho/sim/RRuleGameRules.h"
 #include "moho/sim/SimDriver.h"
+#include "moho/task/CTask.h"
+#include "moho/task/CTaskThread.h"
+#include "moho/task/ScrDiskWatcherTask.h"
 #include "moho/misc/WeakPtr.h"
 #include "moho/script/CScriptObject.h"
 #include "moho/ui/CUIManager.h"
@@ -888,6 +897,61 @@ namespace
   constexpr moho::EMauiScrollAxis kVerticalScrollAxis = static_cast<moho::EMauiScrollAxis>(0);
 
   LuaPlus::LuaState* gUserLuaState = nullptr;
+  std::uint8_t gUserLuaStateInitGuard = 0;
+  std::aligned_storage_t<sizeof(LuaPlus::LuaState), alignof(LuaPlus::LuaState)> gUserLuaStateStorage{};
+  std::aligned_storage_t<sizeof(moho::CTaskStage), alignof(moho::CTaskStage)> gUserStageStorage{};
+
+  [[nodiscard]] LuaPlus::LuaState* GetUserLuaStateStorageObject() noexcept
+  {
+    return reinterpret_cast<LuaPlus::LuaState*>(&gUserLuaStateStorage);
+  }
+
+  [[nodiscard]] moho::CTaskStage* GetUserStageStorageObject() noexcept
+  {
+    return reinterpret_cast<moho::CTaskStage*>(&gUserStageStorage);
+  }
+
+  void CleanupUserLuaStateStorageAtExit()
+  {
+    std::destroy_at(GetUserLuaStateStorageObject());
+    gUserLuaState = nullptr;
+  }
+
+  void CleanupUserStageStorageAtExit()
+  {
+    moho::sUserStage = nullptr;
+  }
+
+  void AttachTaskToStage(moho::CTask* const task, moho::CTaskStage* const stage, const bool owning)
+  {
+    if (task == nullptr || stage == nullptr || task->mOwnerThread != nullptr) {
+      return;
+    }
+
+    moho::CTaskThread* const thread = new moho::CTaskThread(stage);
+    if (thread == nullptr) {
+      return;
+    }
+
+    task->mAutoDelete = owning;
+    task->mOwnerThread = thread;
+    task->mSubtask = thread->mTaskTop;
+    thread->mTaskTop = task;
+  }
+
+  void RunLuaInitFormSetIfPresent(const char* const setName, LuaPlus::LuaState* const state)
+  {
+    moho::CScrLuaInitFormSet* const initSet = moho::SCR_FindLuaInitFormSet(setName);
+    if (initSet == nullptr) {
+      return;
+    }
+
+    initSet->mRegistered = 1;
+    for (moho::CScrLuaInitForm* form = initSet->mForms; form != nullptr; form = form->mNextInSet) {
+      form->Run(state);
+    }
+  }
+
   constexpr const char* kLuaExpectedArgsWarning = "%s\n  expected %d args, but got %d";
   constexpr const char* kLuaExpectedBetweenArgsWarning = "%s\n  expected between %d and %d args, but got %d";
   constexpr const char* kCursorSetDefaultTextureHelpText = "Cursor:SetDefaultTexture(filename, hotspotX, hotspotY)";
@@ -1378,6 +1442,12 @@ namespace
     }
   }
 
+  /**
+   * Address: 0x0078C7E0 (FUN_0078C7E0)
+   *
+   * What it does:
+   * Stable-sorts the rendered-child lane by each control's resolved depth.
+   */
   void SortRenderedChildrenByDepth(msvc8::vector<moho::CMauiControl*>& renderedChildren)
   {
     moho::CMauiControl** const begin = renderedChildren.begin();
@@ -1399,6 +1469,52 @@ namespace
         return lhsView->mDepth < rhsView->mDepth;
       }
     );
+  }
+
+  /**
+   * Address: 0x00782F80 (FUN_00782F80)
+   *
+   * What it does:
+   * Appends one texture batch entry to the bitmap's legacy vector lane.
+   */
+  void AppendBitmapTextureBatch(
+    msvc8::vector<boost::shared_ptr<moho::CD3DBatchTexture>>& textureBatches,
+    const boost::shared_ptr<moho::CD3DBatchTexture>& texture
+  )
+  {
+    textureBatches.push_back(texture);
+  }
+
+  /**
+   * Address: 0x0079C8A0 (FUN_0079C8A0)
+   *
+   * What it does:
+   * Removes one item-list entry, compacts the tail left by one slot, and keeps
+   * the selection lane consistent with the post-delete vector size.
+   */
+  void RemoveItemListEntryAtIndex(moho::CMauiItemListRuntimeView* const itemListView, const std::int32_t index)
+  {
+    if (itemListView == nullptr || index < 0) {
+      return;
+    }
+    const std::size_t count = itemListView->mItems.size();
+    if (static_cast<std::size_t>(index) >= count) {
+      return;
+    }
+
+    for (std::size_t i = static_cast<std::size_t>(index) + 1u; i < count; ++i) {
+      itemListView->mItems[i - 1u] = itemListView->mItems[i];
+    }
+    itemListView->mItems.pop_back();
+
+    const std::int32_t currentSelection = itemListView->mCurSelection;
+    if (index >= currentSelection) {
+      if (currentSelection == GetItemListEntryCount(*itemListView)) {
+        itemListView->mCurSelection = -1;
+      }
+    } else {
+      itemListView->mCurSelection = currentSelection - 1;
+    }
   }
 
   class CMoviePlaybackInterface
@@ -2094,6 +2210,36 @@ namespace
 
   msvc8::vector<moho::WeakPtr<moho::CMauiControl>> sInputCapture;
 
+  void UnlinkInputCaptureWeakPtrRange(
+    moho::WeakPtr<moho::CMauiControl>* begin,
+    moho::WeakPtr<moho::CMauiControl>* end
+  ) noexcept
+  {
+    while (begin != end) {
+      begin->UnlinkFromOwnerChain();
+      ++begin;
+    }
+  }
+
+  /**
+   * Address: 0x007A5970 (FUN_007A5970)
+   *
+   * What it does:
+   * Unlinks every weak-capture node from owner chains, frees the global
+   * input-capture backing storage lane, and clears begin/end/capacity lanes.
+   */
+  [[maybe_unused]] void CleanupInputCaptureAtExit() noexcept
+  {
+    auto& captureView = moho::AsWeakPtrVectorRuntimeView(sInputCapture);
+    if (captureView.begin != nullptr) {
+      UnlinkInputCaptureWeakPtrRange(captureView.begin, captureView.end);
+      ::operator delete(static_cast<void*>(captureView.begin));
+    }
+    captureView.begin = nullptr;
+    captureView.end = nullptr;
+    captureView.capacityEnd = nullptr;
+  }
+
   [[nodiscard]] std::size_t InputCaptureCount() noexcept
   {
     const auto& view = moho::AsWeakPtrVectorRuntimeView(sInputCapture);
@@ -2117,6 +2263,60 @@ namespace
       view.begin[i].ResetFromObject(nullptr);
     }
     view.end = view.begin + (count - 1u);
+  }
+
+  /**
+   * Address: 0x007A5870 (FUN_007A5870)
+   *
+   * What it does:
+   * Inserts one weak-control capture lane at the requested position in the
+   * global `sInputCapture` vector and returns the rebased inserted iterator.
+   */
+  [[maybe_unused]] [[nodiscard]] moho::WeakPtr<moho::CMauiControl>** InsertInputCaptureWithGrowth(
+    moho::WeakPtr<moho::CMauiControl>** const outIterator,
+    moho::WeakPtr<moho::CMauiControl>* const insertAt,
+    const moho::WeakPtr<moho::CMauiControl>* const value
+  )
+  {
+    using CaptureWeakPtr = moho::WeakPtr<moho::CMauiControl>;
+
+    const CaptureWeakPtr* const begin = sInputCapture.data();
+    const std::size_t count = sInputCapture.size();
+
+    std::size_t insertIndex = 0u;
+    if (begin != nullptr && count != 0u && insertAt != nullptr) {
+      const std::uintptr_t beginAddress = reinterpret_cast<std::uintptr_t>(begin);
+      const std::uintptr_t insertAddress = reinterpret_cast<std::uintptr_t>(insertAt);
+      if (insertAddress >= beginAddress) {
+        insertIndex = static_cast<std::size_t>((insertAddress - beginAddress) / sizeof(CaptureWeakPtr));
+      }
+    }
+    insertIndex = std::min(insertIndex, count);
+
+    CaptureWeakPtr captureValue{};
+    if (value != nullptr) {
+      captureValue = *value;
+    }
+
+    moho::EnsureWeakPtrVectorCapacity(sInputCapture, count + 1u);
+    auto& view = moho::AsWeakPtrVectorRuntimeView(sInputCapture);
+    for (std::size_t i = count; i > insertIndex; --i) {
+      view.begin[i].ResetFromOwnerLinkSlot(view.begin[i - 1u].ownerLinkSlot);
+      view.begin[i - 1u].ResetFromObject(nullptr);
+    }
+
+    if (value != nullptr) {
+      view.begin[insertIndex].ResetFromOwnerLinkSlot(captureValue.ownerLinkSlot);
+    } else {
+      view.begin[insertIndex].ResetFromObject(nullptr);
+    }
+    view.end = view.begin + count + 1u;
+
+    if (outIterator != nullptr) {
+      CaptureWeakPtr* const rebasedBegin = view.begin;
+      *outIterator = rebasedBegin != nullptr ? rebasedBegin + insertIndex : nullptr;
+    }
+    return outIterator;
   }
 
   /**
@@ -2165,17 +2365,47 @@ namespace
     return view.begin[count - 1u].GetObjectPtr();
   }
 
+  /**
+   * Address: 0x007A5710 (FUN_007A5710, sub_7A5710)
+   *
+   * What it does:
+   * Appends one weak-control entry to the global input-capture vector,
+   * growing capacity when needed.
+   */
+  [[maybe_unused]] static moho::WeakPtr<moho::CMauiControl>* AppendInputCaptureWeakReference(
+    const moho::WeakPtr<moho::CMauiControl>* const captureRef
+  )
+  {
+    if (captureRef == nullptr) {
+      return nullptr;
+    }
+
+    const std::size_t count = InputCaptureCount();
+    moho::EnsureWeakPtrVectorCapacity(sInputCapture, count + 1u);
+
+    auto& view = moho::AsWeakPtrVectorRuntimeView(sInputCapture);
+    view.begin[count].ResetFromOwnerLinkSlot(captureRef->ownerLinkSlot);
+    view.end = view.begin + count + 1u;
+    return &view.begin[count];
+  }
+
+  /**
+   * Address: 0x007A4540 (FUN_007A4540, sub_7A4540)
+   *
+   * What it does:
+   * Wraps one control into one temporary weak-owner link and appends that
+   * weak reference to the global input-capture stack.
+   */
   void AddInputCaptureControl(moho::CMauiControl* const control)
   {
     if (control == nullptr) {
       return;
     }
 
-    const std::size_t count = InputCaptureCount();
-    moho::EnsureWeakPtrVectorCapacity(sInputCapture, count + 1u);
-    auto& view = moho::AsWeakPtrVectorRuntimeView(sInputCapture);
-    view.begin[count].ResetFromObject(control);
-    view.end = view.begin + count + 1u;
+    moho::WeakPtr<moho::CMauiControl> captureRef{};
+    captureRef.ResetFromObject(control);
+    (void)AppendInputCaptureWeakReference(&captureRef);
+    captureRef.ResetFromObject(nullptr);
   }
 
   [[nodiscard]] moho::CScrLuaInitFormSet& UserLuaInitSet()
@@ -2358,6 +2588,25 @@ namespace
     }
 
     return static_cast<moho::CMauiFrame*>(upcast.mObj);
+  }
+
+  /**
+   * Address: 0x00796E50 (FUN_00796E50, sub_796E50)
+   *
+   * What it does:
+   * Assigns one retained frame owner into one weak self-owner lane.
+   */
+  [[maybe_unused]] boost::weak_ptr<moho::CMauiFrame>* AssignFrameWeakSelfFromSharedOwner(
+    const boost::shared_ptr<moho::CMauiFrame>& owner,
+    boost::weak_ptr<moho::CMauiFrame>* const destination
+  )
+  {
+    if (destination == nullptr) {
+      return nullptr;
+    }
+
+    *destination = owner;
+    return destination;
   }
 
   /**
@@ -2558,7 +2807,7 @@ namespace
   }
 
   /**
-   * Address: 0x0040D820 (FUN_0040D820, func_round)
+    * Alias of FUN_0040D820 (non-canonical helper lane).
    *
    * What it does:
    * Applies x87-style nearby-int rounding and adjusts down by one when the
@@ -2999,11 +3248,50 @@ namespace
 
     return false;
   }
+
+  /**
+   * Address: 0x0078A839 (FUN_0078A839)
+   *
+   * What it does:
+   * Logs one `OnHide` Lua callback exception into script-warning output.
+   */
+  void LogOnHideCallbackException(
+    moho::CScriptObject* const scriptObject,
+    const std::exception& exception
+  ) noexcept
+  {
+    if (scriptObject == nullptr) {
+      return;
+    }
+
+    const char* const message = exception.what() != nullptr ? exception.what() : "";
+    scriptObject->LogScriptWarning(scriptObject, "OnHide", message);
+  }
+
+  /**
+   * Address: 0x0078AB39 (FUN_0078AB39)
+   *
+   * What it does:
+   * Logs one `IsScrollable` Lua callback exception into script-warning output.
+   */
+  void LogIsScrollableCallbackException(
+    moho::CScriptObject* const scriptObject,
+    const std::exception& exception
+  ) noexcept
+  {
+    if (scriptObject == nullptr) {
+      return;
+    }
+
+    const char* const message = exception.what() != nullptr ? exception.what() : "";
+    scriptObject->LogScriptWarning(scriptObject, "IsScrollable", message);
+  }
 } // namespace
 
 moho::EUIState moho::sUIState = moho::UIS_none;
 bool moho::cam_Free = false;
 bool moho::ui_DisableCursorFixing = false;
+bool moho::ui_WindowedAlwaysShowsCursor = false;
 moho::CScriptObject* moho::sWldUIProvider = nullptr;
 gpg::RType* moho::CMauiControl::sType = nullptr;
 gpg::RType* moho::CMauiBorder::sType = nullptr;
@@ -3342,17 +3630,29 @@ moho::CScrLuaMetatableFactory<moho::CMauiText>::Create(LuaPlus::LuaState* const 
 }
 
 /**
- * Address: 0x007A4280 (FUN_007A4280, sub_7A4280)
+ * Address: 0x00783B00 (FUN_00783B00, sub_783B00)
+ * Address: 0x007861B0 (FUN_007861B0, sub_7861B0)
+ * Address: 0x00794EC0 (FUN_00794EC0, sub_794EC0)
+ * Address: 0x00798950 (FUN_00798950, sub_798950)
+ * Address: 0x0079C940 (FUN_0079C940, sub_79C940)
+ * Address: 0x0079EAC0 (FUN_0079EAC0, sub_79EAC0)
+ * Address: 0x007A0140 (FUN_007A0140, sub_7A0140)
+ * Address: 0x007A2700 (FUN_007A2700, sub_7A2700)
+ * Address: 0x008513D0 (FUN_008513D0, sub_8513D0)
  *
  * What it does:
- * Adds `CMauiControl` as one base descriptor on a `CMauiText` type-info owner.
+ * Adds `CMauiControl` as one base descriptor on the target UI runtime type.
  */
-[[maybe_unused]] static void AddCMauiControlBaseToCMauiTextType(gpg::RType* const typeInfo)
+[[maybe_unused]] static void AddCMauiControlBaseToUiRuntimeType(gpg::RType* const typeInfo)
 {
   gpg::RType* baseType = moho::CMauiControl::sType;
   if (baseType == nullptr) {
     baseType = gpg::LookupRType(typeid(moho::CMauiControl));
     moho::CMauiControl::sType = baseType;
+  }
+
+  if (typeInfo == nullptr || baseType == nullptr) {
+    return;
   }
 
   gpg::RField baseField{};
@@ -3362,6 +3662,46 @@ moho::CScrLuaMetatableFactory<moho::CMauiText>::Create(LuaPlus::LuaState* const 
   baseField.v4 = 0;
   baseField.mDesc = nullptr;
   typeInfo->AddBase(baseField);
+}
+
+/**
+ * Address: 0x0078A680 (FUN_0078A680, sub_78A680)
+ * Address: 0x0078D970 (FUN_0078D970, sub_78D970)
+ * Address: 0x0078E690 (FUN_0078E690, sub_78E690)
+ *
+ * What it does:
+ * Adds `CScriptObject` as one base descriptor on the target UI runtime type.
+ */
+[[maybe_unused]] static void AddCScriptObjectBaseToUiRuntimeType(gpg::RType* const typeInfo)
+{
+  gpg::RType* baseType = moho::CScriptObject::sType;
+  if (baseType == nullptr) {
+    baseType = gpg::LookupRType(typeid(moho::CScriptObject));
+    moho::CScriptObject::sType = baseType;
+  }
+
+  if (typeInfo == nullptr || baseType == nullptr) {
+    return;
+  }
+
+  gpg::RField baseField{};
+  baseField.mName = baseType->GetName();
+  baseField.mType = baseType;
+  baseField.mOffset = 0;
+  baseField.v4 = 0;
+  baseField.mDesc = nullptr;
+  typeInfo->AddBase(baseField);
+}
+
+/**
+ * Address: 0x007A4280 (FUN_007A4280, sub_7A4280)
+ *
+ * What it does:
+ * Adds `CMauiControl` as one base descriptor on a `CMauiText` type-info owner.
+ */
+[[maybe_unused]] static void AddCMauiControlBaseToCMauiTextType(gpg::RType* const typeInfo)
+{
+  AddCMauiControlBaseToUiRuntimeType(typeInfo);
 }
 
 /**
@@ -3614,6 +3954,21 @@ moho::CMauiCursor::CMauiCursor(LuaPlus::LuaObject* const luaObject)
   if (luaObject != nullptr) {
     scriptObject->SetLuaObject(*luaObject);
   }
+}
+
+/**
+ * Address: 0x0078CBF0 (FUN_0078CBF0, Moho::CMauiCursor::~CMauiCursor body)
+ *
+ * What it does:
+ * Releases active/default cursor texture weak-owner lanes and destroys the
+ * embedded script-object runtime base.
+ */
+moho::CMauiCursor::~CMauiCursor()
+{
+  CMauiCursorTextureRuntimeView* const cursorView = CMauiCursorTextureRuntimeView::FromCursor(this);
+  cursorView->mTexture.reset();
+  cursorView->mDefaultTexture.reset();
+  reinterpret_cast<CScriptObject*>(this)->~CScriptObject();
 }
 
 /**
@@ -9810,9 +10165,7 @@ int moho::cfunc_InternalCreateGroupL(LuaPlus::LuaState* const state)
 }
 
 /**
- * Address context: constructor path in `cfunc_InternalCreateGroupL`
- * (`FUN_00797390`) allocates one `CMauiGroup` and initializes it through
- * `CMauiControl(luaObject, parent, "group")`.
+ * Address: 0x00797280 (FUN_00797280, ??0CMauiGroup@Moho@@QAE@@Z)
  *
  * What it does:
  * Constructs one group control from Lua object + parent lanes.
@@ -9997,6 +10350,19 @@ moho::CMauiMesh::CMauiMesh(LuaPlus::LuaObject* const luaObject, CMauiControl* co
   meshView->mOrientation = Wm3::Quaternionf::Identity();
   meshView->mUnknown13C = -1;
   CMauiControlFrameUpdateRuntimeView::FromControl(this)->mNeedsFrameUpdate = true;
+}
+
+/**
+ * Address: 0x0079DE70 (FUN_0079DE70, Moho::CMauiMesh::dtr)
+ *
+ * What it does:
+ * Releases the mesh preview texture shared-pointer lane and continues base
+ * control teardown.
+ */
+moho::CMauiMesh::~CMauiMesh()
+{
+  CMauiMeshRuntimeView* const meshView = CMauiMeshRuntimeView::FromMesh(this);
+  meshView->mTexture.reset();
 }
 
 /**
@@ -11054,6 +11420,20 @@ int moho::cfunc_CMauiItemListNeedsScrollBarL(LuaPlus::LuaState* const state)
 }
 
 /**
+ * Address: 0x007994C0 (FUN_007994C0, sub_7994C0)
+ *
+ * What it does:
+ * Releases list-item string storage and one intrusive font reference, then
+ * continues base `CMauiControl` teardown.
+ */
+moho::CMauiItemList::~CMauiItemList()
+{
+  CMauiItemListRuntimeView* const itemListView = CMauiItemListRuntimeView::FromItemList(this);
+  itemListView->mItems = msvc8::vector<msvc8::string>{};
+  ReleaseIntrusiveFont(itemListView->mFont);
+}
+
+/**
  * Address: 0x00799610 (FUN_00799610, Moho::CMauiItemList::SetFont)
  *
  * What it does:
@@ -11114,16 +11494,7 @@ void moho::CMauiItemList::DeleteItem(const std::int32_t index)
     return;
   }
 
-  itemListView->mItems.erase(itemListView->mItems.begin() + index);
-
-  const std::int32_t currentSelection = itemListView->mCurSelection;
-  if (index >= currentSelection) {
-    if (currentSelection == GetItemListEntryCount(*itemListView)) {
-      itemListView->mCurSelection = -1;
-    }
-  } else {
-    itemListView->mCurSelection = currentSelection - 1;
-  }
+  RemoveItemListEntryAtIndex(itemListView, index);
 }
 
 /**
@@ -11894,7 +12265,7 @@ moho::CScrLuaInitForm* moho::func_CMauiMeshSetOrientation_LuaFuncDef()
 }
 
 /**
- * Address: 0x0079E930 (FUN_0079E930, cfunc_CMauiMeshSetOrientationL)
+  * Alias of FUN_0079E930 (non-canonical helper lane).
  *
  * What it does:
  * Reads one `CMauiMesh` plus quaternion arg and stores mesh orientation.
@@ -12278,7 +12649,7 @@ moho::CScrLuaInitForm* moho::func_CMauiMovieLoop_LuaFuncDef()
 }
 
 /**
- * Address: 0x0079F8F0 (FUN_0079F8F0, cfunc_CMauiMovieLoopL)
+  * Alias of FUN_0079F8F0 (non-canonical helper lane).
  *
  * What it does:
  * Reads one `CMauiMovie` plus bool and updates loop state.
@@ -12331,7 +12702,7 @@ moho::CScrLuaInitForm* moho::func_CMauiMoviePlay_LuaFuncDef()
 }
 
 /**
- * Address: 0x0079FA40 (FUN_0079FA40, cfunc_CMauiMoviePlayL)
+  * Alias of FUN_0079FA40 (non-canonical helper lane).
  *
  * What it does:
  * Reads one `CMauiMovie` and starts playback.
@@ -12382,7 +12753,7 @@ moho::CScrLuaInitForm* moho::func_CMauiMovieStop_LuaFuncDef()
 }
 
 /**
- * Address: 0x0079FBA0 (FUN_0079FBA0, cfunc_CMauiMovieStopL)
+  * Alias of FUN_0079FBA0 (non-canonical helper lane).
  *
  * What it does:
  * Reads one `CMauiMovie` and stops playback.
@@ -12433,7 +12804,7 @@ moho::CScrLuaInitForm* moho::func_CMauiMovieIsLoaded_LuaFuncDef()
 }
 
 /**
- * Address: 0x0079FCF0 (FUN_0079FCF0, cfunc_CMauiMovieIsLoadedL)
+  * Alias of FUN_0079FCF0 (non-canonical helper lane).
  *
  * What it does:
  * Reads one `CMauiMovie` and returns whether it has loaded movie content.
@@ -12484,7 +12855,7 @@ moho::CScrLuaInitForm* moho::func_CMauiMovieGetNumFrames_LuaFuncDef()
 }
 
 /**
- * Address: 0x0079FE50 (FUN_0079FE50, cfunc_CMauiMovieGetNumFramesL)
+  * Alias of FUN_0079FE50 (non-canonical helper lane).
  *
  * What it does:
  * Reads one `CMauiMovie` and returns frame-count numeric result.
@@ -12535,7 +12906,7 @@ moho::CScrLuaInitForm* moho::func_CMauiMovieGetFrameRate_LuaFuncDef()
 }
 
 /**
- * Address: 0x0079FFA0 (FUN_0079FFA0, cfunc_CMauiMovieGetFrameRateL)
+  * Alias of FUN_0079FFA0 (non-canonical helper lane).
  *
  * What it does:
  * Reads one `CMauiMovie` and returns frame-rate numeric result.
@@ -16644,6 +17015,17 @@ float moho::CMauiControl::GetAlpha()
 }
 
 /**
+ * Address: 0x00786450 (FUN_00786450, Moho::CMauiControl::IsInvisible)
+ *
+ * What it does:
+ * Returns whether this control is currently marked invisible.
+ */
+bool moho::CMauiControl::IsInvisible()
+{
+  return CMauiControlExtendedRuntimeView::FromControl(this)->mInvisible;
+}
+
+/**
  * Address: 0x00786460 (FUN_00786460, Moho::CMauiControl::SetRenderPass)
  *
  * What it does:
@@ -16907,7 +17289,7 @@ void moho::CMauiControl::SetHidden(const bool hidden)
 bool moho::CMauiControl::OnHide(const bool& hidden)
 {
   CScriptObject* const scriptObject = reinterpret_cast<CScriptObject*>(this);
-  WeakObject::ScopedWeakLinkGuard weakGuard(static_cast<WeakObject*>(scriptObject));
+  ScriptCallbackWeakGuard weakGuard(scriptObject);
 
   LuaPlus::LuaObject callbackObject{};
   scriptObject->FindScript(&callbackObject, "OnHide");
@@ -16915,8 +17297,14 @@ bool moho::CMauiControl::OnHide(const bool& hidden)
     return false;
   }
 
-  LuaPlus::LuaFunction<bool> callback(callbackObject);
-  return callback(CMauiControlScriptObjectRuntimeView::FromControl(this)->mLuaObj, hidden);
+  try {
+    LuaPlus::LuaFunction<bool> callback(callbackObject);
+    return callback(CMauiControlScriptObjectRuntimeView::FromControl(this)->mLuaObj, hidden);
+  } catch (const std::exception& exception) {
+    LogOnHideCallbackException(weakGuard.ResolveObjectForWarning(), exception);
+  }
+
+  return false;
 }
 
 /**
@@ -16951,8 +17339,16 @@ bool moho::CMauiControl::GetIsScrollable(const char* const axisLexical)
     return false;
   }
 
-  LuaPlus::LuaFunction<bool> callback(callbackObject);
-  return callback(CMauiControlScriptObjectRuntimeView::FromControl(this)->mLuaObj, axisLexical != nullptr ? axisLexical : "");
+  try {
+    LuaPlus::LuaFunction<bool> callback(callbackObject);
+    return callback(CMauiControlScriptObjectRuntimeView::FromControl(this)->mLuaObj, axisLexical != nullptr ? axisLexical : "");
+  } catch (const std::exception& exception) {
+    LogIsScrollableCallbackException(scriptObject, exception);
+  } catch (...) {
+    scriptObject->LogScriptWarning(scriptObject, "IsScrollable", "unknown exception");
+  }
+
+  return false;
 }
 
 /**
@@ -17449,7 +17845,7 @@ void moho::CMauiBitmap::ShareTextures(CMauiBitmap* const sourceBitmap)
 void moho::CMauiBitmap::SetTexture(const boost::shared_ptr<CD3DBatchTexture>& texture)
 {
   CMauiBitmapRuntimeView* const bitmapView = CMauiBitmapRuntimeView::FromBitmap(this);
-  bitmapView->mTextureBatches.push_back(texture);
+  AppendBitmapTextureBatch(bitmapView->mTextureBatches, texture);
 
   const boost::shared_ptr<CD3DBatchTexture>* const textureStart = bitmapView->mTextureBatches.begin();
   if (textureStart != nullptr && (bitmapView->mTextureBatches.end() - textureStart) == 1) {
@@ -18081,6 +18477,18 @@ void moho::CMauiEdit::MoveCaretLeft(int amount)
 }
 
 /**
+ * Address: 0x00791270 (FUN_00791270, Moho::CMauiEdit::MoveCaretRight)
+ *
+ * What it does:
+ * Moves caret right by `amount` UTF-8 characters through `SetCaretPosition`.
+ */
+void moho::CMauiEdit::MoveCaretRight(const int amount)
+{
+  const int caretPosition = CMauiEditRuntimeView::FromEdit(this)->mCaretPosition;
+  SetCaretPosition(caretPosition + amount);
+}
+
+/**
  * Address: 0x00791290 (FUN_00791290, Moho::CMauiEdit::MoveSelectionLeft)
  *
  * What it does:
@@ -18535,7 +18943,7 @@ void moho::CMauiBitmap::Dump()
 
   const int textureCount = static_cast<int>(bitmapView->mTextureBatches.size());
 
-  // The binary fetches height first then width on the FPU stack — preserve order.
+  // The binary fetches height first then width on the FPU stack � preserve order.
   const float bitmapHeight = CScriptLazyVar_float::GetValue(&bitmapView->mBitmapHeightLV);
   const float bitmapWidth = CScriptLazyVar_float::GetValue(&bitmapView->mBitmapWidthLV);
   gpg::Logf("Num Textures = %d Width = %.3f Height = %.3f", textureCount, bitmapWidth, bitmapHeight);
@@ -18735,6 +19143,20 @@ float moho::CMauiFrame::GetTopmostDepth()
 }
 
 /**
+ * Address: 0x007966F0 (FUN_007966F0, ?DumpGraph@CMauiFrame@Moho@@QAEXXZ)
+ *
+ * What it does:
+ * Walks this frame subtree depth-first and invokes `Dump()` on each control.
+ */
+void moho::CMauiFrame::DumpGraph()
+{
+  for (CMauiControl* controlCursor = this; controlCursor != nullptr;
+       controlCursor = controlCursor->DepthFirstSuccessor(this)) {
+    controlCursor->Dump();
+  }
+}
+
+/**
  * Address: 0x00796720 (FUN_00796720, Moho::CMauiFrame::Dump)
  *
  * What it does:
@@ -18802,7 +19224,7 @@ boost::shared_ptr<moho::CMauiFrame> moho::CMauiFrame::Create(LuaPlus::LuaState* 
   if (frame != nullptr) {
     outFrame = boost::shared_ptr<CMauiFrame>(frame);
     CMauiFrameRuntimeView* const frameView = CMauiFrameRuntimeView::FromFrame(frame);
-    frameView->mSelfWeak = outFrame;
+    (void)AssignFrameWeakSelfFromSharedOwner(outFrame, &frameView->mSelfWeak);
   }
 
   lua_settop(rawState, savedTop);
@@ -19092,19 +19514,133 @@ LuaPlus::LuaObject* moho::CreateLuaEventObject(
   return outEvent;
 }
 
+/**
+ * Address: 0x008C65B0 (FUN_008C65B0, Moho::USER_GetLuaState)
+ *
+ * What it does:
+ * Lazily initializes process-global user Lua state/runtime stage, installs
+ * debug hook wiring when the script debug window is active, attaches one
+ * `ScrDiskWatcherTask`, and runs core/user Lua init-form chains.
+ */
 LuaPlus::LuaState* moho::USER_GetLuaState()
 {
+  LuaPlus::LuaState* state = gUserLuaState;
+  if (state != nullptr) {
+    return state;
+  }
+
+  if ((gUserLuaStateInitGuard & 0x1u) == 0u) {
+    new (GetUserLuaStateStorageObject()) LuaPlus::LuaState(LuaPlus::LuaState::LIB_BASE);
+    gUserLuaStateInitGuard |= 0x1u;
+    (void)std::atexit(&CleanupUserLuaStateStorageAtExit);
+  }
+
+  if ((gUserLuaStateInitGuard & 0x2u) == 0u) {
+    new (GetUserStageStorageObject()) CTaskStage();
+    gUserLuaStateInitGuard |= 0x2u;
+    (void)std::atexit(&CleanupUserStageStorageAtExit);
+  }
+
+  sUserStage = GetUserStageStorageObject();
+  gUserLuaState = GetUserLuaStateStorageObject();
+
+  if (SCR_IsDebugWindowActive()) {
+    lua_sethook(gUserLuaState->m_state, &DebugLuaHook, 4, 0);
+  }
+
+  gUserLuaState->m_luaTask = reinterpret_cast<CLuaTask*>(sUserStage);
+
+  ScrDiskWatcherTask* const diskWatcherTask = new (std::nothrow) ScrDiskWatcherTask(gUserLuaState);
+  AttachTaskToStage(diskWatcherTask, sUserStage, true);
+
+  RunLuaInitFormSetIfPresent("core", gUserLuaState);
+  RunLuaInitFormSetIfPresent("user", gUserLuaState);
+
   return gUserLuaState;
 }
 
+/**
+ * Address: 0x0083CD30 (FUN_0083CD30, Moho::MAUI_StartMainScript)
+ *
+ * What it does:
+ * Imports `/lua/ui/uimain.lua`, resolves `SetupUI`, and executes the entry
+ * callback against the active UI Lua state.
+ */
 bool moho::MAUI_StartMainScript()
 {
-  return true;
+  LuaPlus::LuaState* const state = ResolveUiManagerLuaState();
+  if (state == nullptr || state->m_state == nullptr) {
+    return false;
+  }
+
+  return InvokeUiLuaCallback(
+    state,
+    "/lua/ui/uimain.lua",
+    "SetupUI",
+    [](LuaPlus::LuaFunction<void>& callbackFunction) { callbackFunction(); }
+  );
 }
 
+/**
+ * Address: 0x0083D810 (FUN_0083D810, Moho::MAUI_ToggleConsole)
+ *
+ * What it does:
+ * Imports `/lua/ui/uimain.lua`, resolves `ToggleConsole`, and executes the
+ * callback against the active UI Lua state.
+ */
+void moho::MAUI_ToggleConsole()
+{
+  LuaPlus::LuaState* const state = ResolveUiManagerLuaState();
+  if (state == nullptr || state->m_state == nullptr) {
+    return;
+  }
+
+  (void)InvokeUiLuaCallback(
+    state,
+    "/lua/ui/uimain.lua",
+    "ToggleConsole",
+    [](LuaPlus::LuaFunction<void>& callbackFunction) { callbackFunction(); }
+  );
+}
+
+/**
+ * Address: 0x0078CEF0 (FUN_0078CEF0, sub_78CEF0)
+ *
+ * What it does:
+ * Commits pending cursor texture/visibility state to the active D3D device.
+ */
 void moho::MAUI_UpdateCursor(CMauiCursor* const cursor)
 {
-  (void)cursor;
+  if (cursor == nullptr) {
+    return;
+  }
+
+  CMauiCursorTextureRuntimeView* const cursorView = CMauiCursorTextureRuntimeView::FromCursor(cursor);
+  if (!cursorView->mIsDefaultTexture) {
+    return;
+  }
+
+  CD3DDevice* const device = D3D_GetDevice();
+  if (device == nullptr) {
+    return;
+  }
+
+  cursorView->mIsDefaultTexture = false;
+
+  gpg::gal::Device* const galDevice = gpg::gal::Device::GetInstance();
+  gpg::gal::DeviceContext* const deviceContext = galDevice != nullptr ? galDevice->GetDeviceContext() : nullptr;
+  const gpg::gal::Head* primaryHead = nullptr;
+  if (deviceContext != nullptr && deviceContext->GetHeadCount() > 0) {
+    primaryHead = &deviceContext->GetHead(0u);
+  }
+
+  if (cursorView->mTexture.get() != nullptr) {
+    (void)device->SetCursor(cursorView->mHotspotX, cursorView->mHotspotY, cursorView->mTexture);
+  }
+
+  const bool shouldShowCursor = cursorView->mIsShowing
+    || (primaryHead != nullptr && !primaryHead->mWindowed && ui_WindowedAlwaysShowsCursor);
+  (void)device->ShowCursor(shouldShowCursor);
 }
 
 void moho::MAUI_ReleaseCursor(CMauiCursor* const cursor)
@@ -19699,6 +20235,32 @@ namespace
       ++begin;
     }
   }
+
+  /**
+   * Address: 0x00837070 (FUN_00837070, sub_837070)
+   *
+   * What it does:
+   * Compacts one in-place factory queue window by moving the half-open tail
+   * `[sourceBegin, currentQueueEnd)` onto `destinationBegin`, destroys the
+   * vacated tail range, and updates the caller-provided queue-end lane.
+   */
+  [[maybe_unused]] FactoryCommandQueueItemRuntimeView** RebaseFactoryQueueRangeAndTrimTail(
+    FactoryCommandQueueItemRuntimeView** const outBegin,
+    FactoryCommandQueueItemRuntimeView* const destinationBegin,
+    FactoryCommandQueueItemRuntimeView* const sourceBegin,
+    FactoryCommandQueueItemRuntimeView*& currentQueueEnd
+  )
+  {
+    if (destinationBegin != sourceBegin) {
+      FactoryCommandQueueItemRuntimeView* const newEnd =
+        CopyBuildQueueItems(destinationBegin, sourceBegin, currentQueueEnd);
+      DeleteRangeBuildQueueItems(newEnd, currentQueueEnd);
+      currentQueueEnd = newEnd;
+    }
+
+    *outBegin = destinationBegin;
+    return outBegin;
+  }
 } // namespace
 
 void moho::UI_FactoryCommandQueueHandlerBeat()
@@ -19921,4 +20483,7 @@ const moho::VMatrix4& moho::UI_IdentityMatrix()
   static const VMatrix4 kIdentity = VMatrix4::Identity();
   return kIdentity;
 }
+
+
+
 

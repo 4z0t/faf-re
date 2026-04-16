@@ -970,6 +970,20 @@ namespace moho
   }
 
   /**
+   * Address: 0x005F42C0 (FUN_005F42C0, CUnitMeleeAttackTargetTask::RelinkAiAttackerListener)
+   *
+   * What it does:
+   * Unlinks this task's attacker-listener node from its current intrusive
+   * list and relinks it before `attackerListenerHead`.
+   */
+  void CUnitMeleeAttackTargetTask::RelinkAiAttackerListener(Broadcaster* const attackerListenerHead)
+  {
+    CUnitMeleeAttackTargetTaskRuntimeView* const runtime = AsRuntimeView(this);
+    runtime->mAiAttackerListenerLink.ListUnlink();
+    runtime->mAiAttackerListenerLink.ListLinkBefore(attackerListenerHead);
+  }
+
+  /**
    * Address: 0x00615CA0 (FUN_00615CA0)
    *
    * What it does:
@@ -1364,10 +1378,7 @@ namespace moho
 
       case TASKSTATE_Starting:
         if (CAiAttackerImpl* const attacker = unit->AiAttacker; attacker != nullptr) {
-          if (Broadcaster* const attackerListenerHead = AiAttackerListenerHead(attacker); attackerListenerHead != nullptr)
-          {
-            runtime->mAiAttackerListenerLink.ListLinkBefore(attackerListenerHead);
-          }
+          RelinkAiAttackerListener(AiAttackerListenerHead(attacker));
         }
         RefreshMeleeNavigationGoal();
         commandTask->mTaskState = TASKSTATE_Processing;

@@ -17,6 +17,17 @@ namespace moho
   class CAniSkel;
   class CAniPose;
 
+  /**
+   * Address: 0x0063D210 (FUN_0063D210, boost::shared_ptr_CAniPose::shared_ptr_CAniPose)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<CAniPose>` from one raw pose pointer lane.
+   */
+  boost::shared_ptr<CAniPose>* ConstructSharedAniPoseFromRaw(
+    boost::shared_ptr<CAniPose>* outPose,
+    CAniPose* pose
+  );
+
   class CAniPoseBone
   {
   public:
@@ -217,6 +228,15 @@ namespace moho
      * downstream bones whose parent is already dirty.
      */
     void MarkBoneDirty(int idx);
+
+    /**
+     * Address: 0x0054BD80 (FUN_0054BD80)
+     *
+     * What it does:
+     * Composes one pose-bone local transform with an incoming transform and
+     * marks that bone dirty through its pose/index ownership lanes.
+     */
+    static void ApplyBoneLocalTransform(CAniPoseBone* bone, const VTransform& transform);
 
   public:
     boost::shared_ptr<const CAniSkel> mSkeleton; // +0x00

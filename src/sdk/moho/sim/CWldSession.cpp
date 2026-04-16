@@ -29,6 +29,7 @@
 #include "moho/render/d3d/CD3DFont.h"
 #include "moho/render/textures/CD3DBatchTexture.h"
 #include "moho/sim/RRuleGameRules.h"
+#include "moho/sim/CFormation.h"
 #include "moho/sim/CWldSessionLoaderImpl.h"
 #include "moho/sim/SimDriver.h"
 #include "moho/sim/STIMap.h"
@@ -41,6 +42,62 @@
 namespace
 {
   static_assert(sizeof(moho::WeakObject::WeakLinkNodeView) == 0x8, "WeakLinkNodeView size must be 0x8");
+
+  struct FormationPreviewSharedPairRuntimeView
+  {
+    boost::shared_ptr<void> primaryRuntime;
+    boost::shared_ptr<void> secondaryRuntime;
+  };
+  static_assert(
+    sizeof(FormationPreviewSharedPairRuntimeView) == 0x10,
+    "FormationPreviewSharedPairRuntimeView size must be 0x10"
+  );
+
+  FormationPreviewSharedPairRuntimeView* gFormationPreviewSharedPairsBegin = nullptr;
+  FormationPreviewSharedPairRuntimeView* gFormationPreviewSharedPairsEnd = nullptr;
+
+  /**
+   * Address: 0x00859E90 (FUN_00859E90)
+   *
+   * What it does:
+   * Releases one formation-preview shared-pair payload by dropping both
+   * retained shared ownership lanes.
+   */
+  [[maybe_unused]] void ReleaseFormationPreviewSharedPairRuntime(
+    FormationPreviewSharedPairRuntimeView* const sharedPair
+  ) noexcept
+  {
+    if (sharedPair == nullptr) {
+      return;
+    }
+
+    sharedPair->secondaryRuntime.~shared_ptr();
+    sharedPair->primaryRuntime.~shared_ptr();
+  }
+
+  /**
+   * Address: 0x00859FE0 (FUN_00859FE0)
+   *
+   * What it does:
+   * Releases one tail entry from the formation-preview shared-pair container
+   * (`0x010C425C..0x010C4260`) and rewinds the active end pointer.
+   */
+  [[maybe_unused]] std::uintptr_t ReleaseOneFormationPreviewSharedPairFromTailRuntime() noexcept
+  {
+    std::uintptr_t result = 0u;
+    if (gFormationPreviewSharedPairsBegin == nullptr) {
+      return result;
+    }
+
+    result = reinterpret_cast<std::uintptr_t>(gFormationPreviewSharedPairsEnd);
+    if (gFormationPreviewSharedPairsEnd > gFormationPreviewSharedPairsBegin) {
+      FormationPreviewSharedPairRuntimeView* const tailEntry = gFormationPreviewSharedPairsEnd - 1;
+      ReleaseFormationPreviewSharedPairRuntime(tailEntry);
+      gFormationPreviewSharedPairsEnd = tailEntry;
+      result = reinterpret_cast<std::uintptr_t>(tailEntry);
+    }
+    return result;
+  }
 
   void LinkCursorInfoWeakOwnerRef(moho::MouseInfo& info) noexcept
   {
@@ -78,6 +135,21 @@ namespace
 
 namespace moho
 {
+  /**
+   * Address: 0x0089AEC0 (FUN_0089AEC0, boost::shared_ptr_SSessionSaveData::shared_ptr_SSessionSaveData)
+   *
+   * What it does:
+   * Constructs one `shared_ptr<SSessionSaveData>` from one raw save-data
+   * pointer lane.
+   */
+  boost::shared_ptr<SSessionSaveData>* ConstructSharedSessionSaveDataFromRaw(
+    boost::shared_ptr<SSessionSaveData>* const outSaveData,
+    SSessionSaveData* const saveData
+  )
+  {
+    return ::new (outSaveData) boost::shared_ptr<SSessionSaveData>(saveData);
+  }
+
   MouseInfo::MouseInfo()
     : mHitValid(0u)
     , pad_01{0u, 0u, 0u}
@@ -162,6 +234,15 @@ namespace moho
     , mIsDragged(other.mIsDragged)
     , mReserved5C(other.mReserved5C)
   {}
+
+  /**
+   * Address: 0x007EF070 (FUN_007EF070, ??1SCommandModeData@Moho@@QAE@XZ)
+   *
+   * What it does:
+   * Destroys command-mode cursor snapshots and unlinks both hovered-unit
+   * weak-owner lanes.
+   */
+  CommandModeData::~CommandModeData() = default;
 
   /**
    * Address: 0x0082B230 (FUN_0082B230, ??0SCommandModeData@Moho@@QAE@@Z_0)
@@ -427,6 +508,20 @@ msvc8::string gpg::RMultiMapType_EntId_string::GetLexical(const gpg::RRef& ref) 
   return gpg::STR_Printf("%s, size=%d", base.c_str(), size);
 }
 
+/**
+ * Address: 0x0089B460 (FUN_0089B460, preregister_RMultiMapType_EntId_string)
+ *
+ * What it does:
+ * Constructs/preregisters RTTI metadata for
+ * `std::multimap<moho::EntId,msvc8::string>`.
+ */
+[[nodiscard]] gpg::RType* preregister_RMultiMapType_EntId_string()
+{
+  static gpg::RMultiMapType_EntId_string typeInfo;
+  gpg::PreRegisterRType(typeid(EntIdStringMultiMap), &typeInfo);
+  return &typeInfo;
+}
+
 namespace moho
 {
   // Address lanes:
@@ -623,6 +718,14 @@ namespace moho
     static CommandGraphTreeNode* AllocateTreeSentinelNode();
 
     static void InitTree(CommandGraphTree& tree);
+
+    /**
+     * Address: 0x00824B50 (FUN_00824B50, sub_824B50)
+     *
+     * What it does:
+     * Destroys one command-graph runtime tree (nodes + head sentinel) and
+     * clears head/size lanes.
+     */
     static void DestroyTree(CommandGraphTree& tree);
 
     /**
@@ -789,6 +892,305 @@ namespace moho
 
     return this;
   }
+
+  namespace
+  {
+    struct CommandGraphLane64RuntimeView
+    {
+      std::uint8_t mPad00_63[0x64];
+      std::uint32_t mValue; // +0x64
+    };
+
+    static_assert(
+      offsetof(CommandGraphLane64RuntimeView, mValue) == 0x64,
+      "CommandGraphLane64RuntimeView::mValue offset must be 0x64"
+    );
+
+    struct CommandGraphLane458RuntimeView
+    {
+      std::uint8_t mPad00_457[0x458];
+      std::uint32_t mValue; // +0x458
+    };
+
+    static_assert(
+      offsetof(CommandGraphLane458RuntimeView, mValue) == 0x458,
+      "CommandGraphLane458RuntimeView::mValue offset must be 0x458"
+    );
+
+    struct WeakOwnerLinkHeadRuntimeView
+    {
+      std::uint8_t mPad00_07[0x8];
+      void* mHead; // +0x08
+    };
+
+    static_assert(
+      offsetof(WeakOwnerLinkHeadRuntimeView, mHead) == 0x08,
+      "WeakOwnerLinkHeadRuntimeView::mHead offset must be 0x08"
+    );
+
+    struct WeakOwnerLinkNodeRuntimeView
+    {
+      std::int32_t mState;      // +0x00
+      void** mOwnerLinkSlot;    // +0x04
+      void* mNextInOwner;       // +0x08
+    };
+
+    static_assert(sizeof(WeakOwnerLinkNodeRuntimeView) == 0x0C, "WeakOwnerLinkNodeRuntimeView size must be 0x0C");
+    static_assert(
+      offsetof(WeakOwnerLinkNodeRuntimeView, mOwnerLinkSlot) == 0x04,
+      "WeakOwnerLinkNodeRuntimeView::mOwnerLinkSlot offset must be 0x04"
+    );
+
+    struct DwordPairRuntimeView
+    {
+      std::uint32_t mFirst;   // +0x00
+      std::uint32_t mSecond;  // +0x04
+    };
+
+    struct PointerTripletLaneRuntimeView
+    {
+      void* mBegin;       // +0x00
+      void* mEnd;         // +0x04
+      void* mCapacityEnd; // +0x08
+      void* mMeta;        // +0x0C
+    };
+
+    static_assert(sizeof(PointerTripletLaneRuntimeView) == 0x10, "PointerTripletLaneRuntimeView size must be 0x10");
+
+    struct CommandGraphIssueRuntimeView
+    {
+      std::int32_t mCommandId;                   // +0x00
+      void* mOwnerLinkSlot;                      // +0x04
+      void* mOwnerNextLink;                      // +0x08
+      Wm3::Vector3f mAnchorPosition;             // +0x0C
+      float mLaneWidth;                          // +0x18
+      std::uint8_t mFlag1;                       // +0x1C
+      std::uint8_t mFlag2;                       // +0x1D
+      std::uint8_t mIsEnabled;                   // +0x1E
+      std::uint8_t pad_1F;                       // +0x1F
+      std::uint32_t mUnknown20;                  // +0x20
+      std::uint32_t mUnknown24;                  // +0x24
+      float mUnknown28;                          // +0x28
+      float mUnknown2C;                          // +0x2C
+      float mUnknown30;                          // +0x30
+      float mUnknown34;                          // +0x34
+      float mUnknown38;                          // +0x38
+      float mUnknown3C;                          // +0x3C
+      float mUnknown40;                          // +0x40
+      std::uint32_t mUnknown44;                  // +0x44
+      PointerTripletLaneRuntimeView mPrimaryRefLane;   // +0x48
+      std::uint32_t mPrimaryInline0;             // +0x58
+      std::uint32_t mPrimaryInline1;             // +0x5C
+      PointerTripletLaneRuntimeView mSecondaryRefLane; // +0x60
+      std::uint32_t mSecondaryInline0;           // +0x70
+      std::uint32_t mSecondaryInline1;           // +0x74
+    };
+
+    static_assert(sizeof(CommandGraphIssueRuntimeView) == 0x78, "CommandGraphIssueRuntimeView size must be 0x78");
+    static_assert(
+      offsetof(CommandGraphIssueRuntimeView, mPrimaryRefLane) == 0x48,
+      "CommandGraphIssueRuntimeView::mPrimaryRefLane offset must be 0x48"
+    );
+    static_assert(
+      offsetof(CommandGraphIssueRuntimeView, mSecondaryRefLane) == 0x60,
+      "CommandGraphIssueRuntimeView::mSecondaryRefLane offset must be 0x60"
+    );
+
+    /**
+     * Address: 0x00824330 (FUN_00824330, sub_824330)
+     *
+     * What it does:
+     * Returns one first-dword lane from one command-graph helper payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t ReadCommandGraphHelperLane0(const void* const value) noexcept
+    {
+      if (value == nullptr) {
+        return 0u;
+      }
+      return *static_cast<const std::uint32_t*>(value);
+    }
+
+    /**
+     * Address: 0x00824380 (FUN_00824380, sub_824380)
+     *
+     * What it does:
+     * Returns one dword lane at `+0x64` from one command-graph runtime payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t ReadCommandGraphHelperLane64(const void* const value) noexcept
+    {
+      if (value == nullptr) {
+        return 0u;
+      }
+      return static_cast<const CommandGraphLane64RuntimeView*>(value)->mValue;
+    }
+
+    /**
+     * Address: 0x00824470 (FUN_00824470, sub_824470)
+     *
+     * What it does:
+     * Returns one dword lane at `+0x458` from one command-graph runtime payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t ReadCommandGraphHelperLane458(const void* const value) noexcept
+    {
+      if (value == nullptr) {
+        return 0u;
+      }
+      return static_cast<const CommandGraphLane458RuntimeView*>(value)->mValue;
+    }
+
+    /**
+     * Address: 0x00824480 (FUN_00824480, sub_824480)
+     *
+     * What it does:
+     * Initializes one weak-owner link node and inserts its owner-slot lane into
+     * one owner link-head lane at `+0x08`.
+     */
+    [[maybe_unused]] [[nodiscard]] WeakOwnerLinkNodeRuntimeView* InitWeakOwnerLinkNodeFromHead(
+      WeakOwnerLinkNodeRuntimeView* const node,
+      void* const owner
+    ) noexcept
+    {
+      if (node == nullptr) {
+        return nullptr;
+      }
+
+      node->mState = 1;
+      auto* const ownerSlot = (owner != nullptr)
+        ? reinterpret_cast<void**>(&static_cast<WeakOwnerLinkHeadRuntimeView*>(owner)->mHead)
+        : nullptr;
+      node->mOwnerLinkSlot = ownerSlot;
+
+      if (ownerSlot != nullptr) {
+        node->mNextInOwner = *ownerSlot;
+        *ownerSlot = &node->mOwnerLinkSlot;
+      } else {
+        node->mNextInOwner = nullptr;
+      }
+
+      return node;
+    }
+
+    /**
+     * Address: 0x008244D0 (FUN_008244D0, sub_8244D0)
+     *
+     * What it does:
+     * Returns one first-dword lane from one command-graph helper payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t ReadCommandGraphHelperLane0Alt(const void* const value) noexcept
+    {
+      if (value == nullptr) {
+        return 0u;
+      }
+      return *static_cast<const std::uint32_t*>(value);
+    }
+
+    /**
+     * Address: 0x00824540 (FUN_00824540, sub_824540)
+     *
+     * What it does:
+     * Copies one second-dword lane from source payload into destination dword.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t* CopyRuntimeLane4ToDword(
+      std::uint32_t* const destination,
+      const void* const source
+    ) noexcept
+    {
+      if (destination == nullptr) {
+        return nullptr;
+      }
+      if (source == nullptr) {
+        *destination = 0u;
+      } else {
+        *destination = *(reinterpret_cast<const std::uint32_t*>(source) + 1);
+      }
+      return destination;
+    }
+
+    /**
+     * Address: 0x008245D0 (FUN_008245D0, sub_8245D0)
+     *
+     * What it does:
+     * Writes one two-dword pair payload (`first`,`second`) to destination.
+     */
+    [[maybe_unused]] [[nodiscard]] DwordPairRuntimeView* InitDwordPairRuntimeLane(
+      DwordPairRuntimeView* const destination,
+      const std::uint32_t second,
+      const std::uint32_t first
+    ) noexcept
+    {
+      if (destination == nullptr) {
+        return nullptr;
+      }
+      destination->mFirst = first;
+      destination->mSecond = second;
+      return destination;
+    }
+
+    /**
+     * Address: 0x00824600 (FUN_00824600, sub_824600)
+     *
+     * What it does:
+     * Initializes one command-graph issue runtime lane with cleared scalar state
+     * and two inline-backed pointer-triplet reference lanes.
+     */
+    [[maybe_unused]] [[nodiscard]] CommandGraphIssueRuntimeView*
+    InitCommandGraphIssueRuntimeLane(CommandGraphIssueRuntimeView* const lane) noexcept
+    {
+      if (lane == nullptr) {
+        return nullptr;
+      }
+
+      lane->mCommandId = -1;
+      lane->mOwnerLinkSlot = nullptr;
+      lane->mOwnerNextLink = nullptr;
+      lane->mAnchorPosition = Wm3::Vector3f(0.0f, 0.0f, 0.0f);
+      lane->mLaneWidth = 0.0f;
+      lane->mFlag1 = 0u;
+      lane->mFlag2 = 0u;
+      lane->mIsEnabled = 1u;
+      lane->pad_1F = 0u;
+      lane->mUnknown20 = 0u;
+      lane->mUnknown24 = 0u;
+      lane->mUnknown28 = 0.0f;
+      lane->mUnknown2C = 0.0f;
+      lane->mUnknown30 = 0.0f;
+      lane->mUnknown34 = 0.0f;
+      lane->mUnknown38 = 0.0f;
+      lane->mUnknown3C = 0.0f;
+      lane->mUnknown40 = 0.0f;
+      lane->mUnknown44 = 0u;
+
+      lane->mPrimaryInline0 = 0u;
+      lane->mPrimaryInline1 = 0u;
+      lane->mPrimaryRefLane.mBegin = &lane->mPrimaryInline0;
+      lane->mPrimaryRefLane.mEnd = &lane->mPrimaryInline0;
+      lane->mPrimaryRefLane.mCapacityEnd = &lane->mPrimaryInline1;
+      lane->mPrimaryRefLane.mMeta = &lane->mPrimaryInline0;
+
+      lane->mSecondaryInline0 = 0u;
+      lane->mSecondaryInline1 = 0u;
+      lane->mSecondaryRefLane.mBegin = &lane->mSecondaryInline0;
+      lane->mSecondaryRefLane.mEnd = &lane->mSecondaryInline0;
+      lane->mSecondaryRefLane.mCapacityEnd = &lane->mSecondaryInline1;
+      lane->mSecondaryRefLane.mMeta = &lane->mSecondaryInline0;
+      return lane;
+    }
+
+    /**
+     * Address: 0x00825FF0 (FUN_00825FF0, sub_825FF0)
+     *
+     * What it does:
+     * Sets one byte lane to `1` and returns destination.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint8_t* SetByteLaneTrue(std::uint8_t* const destination) noexcept
+    {
+      if (destination == nullptr) {
+        return nullptr;
+      }
+      *destination = 1u;
+      return destination;
+    }
+  } // namespace
 
   struct SBuildTemplateInfo
   {
@@ -1029,17 +1431,125 @@ namespace moho
       }
     }
 
+    /**
+     * Address: 0x00823E10 (FUN_00823E10, sub_823E10)
+     *
+     * What it does:
+     * Releases one build-template blueprint-id string lane and restores
+     * SSO-empty string state in-place.
+     */
+    [[nodiscard]] SBuildTemplateInfo* DestroyBuildTemplateInfo(SBuildTemplateInfo* const info)
+    {
+      if (info->mBlueprintId.myRes >= 0x10u) {
+        ::operator delete(info->mBlueprintId.bx.ptr);
+      }
+
+      info->mBlueprintId.mySize = 0;
+      info->mBlueprintId.myRes = 15;
+      info->mBlueprintId.bx.buf[0] = '\0';
+      return info;
+    }
+
+    /**
+     * Address: 0x00823DD0 (FUN_00823DD0, sub_823DD0)
+     *
+     * What it does:
+     * Releases one half-open build-template range `[first,last)` by destroying
+     * each blueprint-id string lane in 0x2C-byte record strides.
+     */
     void DestroyBuildTemplateRange(SBuildTemplateInfo* first, SBuildTemplateInfo* last)
     {
       while (first != last) {
-        if (first->mBlueprintId.myRes >= 0x10u) {
-          ::operator delete(first->mBlueprintId.bx.ptr);
-        }
-        first->mBlueprintId.myRes = 15;
-        first->mBlueprintId.mySize = 0;
-        first->mBlueprintId.bx.buf[0] = '\0';
+        (void)DestroyBuildTemplateInfo(first);
         ++first;
       }
+    }
+
+    /**
+     * Address: 0x00898E50 (FUN_00898E50, sub_898E50)
+     *
+     * What it does:
+     * Rebinds one build-template fastvector lane to inline storage and copies
+     * source entries in-order, allocating spill storage when source size
+     * exceeds inline capacity.
+     */
+    [[maybe_unused]] SBuildTemplateBuffer* RebindAndCopyBuildTemplateBufferInline(
+      SBuildTemplateBuffer* const destination,
+      const SBuildTemplateBuffer& source
+    )
+    {
+      if (destination == nullptr) {
+        return nullptr;
+      }
+
+      constexpr std::size_t kInlineCount = 16u;
+      auto* const inlineStart = reinterpret_cast<SBuildTemplateInfo*>(&destination->mInlineStorage[0]);
+      destination->mStart = inlineStart;
+      destination->mFinish = inlineStart;
+      destination->mCapacity = inlineStart + kInlineCount;
+      destination->mOriginalStart = inlineStart;
+
+      const SBuildTemplateInfo* const sourceStart = source.mStart;
+      const SBuildTemplateInfo* const sourceFinish = source.mFinish;
+      if (sourceStart == nullptr || sourceFinish == nullptr || sourceFinish <= sourceStart) {
+        return destination;
+      }
+
+      const std::size_t sourceCount = static_cast<std::size_t>(sourceFinish - sourceStart);
+      SBuildTemplateInfo* writeStart = destination->mStart;
+      if (sourceCount > kInlineCount) {
+        writeStart = static_cast<SBuildTemplateInfo*>(::operator new[](sourceCount * sizeof(SBuildTemplateInfo)));
+        destination->mStart = writeStart;
+        destination->mFinish = writeStart;
+        destination->mCapacity = writeStart + sourceCount;
+      }
+
+      try {
+        for (std::size_t i = 0; i < sourceCount; ++i) {
+          new (destination->mFinish) SBuildTemplateInfo(sourceStart[i]);
+          ++destination->mFinish;
+        }
+      } catch (...) {
+        DestroyBuildTemplateRange(destination->mStart, destination->mFinish);
+        if (destination->mStart != inlineStart) {
+          ::operator delete[](destination->mStart);
+        }
+        destination->mStart = inlineStart;
+        destination->mFinish = inlineStart;
+        destination->mCapacity = inlineStart + kInlineCount;
+        destination->mOriginalStart = inlineStart;
+        throw;
+      }
+
+      return destination;
+    }
+
+    /**
+     * Address: 0x00823D30 (FUN_00823D30, sub_823D30)
+     *
+     * What it does:
+     * Returns one first-dword lane from one build-template helper payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t ReadBuildTemplateHelperLane0(const void* const value) noexcept
+    {
+      if (value == nullptr) {
+        return 0u;
+      }
+      return *static_cast<const std::uint32_t*>(value);
+    }
+
+    /**
+     * Address: 0x00823D40 (FUN_00823D40, sub_823D40)
+     *
+     * What it does:
+     * Returns one second-dword lane from one build-template helper payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t ReadBuildTemplateHelperLane4(const void* const value) noexcept
+    {
+      if (value == nullptr) {
+        return 0u;
+      }
+      return *(reinterpret_cast<const std::uint32_t*>(value) + 1);
     }
 
     struct StrategicIconAuxView
@@ -1091,6 +1601,22 @@ namespace moho
       }
     }
 
+    /**
+     * Address: 0x0089BCF0 (FUN_0089BCF0)
+     *
+     * What it does:
+     * Destroys one `UICommandGraph` instance and releases its owned storage.
+     */
+    void DestroyUICommandGraphOwned(UICommandGraph* const graph) noexcept
+    {
+      if (graph == nullptr) {
+        return;
+      }
+
+      graph->~UICommandGraph();
+      ::operator delete(graph);
+    }
+
     [[nodiscard]] boost::detail::sp_counted_base* CreateBoostControlForUICommandGraph(UICommandGraph* const graph)
     {
       if (!graph) {
@@ -1099,7 +1625,7 @@ namespace moho
 
       auto* const control = new (std::nothrow) boost::detail::sp_counted_impl_p<UICommandGraph>(graph);
       if (!control) {
-        delete graph;
+        DestroyUICommandGraphOwned(graph);
         return nullptr;
       }
       return control;
@@ -1371,11 +1897,31 @@ namespace moho
     tree.mSize = 0u;
   }
 
+  /**
+   * Address: 0x00824B50 (FUN_00824B50, sub_824B50)
+   *
+   * What it does:
+   * Destroys command-graph runtime tree nodes rooted at `mHead->mParent`,
+   * then releases the head sentinel and clears head/size lanes.
+   */
   void UICommandGraph::DestroyTree(CommandGraphTree& tree)
   {
+    auto destroySubtree = [&](auto&& self, CommandGraphTreeNode* node) -> void {
+      if (node == nullptr || node == tree.mHead || node->mIsSentinel != 0u) {
+        return;
+      }
+
+      self(self, node->mRight);
+      CommandGraphTreeNode* const left = node->mLeft;
+      ::operator delete(node);
+      self(self, left);
+    };
+
     if (tree.mHead) {
+      destroySubtree(destroySubtree, tree.mHead->mParent);
       ::operator delete(tree.mHead);
     }
+
     tree.mHead = nullptr;
     tree.mSize = 0u;
     tree.mAllocProxy = nullptr;
@@ -1563,6 +2109,23 @@ namespace moho
     static_assert(offsetof(SessionEntityMap, mHead) == 0x04, "SessionEntityMap::mHead offset must be 0x04");
     static_assert(offsetof(SessionEntityMap, mSize) == 0x08, "SessionEntityMap::mSize offset must be 0x08");
 
+    struct CWldSessionOrphanRuntimeView
+    {
+      std::uint8_t pad_0000_0043[0x44];
+      SessionEntityMap mEntityMap;                // +0x44
+      std::uint8_t pad_0050_042B[0x3DC];
+      SSelectionSetUserEntity mPendingOrphanSet;  // +0x42C
+    };
+
+    static_assert(
+      offsetof(CWldSessionOrphanRuntimeView, mEntityMap) == 0x44,
+      "CWldSessionOrphanRuntimeView::mEntityMap offset must be 0x44"
+    );
+    static_assert(
+      offsetof(CWldSessionOrphanRuntimeView, mPendingOrphanSet) == 0x42C,
+      "CWldSessionOrphanRuntimeView::mPendingOrphanSet offset must be 0x42C"
+    );
+
     struct UserEntityWeakLinkSlotRuntimeView
     {
       void* mOwnerLinkSlot; // +0x00
@@ -1601,6 +2164,26 @@ namespace moho
       offsetof(CWldSessionCursorRuntimeView, mCursorInfo) == 0x4B0,
       "CWldSessionCursorRuntimeView::mCursorInfo offset must be 0x4B0"
     );
+
+    [[nodiscard]] CursorInfoRuntimeView& AccessCursorInfoRuntime(CWldSession& session) noexcept
+    {
+      return reinterpret_cast<CWldSessionCursorRuntimeView*>(&session)->mCursorInfo;
+    }
+
+    [[nodiscard]] const CursorInfoRuntimeView& AccessCursorInfoRuntime(const CWldSession& session) noexcept
+    {
+      return reinterpret_cast<const CWldSessionCursorRuntimeView*>(&session)->mCursorInfo;
+    }
+
+    [[nodiscard]] MouseInfo& AccessCursorInfo(CWldSession& session) noexcept
+    {
+      return *reinterpret_cast<MouseInfo*>(&AccessCursorInfoRuntime(session));
+    }
+
+    [[nodiscard]] const MouseInfo& AccessCursorInfo(const CWldSession& session) noexcept
+    {
+      return *reinterpret_cast<const MouseInfo*>(&AccessCursorInfoRuntime(session));
+    }
 
     struct SessionSaveTagNode
     {
@@ -1813,15 +2396,9 @@ namespace moho
         return;
       }
 
-      for (SSelectionNodeUserEntity* node = head->mLeft; node && node != head;) {
-        node = EraseSelectionNodeAndAdvance(selection, node);
-      }
-
-      selection.mSize = 0u;
-      selection.mSizeMirrorOrUnused = 0u;
-      head->mParent = head;
-      head->mLeft = head;
-      head->mRight = head;
+      SSelectionNodeUserEntity* cursor = head->mLeft;
+      (void)selection.EraseRange(&cursor, head->mLeft, head);
+      selection.mSizeMirrorOrUnused = selection.mSize;
     }
 
     struct CWldSessionSelectionStatsRuntimeView
@@ -2050,6 +2627,34 @@ namespace moho
       SSelectionWeakRefUserEntity* mPrev = nullptr;
     };
 
+    /**
+     * Address: 0x00867780 (FUN_00867780, sub_867780)
+     *
+     * What it does:
+     * Resolves one weak-set tree node for `entity` using the transient
+     * owner-link guard lane, then writes one `{set,node}` cursor pair.
+     */
+    [[nodiscard]] SSelectionSetUserEntity::FindResult* FindSelectionNodeByEntityGuarded(
+      SSelectionSetUserEntity::FindResult* const outResult,
+      SSelectionSetUserEntity* const set,
+      UserEntity* const entity
+    )
+    {
+      if (outResult == nullptr) {
+        return nullptr;
+      }
+
+      outResult->mSet = set;
+      outResult->mRes = (set != nullptr) ? set->mHead : nullptr;
+      if (set == nullptr) {
+        return outResult;
+      }
+
+      ScopedSelectionOwnerLinkGuard ownerLinkGuard(entity);
+      outResult->mRes = FindSelectionNodeByKey(*set, SelectionKeyFromEntity(entity));
+      return outResult;
+    }
+
     void FixupAfterSelectionInsert(SSelectionSetUserEntity& selection, SSelectionNodeUserEntity* node)
     {
       SSelectionNodeUserEntity* const head = selection.mHead;
@@ -2151,6 +2756,987 @@ namespace moho
         *outNode = inserted;
       }
       return true;
+    }
+
+    struct SelectionInsertFindResult
+    {
+      SSelectionNodeUserEntity* node;
+      bool inserted;
+    };
+
+    struct SelectionFindResBool
+    {
+      SSelectionSetUserEntity::FindResult res;
+      bool found;
+    };
+
+    [[nodiscard]] SSelectionNodeUserEntity* CreateSelectionSetHeadNode()
+    {
+      auto* const head = static_cast<SSelectionNodeUserEntity*>(::operator new(sizeof(SSelectionNodeUserEntity)));
+      std::memset(head, 0, sizeof(SSelectionNodeUserEntity));
+      head->mParent = head;
+      head->mLeft = head;
+      head->mRight = head;
+      head->mColor = 1u;
+      head->mIsSentinel = 1u;
+      return head;
+    }
+
+    /**
+     * Address: 0x00822A50 (FUN_00822A50, sub_822A50)
+     *
+     * What it does:
+     * Decrements one weak-set RB-tree iterator cursor to its predecessor.
+     */
+    [[maybe_unused]] [[nodiscard]] SSelectionNodeUserEntity*
+    DecrementSelectionCursor(SSelectionSetUserEntity* const set, SSelectionNodeUserEntity* const cursor)
+    {
+      if (set == nullptr || set->mHead == nullptr || cursor == nullptr) {
+        return nullptr;
+      }
+
+      SSelectionNodeUserEntity* const head = set->mHead;
+      if (cursor == head) {
+        return head->mRight;
+      }
+
+      if (!IsSelectionNil(cursor->mLeft)) {
+        return SelectionMax(cursor->mLeft, head);
+      }
+
+      SSelectionNodeUserEntity* node = cursor;
+      SSelectionNodeUserEntity* parent = node->mParent;
+      while (parent != nullptr && parent != head && node == parent->mLeft) {
+        node = parent;
+        parent = parent->mParent;
+      }
+
+      return (parent != nullptr) ? parent : head;
+    }
+
+    /**
+     * Address: 0x00822AB0 (FUN_00822AB0, sub_822AB0)
+     *
+     * What it does:
+     * Initializes one selection-tree node payload from one entity key and links
+     * the embedded weak-owner lane into the entity intrusive chain.
+     */
+    [[maybe_unused]] [[nodiscard]] SSelectionNodeUserEntity* InitSelectionNodeValueAndWeakLink(
+      SSelectionNodeUserEntity* const node,
+      SSelectionSetUserEntity* const set,
+      UserEntity* const entity
+    )
+    {
+      if (node == nullptr || set == nullptr || set->mHead == nullptr) {
+        return nullptr;
+      }
+
+      SSelectionNodeUserEntity* const head = set->mHead;
+      node->mLeft = head;
+      node->mRight = head;
+      node->mParent = head;
+      node->mKey = SelectionKeyFromEntity(entity);
+      node->mColor = 0u;
+      node->mIsSentinel = 0u;
+      node->pad_1A[0] = 0u;
+      node->pad_1A[1] = 0u;
+      LinkSelectionWeakOwnerRef(entity, node->mEnt);
+      return node;
+    }
+
+    /**
+     * Address: 0x008229E0 (FUN_008229E0, sub_8229E0)
+     *
+     * What it does:
+     * Allocates one selection-tree node and initializes it for one entity key.
+     */
+    [[maybe_unused]] [[nodiscard]] SSelectionNodeUserEntity*
+    AllocateAndInitSelectionNode(SSelectionSetUserEntity* const set, UserEntity* const entity)
+    {
+      if (set == nullptr || set->mHead == nullptr) {
+        return nullptr;
+      }
+
+      auto* const node = static_cast<SSelectionNodeUserEntity*>(::operator new(sizeof(SSelectionNodeUserEntity)));
+      return InitSelectionNodeValueAndWeakLink(node, set, entity);
+    }
+
+    /**
+     * Address: 0x00822670 (FUN_00822670, sub_822670)
+     *
+     * What it does:
+     * Inserts one entity key into the selection weak-set RB-tree and returns
+     * `{node,inserted}`.
+     */
+    [[maybe_unused]] [[nodiscard]] SelectionInsertFindResult* InsertSelectionNodeAndRebalance(
+      SelectionInsertFindResult* const outResult,
+      SSelectionSetUserEntity* const set,
+      UserEntity* const entity
+    )
+    {
+      outResult->node = (set != nullptr) ? set->mHead : nullptr;
+      outResult->inserted = false;
+
+      if (set == nullptr || set->mHead == nullptr) {
+        return outResult;
+      }
+
+      if (set->mSize >= 0x15555554u) {
+        throw std::length_error("map/set<T> too long");
+      }
+
+      SSelectionNodeUserEntity* const head = set->mHead;
+      const std::uint32_t key = SelectionKeyFromEntity(entity);
+      SSelectionNodeUserEntity* parent = head;
+      SSelectionNodeUserEntity* probe = head->mParent;
+      while (!IsSelectionNil(probe)) {
+        parent = probe;
+        if (key < probe->mKey) {
+          probe = probe->mLeft;
+        } else if (probe->mKey < key) {
+          probe = probe->mRight;
+        } else {
+          outResult->node = probe;
+          return outResult;
+        }
+      }
+
+      SSelectionNodeUserEntity* const inserted = AllocateAndInitSelectionNode(set, entity);
+      inserted->mParent = parent;
+      if (parent == head) {
+        head->mParent = inserted;
+      } else if (key < parent->mKey) {
+        parent->mLeft = inserted;
+      } else {
+        parent->mRight = inserted;
+      }
+
+      ++set->mSize;
+      FixupAfterSelectionInsert(*set, inserted);
+      RecomputeSelectionExtrema(*set);
+      outResult->node = inserted;
+      outResult->inserted = true;
+      return outResult;
+    }
+
+    /**
+     * Address: 0x00822420 (FUN_00822420, sub_822420)
+     *
+     * What it does:
+     * Performs one find-or-insert operation for the selection weak-set key lane
+     * and returns `{node,inserted}`.
+     */
+    [[maybe_unused]] [[nodiscard]] SelectionInsertFindResult* FindOrInsertSelectionNodeByUserEntity(
+      SelectionInsertFindResult* const outResult,
+      SSelectionSetUserEntity* const set,
+      UserEntity* const entity
+    )
+    {
+      outResult->node = (set != nullptr) ? set->mHead : nullptr;
+      outResult->inserted = false;
+
+      if (set == nullptr || set->mHead == nullptr) {
+        return outResult;
+      }
+
+      SSelectionNodeUserEntity* const found = FindSelectionNodeByKey(*set, SelectionKeyFromEntity(entity));
+      if (found != nullptr && found != set->mHead) {
+        outResult->node = found;
+        return outResult;
+      }
+
+      return InsertSelectionNodeAndRebalance(outResult, set, entity);
+    }
+
+    /**
+     * Address: 0x00822270 (FUN_00822270, sub_822270)
+     *
+     * What it does:
+     * Inserts one unit key into a weak-set under a scoped weak-owner guard and
+     * writes one `{set,node,found}` result payload.
+     */
+    [[maybe_unused]] [[nodiscard]] SelectionFindResBool* InsertSelectionUnitWithWeakGuard(
+      SelectionFindResBool* const outResult,
+      SSelectionSetUserEntity* const set,
+      UserUnit* const unit
+    )
+    {
+      outResult->res.mSet = set;
+      outResult->res.mRes = (set != nullptr) ? set->mHead : nullptr;
+      outResult->found = false;
+
+      UserEntity* const entity = reinterpret_cast<UserEntity*>(unit);
+      ScopedSelectionOwnerLinkGuard ownerLinkGuard(entity);
+
+      SelectionInsertFindResult insertResult{};
+      (void)FindOrInsertSelectionNodeByUserEntity(&insertResult, set, entity);
+      outResult->res.mRes = insertResult.node;
+      outResult->found = insertResult.inserted;
+      return outResult;
+    }
+
+    /**
+     * Address: 0x00822C50 (FUN_00822C50, sub_822C50)
+     *
+     * What it does:
+     * Initializes one destination weak-set from one source iterator range by
+     * copying live user-entity keys into a fresh RB-tree head/sentinel shape.
+     */
+    [[maybe_unused]] [[nodiscard]] SSelectionSetUserEntity* InitSelectionSetFromIteratorRange(
+      SSelectionSetUserEntity* const destination,
+      SSelectionSetUserEntity* const source,
+      SSelectionNodeUserEntity* first,
+      SSelectionNodeUserEntity* const last
+    )
+    {
+      if (destination == nullptr) {
+        return nullptr;
+      }
+
+      destination->mHead = CreateSelectionSetHeadNode();
+      destination->mSize = 0u;
+
+      if (source == nullptr || source->mHead == nullptr) {
+        return destination;
+      }
+
+      while (first != nullptr && first != last) {
+        if (UserEntity* const entity = DecodeSelectedUserEntity(first->mEnt); entity != nullptr) {
+          SSelectionSetUserEntity::AddResult addResult{};
+          (void)SSelectionSetUserEntity::Add(&addResult, destination, entity);
+        }
+
+        SSelectionSetUserEntity::Iterator_inc(&first);
+        first = SSelectionSetUserEntity::find(source, first, &first);
+      }
+
+      return destination;
+    }
+
+    /**
+     * Address: 0x00822210 (FUN_00822210, sub_822210)
+     *
+     * What it does:
+     * Copies one source selection weak-set into one destination weak-set by
+     * starting from the first live source node and cloning the full iterator
+     * range into a fresh destination tree.
+     */
+    [[maybe_unused]] [[nodiscard]] SSelectionSetUserEntity* CopySelectionSetFromOther(
+      SSelectionSetUserEntity* const destination,
+      SSelectionSetUserEntity* const source
+    )
+    {
+      if (source == nullptr || source->mHead == nullptr) {
+        return InitSelectionSetFromIteratorRange(destination, source, nullptr, nullptr);
+      }
+
+      SSelectionNodeUserEntity* first = source->mHead->mLeft;
+      first = SSelectionSetUserEntity::find(source, first, &first);
+      return InitSelectionSetFromIteratorRange(destination, source, first, source->mHead);
+    }
+
+    struct SelectionWeakSetStorageRuntimeView
+    {
+      void* mAllocProxy;               // +0x00
+      SSelectionNodeUserEntity* mHead; // +0x04
+      std::uint32_t mSize;             // +0x08
+    };
+
+    static_assert(
+      sizeof(SelectionWeakSetStorageRuntimeView) == 0x0C,
+      "SelectionWeakSetStorageRuntimeView size must be 0x0C"
+    );
+
+    struct SelectionWeakSetStorageVectorRuntimeView
+    {
+      void* mProxy;                                // +0x00
+      SelectionWeakSetStorageRuntimeView* mBegin;  // +0x04
+      SelectionWeakSetStorageRuntimeView* mEnd;    // +0x08
+      SelectionWeakSetStorageRuntimeView* mCapacityEnd; // +0x0C
+    };
+
+    static_assert(
+      sizeof(SelectionWeakSetStorageVectorRuntimeView) == 0x10,
+      "SelectionWeakSetStorageVectorRuntimeView size must be 0x10"
+    );
+
+    /**
+     * Address: 0x00868E50 (FUN_00868E50, sub_868E50)
+     *
+     * What it does:
+     * Releases one weak-set map storage lane by erasing all nodes, deleting
+     * the head sentinel, and zeroing `{head,size}`.
+     */
+    [[maybe_unused]] [[nodiscard]] std::int32_t
+    ReleaseSelectionWeakSetStorageCompat(SelectionWeakSetStorageRuntimeView* const storage)
+    {
+      if (storage == nullptr) {
+        return 0;
+      }
+
+      if (storage->mHead != nullptr) {
+        auto* const set = reinterpret_cast<SSelectionSetUserEntity*>(storage);
+        SSelectionNodeUserEntity* cursor = nullptr;
+        (void)set->EraseRange(&cursor, set->mHead->mLeft, set->mHead);
+        ::operator delete(storage->mHead);
+      }
+
+      storage->mHead = nullptr;
+      storage->mSize = 0u;
+      return 0;
+    }
+
+    /**
+     * Address: 0x00868CC0 (FUN_00868CC0, sub_868CC0)
+     *
+     * What it does:
+     * Releases one half-open weak-set storage range by erasing each set and
+     * deleting each per-set tree head sentinel.
+     */
+    [[maybe_unused]] void ReleaseSelectionWeakSetStorageRange(
+      SelectionWeakSetStorageRuntimeView* rangeBegin,
+      SelectionWeakSetStorageRuntimeView* const rangeEnd
+    )
+    {
+      while (rangeBegin != rangeEnd) {
+        (void)ReleaseSelectionWeakSetStorageCompat(rangeBegin);
+        ++rangeBegin;
+      }
+    }
+
+    /**
+     * Address: 0x00865720 (FUN_00865720, sub_865720)
+     *
+     * What it does:
+     * Assigns one selection weak-set from another by rebuilding destination
+     * storage from source live entries.
+     */
+    [[maybe_unused]] [[nodiscard]] SSelectionSetUserEntity* AssignSelectionSetFromOther(
+      SelectionWeakSetStorageRuntimeView* const sourceStorage,
+      SSelectionSetUserEntity* const destinationSet
+    )
+    {
+      auto* const sourceSet = reinterpret_cast<SSelectionSetUserEntity*>(sourceStorage);
+      if (destinationSet == nullptr || destinationSet == sourceSet) {
+        return destinationSet;
+      }
+
+      if (destinationSet->mHead != nullptr) {
+        SSelectionNodeUserEntity* eraseCursor = nullptr;
+        (void)destinationSet->EraseRange(&eraseCursor, destinationSet->mHead->mLeft, destinationSet->mHead);
+        ::operator delete(destinationSet->mHead);
+      }
+
+      destinationSet->mHead = nullptr;
+      destinationSet->mSize = 0u;
+      destinationSet->mSizeMirrorOrUnused = 0u;
+
+      SSelectionSetUserEntity rebuilt{};
+      (void)CopySelectionSetFromOther(&rebuilt, sourceSet);
+      destinationSet->mHead = rebuilt.mHead;
+      destinationSet->mSize = rebuilt.mSize;
+      destinationSet->mSizeMirrorOrUnused = rebuilt.mSize;
+      return destinationSet;
+    }
+
+    /**
+     * Address: 0x00867840 (FUN_00867840, sub_867840)
+     *
+     * What it does:
+     * Releases vector-backed weak-set storage and resets begin/end/capacity
+     * pointers to the empty state.
+     */
+    [[maybe_unused]] void ReleaseSelectionWeakSetStorageVector(
+      SelectionWeakSetStorageVectorRuntimeView* const storage
+    )
+    {
+      if (storage == nullptr) {
+        return;
+      }
+
+      if (storage->mBegin != nullptr) {
+        ReleaseSelectionWeakSetStorageRange(storage->mBegin, storage->mEnd);
+        ::operator delete(storage->mBegin);
+      }
+
+      storage->mBegin = nullptr;
+      storage->mEnd = nullptr;
+      storage->mCapacityEnd = nullptr;
+    }
+
+    /**
+     * Address: 0x00868C80 (FUN_00868C80, sub_868C80)
+     *
+     * What it does:
+     * Copies one half-open weak-set storage range forward, assigning each
+     * destination lane from the corresponding source lane.
+     */
+    [[maybe_unused]] [[nodiscard]] SelectionWeakSetStorageRuntimeView* CopySelectionWeakSetStorageRangeForward(
+      SelectionWeakSetStorageRuntimeView* destination,
+      SelectionWeakSetStorageRuntimeView* sourceBegin,
+      SelectionWeakSetStorageRuntimeView* sourceEnd
+    )
+    {
+      SelectionWeakSetStorageRuntimeView* dst = destination;
+      SelectionWeakSetStorageRuntimeView* src = sourceBegin;
+      while (src != sourceEnd) {
+        if (dst != src) {
+          (void)ReleaseSelectionWeakSetStorageCompat(dst);
+          (void)CopySelectionSetFromOther(
+            reinterpret_cast<SSelectionSetUserEntity*>(dst),
+            reinterpret_cast<SSelectionSetUserEntity*>(src)
+          );
+        }
+
+        ++src;
+        ++dst;
+      }
+
+      return dst;
+    }
+
+    /**
+     * Address: 0x00867FC0 (FUN_00867FC0, sub_867FC0)
+     *
+     * What it does:
+     * Erases one half-open weak-set storage range from a vector lane by
+     * shifting the tail forward and releasing trailing stale slots.
+     */
+    [[maybe_unused]] [[nodiscard]] SelectionWeakSetStorageRuntimeView**
+    EraseSelectionWeakSetStorageVectorRange(
+      SelectionWeakSetStorageVectorRuntimeView* const storage,
+      SelectionWeakSetStorageRuntimeView** const outIterator,
+      SelectionWeakSetStorageRuntimeView* eraseBegin,
+      SelectionWeakSetStorageRuntimeView* eraseEnd
+    )
+    {
+      SelectionWeakSetStorageRuntimeView* iteratorResult = eraseBegin;
+      if (storage != nullptr && eraseBegin != eraseEnd) {
+        SelectionWeakSetStorageRuntimeView* const previousEnd = storage->mEnd;
+        SelectionWeakSetStorageRuntimeView* const newEnd =
+          CopySelectionWeakSetStorageRangeForward(eraseBegin, eraseEnd, previousEnd);
+        ReleaseSelectionWeakSetStorageRange(newEnd, previousEnd);
+        storage->mEnd = newEnd;
+      }
+
+      if (outIterator != nullptr) {
+        *outIterator = iteratorResult;
+      }
+      return outIterator;
+    }
+
+    /**
+     * Address: 0x00868D30 (FUN_00868D30, sub_868D30)
+     *
+     * What it does:
+     * Fills one destination weak-set storage range with one source value lane.
+     * Returns the last copied destination lane (or `fillValue` when no copy ran).
+     */
+    [[maybe_unused]] [[nodiscard]] SelectionWeakSetStorageRuntimeView* FillSelectionWeakSetStorageRange(
+      SelectionWeakSetStorageRuntimeView* destinationBegin,
+      SelectionWeakSetStorageRuntimeView* fillValue,
+      SelectionWeakSetStorageRuntimeView* destinationEnd
+    )
+    {
+      SelectionWeakSetStorageRuntimeView* result = fillValue;
+      for (SelectionWeakSetStorageRuntimeView* dst = destinationBegin; dst != destinationEnd; ++dst) {
+        if (dst == fillValue) {
+          continue;
+        }
+
+        (void)ReleaseSelectionWeakSetStorageCompat(dst);
+        (void)CopySelectionSetFromOther(
+          reinterpret_cast<SSelectionSetUserEntity*>(dst),
+          reinterpret_cast<SSelectionSetUserEntity*>(fillValue)
+        );
+        result = dst;
+      }
+
+      return result;
+    }
+
+    /**
+     * Address: 0x00868EB0 (FUN_00868EB0, sub_868EB0)
+     *
+     * What it does:
+     * Copies one half-open weak-set storage range backward, assigning each
+     * destination lane from the matching source lane in reverse order.
+     */
+    [[maybe_unused]] [[nodiscard]] SelectionWeakSetStorageRuntimeView* CopySelectionWeakSetStorageRangeBackward(
+      SelectionWeakSetStorageRuntimeView* destinationEnd,
+      SelectionWeakSetStorageRuntimeView* sourceEnd,
+      SelectionWeakSetStorageRuntimeView* sourceBegin
+    )
+    {
+      SelectionWeakSetStorageRuntimeView* dst = destinationEnd;
+      SelectionWeakSetStorageRuntimeView* src = sourceEnd;
+      while (src != sourceBegin) {
+        --src;
+        --dst;
+
+        if (dst == src) {
+          continue;
+        }
+
+        (void)ReleaseSelectionWeakSetStorageCompat(dst);
+        (void)CopySelectionSetFromOther(
+          reinterpret_cast<SSelectionSetUserEntity*>(dst),
+          reinterpret_cast<SSelectionSetUserEntity*>(src)
+        );
+      }
+
+      return dst;
+    }
+
+    struct RawPointerTripletRuntimeView
+    {
+      void* mBegin;       // +0x00
+      void* mEnd;         // +0x04
+      void* mCapacityEnd; // +0x08
+      void* mInlineOrMeta; // +0x0C
+    };
+
+    static_assert(sizeof(RawPointerTripletRuntimeView) == 0x10, "RawPointerTripletRuntimeView size must be 0x10");
+    static_assert(
+      offsetof(RawPointerTripletRuntimeView, mInlineOrMeta) == 0x0C,
+      "RawPointerTripletRuntimeView::mInlineOrMeta offset must be 0x0C"
+    );
+
+    struct DwordByteRuntimeView
+    {
+      std::uint32_t mValue; // +0x00
+      std::uint8_t mFlag;   // +0x04
+    };
+
+    static_assert(offsetof(DwordByteRuntimeView, mFlag) == 0x04, "DwordByteRuntimeView::mFlag offset must be 0x04");
+
+    struct TwoDwordByteRuntimeView
+    {
+      std::uint32_t mFirst;  // +0x00
+      std::uint32_t mSecond; // +0x04
+      std::uint8_t mFlag;    // +0x08
+    };
+
+    static_assert(
+      offsetof(TwoDwordByteRuntimeView, mFlag) == 0x08,
+      "TwoDwordByteRuntimeView::mFlag offset must be 0x08"
+    );
+
+    struct PackedTwoWordRuntimeView
+    {
+      std::uint16_t mFirst;  // +0x00
+      std::uint16_t mSecond; // +0x02
+    };
+
+    struct PackedThreeWordRuntimeView
+    {
+      std::uint16_t mFirst;   // +0x00
+      std::uint16_t mUnused;  // +0x02
+      std::uint16_t mSecond;  // +0x04
+    };
+
+    static_assert(
+      offsetof(PackedThreeWordRuntimeView, mSecond) == 0x04,
+      "PackedThreeWordRuntimeView::mSecond offset must be 0x04"
+    );
+
+    [[nodiscard]] std::uint32_t ReadRuntimeDwordAt0(const void* const value) noexcept
+    {
+      if (value == nullptr) {
+        return 0u;
+      }
+      return *static_cast<const std::uint32_t*>(value);
+    }
+
+    [[nodiscard]] std::uint32_t ReadRuntimeDwordAt4(const void* const value) noexcept
+    {
+      if (value == nullptr) {
+        return 0u;
+      }
+      return *(reinterpret_cast<const std::uint32_t*>(value) + 1);
+    }
+
+    /**
+     * Address: 0x00822250 (FUN_00822250, sub_822250)
+     *
+     * What it does:
+     * Returns one first-dword runtime lane from one selection helper payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t ReadSelectionRuntimeLane0(const void* const value) noexcept
+    {
+      return ReadRuntimeDwordAt0(value);
+    }
+
+    /**
+     * Address: 0x00822260 (FUN_00822260, sub_822260)
+     *
+     * What it does:
+     * Returns one first-dword runtime lane from one selection helper payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t ReadSelectionRuntimeLane0Alt(const void* const value) noexcept
+    {
+      return ReadRuntimeDwordAt0(value);
+    }
+
+    /**
+     * Address: 0x00822340 (FUN_00822340, sub_822340)
+     *
+     * What it does:
+     * Returns one first-dword runtime lane from one command helper payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t ReadCommandRuntimeLane0(const void* const value) noexcept
+    {
+      return ReadRuntimeDwordAt0(value);
+    }
+
+    /**
+     * Address: 0x00822350 (FUN_00822350, sub_822350)
+     *
+     * What it does:
+     * Returns one second-dword runtime lane from one command helper payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t ReadCommandRuntimeLane4(const void* const value) noexcept
+    {
+      return ReadRuntimeDwordAt4(value);
+    }
+
+    /**
+     * Address: 0x00822390 (FUN_00822390, sub_822390)
+     *
+     * What it does:
+     * Returns one first-dword runtime lane from one command helper payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t ReadCommandRuntimeLane0Alt(const void* const value) noexcept
+    {
+      return ReadRuntimeDwordAt0(value);
+    }
+
+    /**
+     * Address: 0x008223A0 (FUN_008223A0, sub_8223A0)
+     *
+     * What it does:
+     * Appends one `UserUnit*` from source lane into one fastvector and returns
+     * the pre-append end pointer lane.
+     */
+    [[maybe_unused]] [[nodiscard]] UserUnit**
+    AppendUserUnitPointerLane(gpg::fastvector<UserUnit*>& destination, UserUnit* const* const source)
+    {
+      UserUnit** const previousEnd = destination.end();
+      destination.push_back(source != nullptr ? *source : nullptr);
+      return previousEnd;
+    }
+
+    /**
+     * Address: 0x008223D0 (FUN_008223D0, sub_8223D0)
+     *
+     * What it does:
+     * Initializes one raw pointer-triplet lane with one inline 4-byte storage
+     * fallback and resets begin/end/capacity links.
+     */
+    [[maybe_unused]] [[nodiscard]] RawPointerTripletRuntimeView*
+    InitRawPointerTripletInlineLane(RawPointerTripletRuntimeView* const view) noexcept
+    {
+      if (view == nullptr) {
+        return nullptr;
+      }
+
+      auto* const inlineBase = reinterpret_cast<std::uint8_t*>(view) + 0x10;
+      view->mBegin = inlineBase;
+      view->mEnd = inlineBase;
+      view->mCapacityEnd = inlineBase + 0x4;
+      view->mInlineOrMeta = inlineBase;
+      return view;
+    }
+
+    /**
+     * Address: 0x008223F0 (FUN_008223F0, sub_8223F0)
+     *
+     * What it does:
+     * Resets one raw pointer-triplet lane to inline/meta fallback storage and
+     * releases heap-buffer storage when currently detached from fallback.
+     */
+    [[maybe_unused]] [[nodiscard]] void* ResetRawPointerTripletToInlineLane(RawPointerTripletRuntimeView* const view)
+    {
+      if (view == nullptr) {
+        return nullptr;
+      }
+
+      void* result = view->mBegin;
+      if (view->mBegin == view->mInlineOrMeta) {
+        view->mEnd = view->mBegin;
+        return result;
+      }
+
+      ::operator delete[](view->mBegin);
+      auto** const inlineOrMeta = static_cast<void**>(view->mInlineOrMeta);
+      view->mBegin = inlineOrMeta;
+      result = *inlineOrMeta;
+      view->mCapacityEnd = result;
+      view->mEnd = view->mBegin;
+      return result;
+    }
+
+    /**
+     * Address: 0x008225F0 (FUN_008225F0, sub_8225F0)
+     *
+     * What it does:
+     * Seeds one raw pointer-triplet lane from one external buffer and element
+     * count (`begin/end/capacity/meta` share the same base lane).
+     */
+    [[maybe_unused]] [[nodiscard]] RawPointerTripletRuntimeView* InitRawPointerTripletFromExternalLane(
+      RawPointerTripletRuntimeView* const view,
+      const std::int32_t elementCount,
+      void* const begin
+    ) noexcept
+    {
+      if (view == nullptr) {
+        return nullptr;
+      }
+
+      view->mBegin = begin;
+      view->mEnd = begin;
+      view->mCapacityEnd =
+        reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(begin) + (0x4u * static_cast<std::uintptr_t>(elementCount)));
+      view->mInlineOrMeta = begin;
+      return view;
+    }
+
+    /**
+     * Address: 0x00822820 (FUN_00822820, nullsub_2792)
+     *
+     * What it does:
+     * No-op hook lane retained for binary parity.
+     */
+    [[maybe_unused]] void NoOpSelectionHookA() noexcept
+    {}
+
+    /**
+     * Address: 0x008229B0 (FUN_008229B0, sub_8229B0)
+     *
+     * What it does:
+     * Performs one selection-cursor decrement and returns the updated cursor lane.
+     */
+    [[maybe_unused]] [[nodiscard]] SSelectionNodeUserEntity* StepSelectionCursorBackward(
+      SSelectionSetUserEntity* const set,
+      SSelectionNodeUserEntity* const cursor
+    )
+    {
+      return DecrementSelectionCursor(set, cursor);
+    }
+
+    /**
+     * Address: 0x008229C0 (FUN_008229C0, sub_8229C0)
+     *
+     * What it does:
+     * Copies one `{dword,flag}` payload from lane pointers to one destination.
+     */
+    [[maybe_unused]] [[nodiscard]] DwordByteRuntimeView* CopyDwordByteRuntimeLane(
+      DwordByteRuntimeView* const destination,
+      const std::uint32_t* const valueSource,
+      const std::uint8_t* const flagSource
+    ) noexcept
+    {
+      if (destination == nullptr) {
+        return nullptr;
+      }
+
+      destination->mValue = (valueSource != nullptr) ? *valueSource : 0u;
+      destination->mFlag = (flagSource != nullptr) ? *flagSource : 0u;
+      return destination;
+    }
+
+    /**
+     * Address: 0x008229D0 (FUN_008229D0, sub_8229D0)
+     *
+     * What it does:
+     * Returns one legacy map/set maximum-size guard constant lane.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t GetLegacyMapSetMaxSizeGuard() noexcept
+    {
+      return 0x15555555u;
+    }
+
+    /**
+     * Address: 0x00822A10 (FUN_00822A10, nullsub_2793)
+     *
+     * What it does:
+     * No-op hook lane retained for binary parity.
+     */
+    [[maybe_unused]] void NoOpSelectionHookB() noexcept
+    {}
+
+    /**
+     * Address: 0x00822A40 (FUN_00822A40, sub_822A40)
+     *
+     * What it does:
+     * Returns one legacy map/set maximum-size guard constant lane.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t GetLegacyMapSetMaxSizeGuardAlt() noexcept
+    {
+      return 0x15555555u;
+    }
+
+    /**
+     * Address: 0x00822D70 (FUN_00822D70, sub_822D70)
+     *
+     * What it does:
+     * Writes one `{first,second,flag}` payload into destination runtime storage.
+     */
+    [[maybe_unused]] [[nodiscard]] TwoDwordByteRuntimeView* InitTwoDwordByteRuntimeLane(
+      TwoDwordByteRuntimeView* const destination,
+      const std::uint32_t first,
+      const std::uint32_t second,
+      const std::uint8_t flag
+    ) noexcept
+    {
+      if (destination == nullptr) {
+        return nullptr;
+      }
+
+      destination->mFirst = first;
+      destination->mSecond = second;
+      destination->mFlag = flag;
+      return destination;
+    }
+
+    /**
+     * Address: 0x00822DF0 (FUN_00822DF0, sub_822DF0)
+     *
+     * What it does:
+     * Copies one `{first,second,flag}` payload from lane pointers into destination.
+     */
+    [[maybe_unused]] [[nodiscard]] TwoDwordByteRuntimeView* CopyTwoDwordByteRuntimeLane(
+      TwoDwordByteRuntimeView* const destination,
+      const std::uint32_t* const pairSource,
+      const std::uint8_t* const flagSource
+    ) noexcept
+    {
+      if (destination == nullptr) {
+        return nullptr;
+      }
+
+      destination->mFirst = (pairSource != nullptr) ? pairSource[0] : 0u;
+      destination->mSecond = (pairSource != nullptr) ? pairSource[1] : 0u;
+      destination->mFlag = (flagSource != nullptr) ? *flagSource : 0u;
+      return destination;
+    }
+
+    /**
+     * Address: 0x00822E10 (FUN_00822E10, sub_822E10)
+     *
+     * What it does:
+     * Upcasts one reflected reference to `UserUnit` type lane and returns the
+     * resulting object pointer payload.
+     */
+    [[maybe_unused]] [[nodiscard]] void* UpcastRRefToUserUnitObject(gpg::RRef* const sourceRef)
+    {
+      if (sourceRef == nullptr) {
+        return nullptr;
+      }
+
+      static gpg::RType* sCachedUserUnitType = nullptr;
+      if (sCachedUserUnitType == nullptr) {
+        sCachedUserUnitType = gpg::LookupRType(typeid(UserUnit));
+      }
+
+      const gpg::RRef upcastedRef = gpg::REF_UpcastPtr(*sourceRef, sCachedUserUnitType);
+      return upcastedRef.mObj;
+    }
+
+    /**
+     * Address: 0x00822E50 (FUN_00822E50, nullsub_2794)
+     *
+     * What it does:
+     * No-op hook lane retained for binary parity.
+     */
+    [[maybe_unused]] void NoOpSelectionHookC() noexcept
+    {}
+
+    /**
+     * Address: 0x00822E60 (FUN_00822E60, sub_822E60)
+     *
+     * What it does:
+     * Returns the high-byte lane from one packed 32-bit value.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint8_t ReadHighByteLaneA(const std::uint32_t value) noexcept
+    {
+      return static_cast<std::uint8_t>((value >> 8u) & 0xFFu);
+    }
+
+    /**
+     * Address: 0x00822E90 (FUN_00822E90, nullsub_2795)
+     *
+     * What it does:
+     * No-op hook lane retained for binary parity.
+     */
+    [[maybe_unused]] void NoOpSelectionHookD() noexcept
+    {}
+
+    /**
+     * Address: 0x00822EA0 (FUN_00822EA0, sub_822EA0)
+     *
+     * What it does:
+     * Returns the high-byte lane from one packed 32-bit value.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint8_t ReadHighByteLaneB(const std::uint32_t value) noexcept
+    {
+      return static_cast<std::uint8_t>((value >> 8u) & 0xFFu);
+    }
+
+    /**
+     * Address: 0x00822ED0 (FUN_00822ED0, sub_822ED0)
+     *
+     * What it does:
+     * Returns one first-dword runtime lane from one packed payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t ReadPackedRuntimeLane0(const void* const value) noexcept
+    {
+      return ReadRuntimeDwordAt0(value);
+    }
+
+    /**
+     * Address: 0x00822EE0 (FUN_00822EE0, sub_822EE0)
+     *
+     * What it does:
+     * Copies one `{word0,word2}` pair from one three-word packed source lane.
+     */
+    [[maybe_unused]] [[nodiscard]] PackedTwoWordRuntimeView* CopyPackedWordPairSkippingMiddle(
+      PackedTwoWordRuntimeView* const destination,
+      const PackedThreeWordRuntimeView* const source
+    ) noexcept
+    {
+      if (destination == nullptr) {
+        return nullptr;
+      }
+
+      destination->mFirst = (source != nullptr) ? source->mFirst : 0u;
+      destination->mSecond = (source != nullptr) ? source->mSecond : 0u;
+      return destination;
+    }
+
+    /**
+     * Address: 0x00822F20 (FUN_00822F20, sub_822F20)
+     *
+     * What it does:
+     * Copies one 2-float lane (`x`,`y`) to one destination dword payload.
+     */
+    [[maybe_unused]] [[nodiscard]] std::uint32_t* CopyPackedFloat2Lane(
+      std::uint32_t* const destination,
+      const float* const source
+    ) noexcept
+    {
+      if (destination == nullptr) {
+        return nullptr;
+      }
+
+      if (source == nullptr) {
+        destination[0] = 0u;
+        destination[1] = 0u;
+        return destination;
+      }
+
+      std::memcpy(destination, source, sizeof(float) * 2u);
+      return destination;
     }
 
     [[nodiscard]] bool EraseSelectionEntity(SSelectionSetUserEntity& selection, UserEntity* const entity)
@@ -2374,6 +3960,496 @@ namespace moho
       return *reinterpret_cast<SessionEntityMap*>(&session->mUnknownOwner44);
     }
 
+    struct CommandIssueOwnerRuntimeView
+    {
+      std::uint8_t mUnknown00_20F[0x210];
+      moho::EntId mEntityId; // +0x210
+    };
+
+    static_assert(
+      offsetof(CommandIssueOwnerRuntimeView, mEntityId) == 0x210,
+      "CommandIssueOwnerRuntimeView::mEntityId offset must be 0x210"
+    );
+
+    /**
+     * Address: 0x00824500 (FUN_00824500, sub_824500)
+     *
+     * What it does:
+     * Reads one entity-id lane at `+0x210` from command-owner runtime storage,
+     * then resolves the live `UserEntity*` through the active session entity map.
+     */
+    [[maybe_unused]] [[nodiscard]] UserEntity* ResolveEntityFromCommandIssueOwner(const void* const commandOwner)
+    {
+      CWldSession* const session = moho::WLD_GetSession();
+      if (commandOwner == nullptr || session == nullptr) {
+        return nullptr;
+      }
+
+      const auto* const ownerView = static_cast<const CommandIssueOwnerRuntimeView*>(commandOwner);
+      return session->LookupEntityId(ownerView->mEntityId);
+    }
+
+    [[nodiscard]] bool IsSessionEntityNodeNil(
+      const SessionEntityMapNode* const node,
+      const SessionEntityMapNode* const head
+    ) noexcept
+    {
+      return node == nullptr || node == head || node->mIsSentinel != 0u;
+    }
+
+    [[nodiscard]] SessionEntityMapNode* SessionEntityTreeMin(
+      SessionEntityMapNode* node,
+      SessionEntityMapNode* const head
+    ) noexcept
+    {
+      while (!IsSessionEntityNodeNil(node, head) && !IsSessionEntityNodeNil(node->mLeft, head)) {
+        node = node->mLeft;
+      }
+      return IsSessionEntityNodeNil(node, head) ? head : node;
+    }
+
+    [[nodiscard]] SessionEntityMapNode* SessionEntityTreeMax(
+      SessionEntityMapNode* node,
+      SessionEntityMapNode* const head
+    ) noexcept
+    {
+      while (!IsSessionEntityNodeNil(node, head) && !IsSessionEntityNodeNil(node->mRight, head)) {
+        node = node->mRight;
+      }
+      return IsSessionEntityNodeNil(node, head) ? head : node;
+    }
+
+    void RecomputeSessionEntityMapExtrema(SessionEntityMap& map) noexcept
+    {
+      SessionEntityMapNode* const head = map.mHead;
+      if (head == nullptr) {
+        return;
+      }
+
+      SessionEntityMapNode* const root = head->mParent;
+      if (IsSessionEntityNodeNil(root, head)) {
+        head->mParent = head;
+        head->mLeft = head;
+        head->mRight = head;
+        return;
+      }
+
+      head->mLeft = SessionEntityTreeMin(root, head);
+      head->mRight = SessionEntityTreeMax(root, head);
+    }
+
+    void DestroySessionEntityMapIteratorRange(
+      SessionEntityMapNode* node,
+      SessionEntityMapNode* const head
+    ) noexcept
+    {
+      while (!IsSessionEntityNodeNil(node, head)) {
+        SessionEntityMapNode* const eraseNode = node;
+        node = NextTreeNode(node);
+        ::operator delete(eraseNode);
+      }
+    }
+
+    /**
+     * Address: 0x008939D0 (FUN_008939D0, sub_8939D0)
+     *
+     * What it does:
+     * Destroys one full session-entity tree rooted under `map.mHead`, releases
+     * the sentinel head node, and clears retained head/size lanes.
+     */
+    void DestroySessionEntityMapStorage(SessionEntityMap& map) noexcept
+    {
+      SessionEntityMapNode* const head = map.mHead;
+      if (head != nullptr) {
+        DestroySessionEntityMapIteratorRange(head->mLeft, head);
+        ::operator delete(head);
+      }
+
+      map.mHead = nullptr;
+      map.mSize = 0u;
+    }
+
+    [[nodiscard]] SessionEntityMapNode* FindSessionEntityMapNodeById(
+      SessionEntityMap& map,
+      const std::uint32_t entityId
+    ) noexcept
+    {
+      SessionEntityMapNode* const head = map.mHead;
+      if (head == nullptr) {
+        return nullptr;
+      }
+
+      SessionEntityMapNode* node = head->mParent;
+      while (!IsSessionEntityNodeNil(node, head)) {
+        if (entityId < node->mEntityId) {
+          node = node->mLeft;
+          continue;
+        }
+        if (node->mEntityId < entityId) {
+          node = node->mRight;
+          continue;
+        }
+        return node;
+      }
+
+      return head;
+    }
+
+    void RotateSessionEntityLeft(SessionEntityMap& map, SessionEntityMapNode* const node) noexcept
+    {
+      SessionEntityMapNode* const head = map.mHead;
+      SessionEntityMapNode* const pivot = node->mRight;
+      node->mRight = pivot->mLeft;
+      if (!IsSessionEntityNodeNil(pivot->mLeft, head)) {
+        pivot->mLeft->mParent = node;
+      }
+
+      pivot->mParent = node->mParent;
+      if (node->mParent == head) {
+        head->mParent = pivot;
+      } else if (node == node->mParent->mLeft) {
+        node->mParent->mLeft = pivot;
+      } else {
+        node->mParent->mRight = pivot;
+      }
+
+      pivot->mLeft = node;
+      node->mParent = pivot;
+    }
+
+    void RotateSessionEntityRight(SessionEntityMap& map, SessionEntityMapNode* const node) noexcept
+    {
+      SessionEntityMapNode* const head = map.mHead;
+      SessionEntityMapNode* const pivot = node->mLeft;
+      node->mLeft = pivot->mRight;
+      if (!IsSessionEntityNodeNil(pivot->mRight, head)) {
+        pivot->mRight->mParent = node;
+      }
+
+      pivot->mParent = node->mParent;
+      if (node->mParent == head) {
+        head->mParent = pivot;
+      } else if (node == node->mParent->mRight) {
+        node->mParent->mRight = pivot;
+      } else {
+        node->mParent->mLeft = pivot;
+      }
+
+      pivot->mRight = node;
+      node->mParent = pivot;
+    }
+
+    [[nodiscard]] SessionEntityMapNode* AllocateSessionEntityMapNode()
+    {
+      SessionEntityMapNode* const node =
+        static_cast<SessionEntityMapNode*>(::operator new(sizeof(SessionEntityMapNode)));
+      node->mLeft = nullptr;
+      node->mParent = nullptr;
+      node->mRight = nullptr;
+      node->mEntityId = 0u;
+      node->mEntity = nullptr;
+      node->pad_14_17[0] = 0u;
+      node->pad_14_17[1] = 0u;
+      node->pad_14_17[2] = 0u;
+      node->pad_14_17[3] = 0u;
+      node->mColor = 0u;
+      node->mIsSentinel = 0u;
+      node->pad_1A[0] = 0u;
+      node->pad_1A[1] = 0u;
+      return node;
+    }
+
+    [[nodiscard]] SessionEntityMapNode* CreateSessionEntityMapHead()
+    {
+      SessionEntityMapNode* const head = AllocateSessionEntityMapNode();
+      head->mColor = 1u;
+      head->mIsSentinel = 1u;
+      head->mLeft = head;
+      head->mParent = head;
+      head->mRight = head;
+      return head;
+    }
+
+    [[nodiscard]] SessionEntityMapNode* EnsureSessionEntityMapHead(SessionEntityMap& map)
+    {
+      if (map.mHead == nullptr) {
+        map.mHead = CreateSessionEntityMapHead();
+        map.mSize = 0u;
+      }
+      return map.mHead;
+    }
+
+    void FixupAfterSessionEntityInsert(SessionEntityMap& map, SessionEntityMapNode* node) noexcept
+    {
+      SessionEntityMapNode* const head = map.mHead;
+      while (node->mParent->mColor == 0u) {
+        SessionEntityMapNode* const parent = node->mParent;
+        SessionEntityMapNode* const grand = parent->mParent;
+        if (parent == grand->mLeft) {
+          SessionEntityMapNode* const uncle = grand->mRight;
+          if (uncle->mColor == 0u) {
+            parent->mColor = 1u;
+            uncle->mColor = 1u;
+            grand->mColor = 0u;
+            node = grand;
+          } else {
+            if (node == parent->mRight) {
+              node = parent;
+              RotateSessionEntityLeft(map, node);
+            }
+            node->mParent->mColor = 1u;
+            node->mParent->mParent->mColor = 0u;
+            RotateSessionEntityRight(map, node->mParent->mParent);
+          }
+        } else {
+          SessionEntityMapNode* const uncle = grand->mLeft;
+          if (uncle->mColor == 0u) {
+            parent->mColor = 1u;
+            uncle->mColor = 1u;
+            grand->mColor = 0u;
+            node = grand;
+          } else {
+            if (node == parent->mLeft) {
+              node = parent;
+              RotateSessionEntityRight(map, node);
+            }
+            node->mParent->mColor = 1u;
+            node->mParent->mParent->mColor = 0u;
+            RotateSessionEntityLeft(map, node->mParent->mParent);
+          }
+        }
+      }
+
+      head->mParent->mColor = 1u;
+    }
+
+    void InsertSessionEntityMapEntry(
+      SessionEntityMap& map,
+      const std::uint32_t entityId,
+      UserEntity* const entity
+    ) noexcept
+    {
+      SessionEntityMapNode* const head = EnsureSessionEntityMapHead(map);
+      SessionEntityMapNode* parent = head;
+      SessionEntityMapNode* current = head->mParent;
+      bool insertLeft = true;
+
+      while (!IsSessionEntityNodeNil(current, head)) {
+        parent = current;
+        if (entityId < current->mEntityId) {
+          insertLeft = true;
+          current = current->mLeft;
+          continue;
+        }
+        if (current->mEntityId < entityId) {
+          insertLeft = false;
+          current = current->mRight;
+          continue;
+        }
+
+        // std::map::insert keeps the existing value when key already exists.
+        return;
+      }
+
+      SessionEntityMapNode* const node = AllocateSessionEntityMapNode();
+      node->mEntityId = entityId;
+      node->mEntity = entity;
+      node->mLeft = head;
+      node->mRight = head;
+      node->mParent = parent;
+
+      ++map.mSize;
+      if (parent == head) {
+        head->mParent = node;
+        head->mLeft = node;
+        head->mRight = node;
+      } else if (insertLeft) {
+        parent->mLeft = node;
+        if (parent == head->mLeft) {
+          head->mLeft = node;
+        }
+      } else {
+        parent->mRight = node;
+        if (parent == head->mRight) {
+          head->mRight = node;
+        }
+      }
+
+      FixupAfterSessionEntityInsert(map, node);
+    }
+
+    void TransplantSessionEntityNode(
+      SessionEntityMap& map,
+      SessionEntityMapNode* const source,
+      SessionEntityMapNode* const replacement
+    ) noexcept
+    {
+      SessionEntityMapNode* const head = map.mHead;
+      if (source->mParent == head) {
+        head->mParent = replacement;
+      } else if (source == source->mParent->mLeft) {
+        source->mParent->mLeft = replacement;
+      } else {
+        source->mParent->mRight = replacement;
+      }
+
+      if (replacement != head) {
+        replacement->mParent = source->mParent;
+      }
+    }
+
+    void FixupAfterSessionEntityErase(
+      SessionEntityMap& map,
+      SessionEntityMapNode* node,
+      SessionEntityMapNode* nodeParent
+    ) noexcept
+    {
+      SessionEntityMapNode* const head = map.mHead;
+      SessionEntityMapNode* parent = !IsSessionEntityNodeNil(node, head) ? node->mParent : nodeParent;
+
+      while (node != head->mParent && (IsSessionEntityNodeNil(node, head) || node->mColor == 1u)) {
+        if (parent == nullptr) {
+          break;
+        }
+
+        if (node == parent->mLeft) {
+          SessionEntityMapNode* sibling = parent->mRight;
+          if (sibling == head) {
+            break;
+          }
+
+          if (sibling->mColor == 0u) {
+            sibling->mColor = 1u;
+            parent->mColor = 0u;
+            RotateSessionEntityLeft(map, parent);
+            sibling = parent->mRight;
+          }
+
+          const bool siblingLeftBlack = (sibling->mLeft == head) || (sibling->mLeft->mColor == 1u);
+          const bool siblingRightBlack = (sibling->mRight == head) || (sibling->mRight->mColor == 1u);
+          if (siblingLeftBlack && siblingRightBlack) {
+            sibling->mColor = 0u;
+            node = parent;
+            parent = node->mParent;
+          } else {
+            if ((sibling->mRight == head) || (sibling->mRight->mColor == 1u)) {
+              if (sibling->mLeft != head) {
+                sibling->mLeft->mColor = 1u;
+              }
+              sibling->mColor = 0u;
+              RotateSessionEntityRight(map, sibling);
+              sibling = parent->mRight;
+            }
+
+            sibling->mColor = parent->mColor;
+            parent->mColor = 1u;
+            if (sibling->mRight != head) {
+              sibling->mRight->mColor = 1u;
+            }
+            RotateSessionEntityLeft(map, parent);
+            node = head->mParent;
+            break;
+          }
+        } else {
+          SessionEntityMapNode* sibling = parent->mLeft;
+          if (sibling == head) {
+            break;
+          }
+
+          if (sibling->mColor == 0u) {
+            sibling->mColor = 1u;
+            parent->mColor = 0u;
+            RotateSessionEntityRight(map, parent);
+            sibling = parent->mLeft;
+          }
+
+          const bool siblingRightBlack = (sibling->mRight == head) || (sibling->mRight->mColor == 1u);
+          const bool siblingLeftBlack = (sibling->mLeft == head) || (sibling->mLeft->mColor == 1u);
+          if (siblingRightBlack && siblingLeftBlack) {
+            sibling->mColor = 0u;
+            node = parent;
+            parent = node->mParent;
+          } else {
+            if ((sibling->mLeft == head) || (sibling->mLeft->mColor == 1u)) {
+              if (sibling->mRight != head) {
+                sibling->mRight->mColor = 1u;
+              }
+              sibling->mColor = 0u;
+              RotateSessionEntityLeft(map, sibling);
+              sibling = parent->mLeft;
+            }
+
+            sibling->mColor = parent->mColor;
+            parent->mColor = 1u;
+            if (sibling->mLeft != head) {
+              sibling->mLeft->mColor = 1u;
+            }
+            RotateSessionEntityRight(map, parent);
+            node = head->mParent;
+            break;
+          }
+        }
+      }
+
+      if (!IsSessionEntityNodeNil(node, head)) {
+        node->mColor = 1u;
+      }
+    }
+
+    void EraseSessionEntityMapNode(SessionEntityMap& map, SessionEntityMapNode* const node) noexcept
+    {
+      SessionEntityMapNode* const head = map.mHead;
+      if (head == nullptr || IsSessionEntityNodeNil(node, head)) {
+        return;
+      }
+
+      SessionEntityMapNode* splice = node;
+      std::uint8_t removedColor = splice->mColor;
+      SessionEntityMapNode* fixNode = head;
+      SessionEntityMapNode* fixParent = nullptr;
+
+      if (node->mLeft == head) {
+        fixNode = node->mRight;
+        fixParent = node->mParent;
+        TransplantSessionEntityNode(map, node, node->mRight);
+      } else if (node->mRight == head) {
+        fixNode = node->mLeft;
+        fixParent = node->mParent;
+        TransplantSessionEntityNode(map, node, node->mLeft);
+      } else {
+        splice = SessionEntityTreeMin(node->mRight, head);
+        removedColor = splice->mColor;
+        fixNode = splice->mRight;
+        if (splice->mParent == node) {
+          fixParent = splice;
+          if (fixNode != head) {
+            fixNode->mParent = splice;
+          }
+        } else {
+          TransplantSessionEntityNode(map, splice, splice->mRight);
+          splice->mRight = node->mRight;
+          splice->mRight->mParent = splice;
+          fixParent = splice->mParent;
+        }
+
+        TransplantSessionEntityNode(map, node, splice);
+        splice->mLeft = node->mLeft;
+        splice->mLeft->mParent = splice;
+        splice->mColor = node->mColor;
+      }
+
+      ::operator delete(node);
+      if (map.mSize > 0u) {
+        --map.mSize;
+      }
+
+      if (removedColor == 1u) {
+        FixupAfterSessionEntityErase(map, fixNode, fixParent);
+      }
+
+      RecomputeSessionEntityMapExtrema(map);
+    }
+
     void CollectSessionUserUnits(CWldSession* const session, msvc8::vector<UserUnit*>& outUnits)
     {
       outUnits.clear();
@@ -2551,7 +4627,7 @@ namespace moho
     }
 
     /**
-     * Address: 0x008992D0/0x00899DC0/0x0089A970
+      * Alias of FUN_008992D0 (non-canonical helper lane).
      * (FUN_008992D0 -> FUN_00899DC0 -> FUN_0089A970 chain).
      *
      * Source-side typed split around search/insert/fixup stages.
@@ -2597,7 +4673,7 @@ namespace moho
     }
 
     /**
-     * Address: 0x008971A0 cleanup path (FUN_008971A0 + FUN_0089AC40).
+      * Alias of FUN_008971A0 (non-canonical helper lane).
      *
      * Source-side typed cleanup helper equivalent.
      */
@@ -2613,7 +4689,7 @@ namespace moho
     }
 
     /**
-     * Address: 0x008971A0 cleanup path (FUN_008971A0 + FUN_0089AC40).
+      * Alias of FUN_008971A0 (non-canonical helper lane).
      */
     void ClearSaveDataMap(SSessionSaveNodeMap& map)
     {
@@ -3178,9 +5254,7 @@ namespace moho
       return outResult;
     }
 
-    ScopedSelectionOwnerLinkGuard ownerLinkGuard(entity);
-    outResult->mRes = FindSelectionNodeByKey(*set, SelectionKeyFromEntity(entity));
-    return outResult;
+    return FindSelectionNodeByEntityGuarded(outResult, set, entity);
   }
 
   /**
@@ -3226,6 +5300,190 @@ namespace moho
   }
 
   /**
+   * Address: 0x00863760 (FUN_00863760, sub_863760)
+   *
+   * What it does:
+   * Counts live weak-set entries in this set that are absent from `other`.
+   */
+  std::int32_t SSelectionSetUserEntity::CountEntitiesMissingFrom(const SSelectionSetUserEntity& other) const
+  {
+    auto* const thisMutable = const_cast<SSelectionSetUserEntity*>(this);
+    auto* const otherMutable = const_cast<SSelectionSetUserEntity*>(&other);
+    if (thisMutable->mHead == nullptr) {
+      return 0;
+    }
+
+    std::int32_t missingCount = 0;
+    SSelectionNodeUserEntity* node = thisMutable->mHead->mLeft;
+    node = SSelectionSetUserEntity::find(thisMutable, node, &node);
+    while (node != thisMutable->mHead) {
+      UserEntity* const selectedEntity = DecodeSelectedUserEntity(node->mEnt);
+      SSelectionSetUserEntity::FindResult foundInOther{};
+      (void)FindSelectionNodeByEntityGuarded(&foundInOther, otherMutable, selectedEntity);
+      if (foundInOther.mRes == otherMutable->mHead) {
+        ++missingCount;
+      }
+
+      SSelectionSetUserEntity::Iterator_inc(&node);
+      node = SSelectionSetUserEntity::find(thisMutable, node, &node);
+    }
+
+    return missingCount;
+  }
+
+  /**
+   * Address: 0x00868690 (FUN_00868690, sub_868690)
+   *
+   * What it does:
+   * Returns true when this set and `other` contain the same live entity keys.
+   */
+  bool SSelectionSetUserEntity::HasSameLiveEntitySet(const SSelectionSetUserEntity& other) const
+  {
+    const auto* const thisHead = mHead;
+    const auto* const otherHead = other.mHead;
+    if (thisHead == nullptr || otherHead == nullptr) {
+      return thisHead == otherHead;
+    }
+
+    auto* thisMutable = const_cast<SSelectionSetUserEntity*>(this);
+    auto* otherMutable = const_cast<SSelectionSetUserEntity*>(&other);
+
+    SSelectionNodeUserEntity* thisFirst = thisHead->mLeft;
+    thisFirst = SSelectionSetUserEntity::find(thisMutable, thisFirst, &thisFirst);
+    SSelectionNodeUserEntity* otherFirst = otherHead->mLeft;
+    otherFirst = SSelectionSetUserEntity::find(otherMutable, otherFirst, &otherFirst);
+
+    const bool thisEmpty = (thisFirst == thisHead);
+    const bool otherEmpty = (otherFirst == otherHead);
+    if (thisEmpty != otherEmpty) {
+      return false;
+    }
+    if (thisEmpty) {
+      return true;
+    }
+
+    return (CountEntitiesMissingFrom(other) == 0) && (other.CountEntitiesMissingFrom(*this) == 0);
+  }
+
+  /**
+   * Address: 0x007B0870 (FUN_007B0870, sub_7B0870)
+   *
+   * What it does:
+   * Recursively destroys one weak-set subtree and unlinks each node from its
+   * user-entity weak-owner intrusive lane before delete.
+   */
+  void SSelectionSetUserEntity::DestroySubtree(SSelectionNodeUserEntity* node)
+  {
+    SSelectionNodeUserEntity* cursor = node;
+    while (cursor != nullptr && cursor->mIsSentinel == 0u) {
+      DestroySubtree(cursor->mRight);
+
+      SSelectionNodeUserEntity* const left = cursor->mLeft;
+      UnlinkSelectionWeakOwnerRef(cursor->mEnt);
+      ::operator delete(cursor);
+      cursor = left;
+    }
+  }
+
+  /**
+   * Address: 0x007AF740 (FUN_007AF740, sub_7AF740)
+   *
+   * What it does:
+   * Erases one half-open weak-set node range `[first,last)`. For full-range
+   * erases (`first == mHead->mLeft` and `last == mHead`) it drops the whole
+   * subtree in one pass and resets tree head links to empty sentinels.
+   */
+  SSelectionNodeUserEntity** SSelectionSetUserEntity::EraseRange(
+    SSelectionNodeUserEntity** const outNode,
+    SSelectionNodeUserEntity* const first,
+    SSelectionNodeUserEntity* const last
+  )
+  {
+    SSelectionNodeUserEntity* const head = mHead;
+    if (head == nullptr) {
+      *outNode = nullptr;
+      return outNode;
+    }
+
+    SSelectionNodeUserEntity* node = first;
+    if (first == head->mLeft && last == head) {
+      DestroySubtree(head->mParent);
+      head->mParent = head;
+      mSize = 0u;
+      head->mLeft = head;
+      head->mRight = head;
+      *outNode = head->mLeft;
+      return outNode;
+    }
+
+    while (node != last) {
+      SSelectionNodeUserEntity* const eraseNode = node;
+      if (eraseNode->mIsSentinel == 0u) {
+        node = NextTreeNode(node);
+      }
+
+      (void)EraseSelectionNodeAndAdvance(*this, eraseNode);
+    }
+
+    *outNode = node;
+    return outNode;
+  }
+
+  /**
+   * Address: 0x007B29C0 (FUN_007B29C0, sub_7B29C0)
+   *
+   * What it does:
+   * Advances from `start` to the first live weak-set node, deleting tombstone
+   * entries (null/`(void*)8` owner-link slots) as it goes.
+   */
+  SSelectionNodeUserEntity** SSelectionSetUserEntity::PruneTombstonesAndFindLive(
+    SSelectionNodeUserEntity** const outNode,
+    SSelectionNodeUserEntity* const start
+  )
+  {
+    SSelectionNodeUserEntity* node = start;
+    if (mHead == nullptr) {
+      *outNode = nullptr;
+      return outNode;
+    }
+
+    while (node != mHead) {
+      void* const ownerLinkSlot = node->mEnt.mOwnerLinkSlot;
+      if (ownerLinkSlot != nullptr && ownerLinkSlot != reinterpret_cast<void*>(8)) {
+        break;
+      }
+
+      node = EraseSelectionNodeAndAdvance(*this, node);
+    }
+
+    *outNode = node;
+    return outNode;
+  }
+
+  /**
+   * Address: 0x007ABDE0 (FUN_007ABDE0, sub_7ABDE0)
+   * Address: 0x007ABE10 (FUN_007ABE10, sub_7ABE10)
+   *
+   * What it does:
+   * Clears all weak-set nodes, destroys the tree head sentinel, and resets
+   * storage links/counters for this set.
+   */
+  std::int32_t SSelectionSetUserEntity::ReleaseStorage()
+  {
+    if (mHead == nullptr) {
+      mSize = 0u;
+      return 0;
+    }
+
+    SSelectionNodeUserEntity* node = nullptr;
+    (void)EraseRange(&node, mHead->mLeft, mHead);
+    ::operator delete(mHead);
+    mHead = nullptr;
+    mSize = 0u;
+    return 0;
+  }
+
+  /**
    * Address: 0x0066ADD0 (FUN_0066ADD0, Moho::WeakSet_UserEntity::Iterator::inc)
    *
    * What it does:
@@ -3268,27 +5526,24 @@ namespace moho
    * Address: 0x0066A330 (FUN_0066A330, Moho::WeakSet_UserEntity::find)
    *
    * What it does:
-   * Walks forward from `start` through the RB-tree using `Iterator_inc`,
-   * skipping tombstone entries (whose embedded `WeakObject_IUnit*` is null
-   * or the sentinel `(void*)8`), and returns the first live entry or `mHead`
-   * (sentinel) if none remains. Result is also written to `*outNode`.
+   * Walks forward from `start` and uses the prune helper to remove tombstone
+   * entries (null/`(void*)8` owner-link slots), returning the first live node
+   * or `mHead` (sentinel) when no live entries remain.
    */
   SSelectionNodeUserEntity* SSelectionSetUserEntity::find(
     SSelectionSetUserEntity* const set,
     SSelectionNodeUserEntity* const start,
     SSelectionNodeUserEntity** const outNode)
   {
-    SSelectionNodeUserEntity* node = start;
-    SSelectionNodeUserEntity* cursor = nullptr;
-    while (node != set->mHead) {
-      void* const ent = node->mEnt.mOwnerLinkSlot;
-      if (ent != nullptr && ent != reinterpret_cast<void*>(8)) {
-        break;
+    if (set == nullptr) {
+      if (outNode != nullptr) {
+        *outNode = nullptr;
       }
-      cursor = node;
-      Iterator_inc(&cursor);
-      node = cursor;
+      return nullptr;
     }
+
+    SSelectionNodeUserEntity* node = start;
+    (void)set->PruneTombstonesAndFindLive(&node, node);
     *outNode = node;
     return node;
   }
@@ -3474,7 +5729,13 @@ namespace moho
       delete mState;
       mState = nullptr;
     }
+
+    if (mCurFormation) {
+      delete mCurFormation;
+      mCurFormation = nullptr;
+    }
     mLaunchInfo.reset();
+    DestroySessionEntityMapStorage(GetSessionEntityMap(this));
 
     InitSessionPauseCallbackHead(head0);
     InitSessionPauseCallbackHead(head1);
@@ -3485,7 +5746,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x008B9580 callsite through session->mWldMap->mTerrainRes.
+    * Alias of FUN_008B9580 (non-canonical helper lane).
    */
   bool CWldSession::TryGetPlayableMapRect(VisibilityRect& outRect) const
   {
@@ -3527,6 +5788,57 @@ namespace moho
   {
     const int focusArmy = FocusArmy;
     return focusArmy < 0 || userArmies[static_cast<std::size_t>(focusArmy)] == nullptr;
+  }
+
+  /**
+   * Address: 0x00896570 (FUN_00896570, ?SetCursorInfo@CWldSession@Moho@@QAEXABUUICursorInfo@2@@Z)
+   *
+   * What it does:
+   * Copies one cursor-info payload into the session cursor-info lane.
+   */
+  void CWldSession::SetCursorInfo(const MouseInfo& cursorInfo)
+  {
+    AccessCursorInfo(*this) = cursorInfo;
+  }
+
+  /**
+   * Address: 0x00895FF0 (FUN_00895FF0, ?GetSelection@CWldSession@Moho@@QBEABV?$WeakSet@VUserEntity@Moho@@@2@XZ)
+   *
+   * What it does:
+   * Returns the current world-session selection weak-set.
+   */
+  const SSelectionSetUserEntity& CWldSession::GetSelection() const
+  {
+    return mSelection;
+  }
+
+  /**
+   * Address: 0x00896580 (FUN_00896580, ?GetCursorInfo@CWldSession@Moho@@QBEABUUICursorInfo@2@XZ)
+   *
+   * What it does:
+   * Returns the current cursor-info payload stored by this world session.
+   */
+  const MouseInfo& CWldSession::GetCursorInfo() const
+  {
+    return AccessCursorInfo(*this);
+  }
+
+  /**
+   * Address: 0x008965C0 (FUN_008965C0, ?BecomeObserver@CWldSession@Moho@@QAEXXZ)
+   *
+   * What it does:
+   * Validates observer focus request (`-1`) and applies it to the active sim
+   * driver when allowed.
+   */
+  void CWldSession::BecomeObserver()
+  {
+    if (!ValidateFocusArmyRequest(-1)) {
+      return;
+    }
+
+    if (ISTIDriver* const activeDriver = SIM_GetActiveDriver()) {
+      activeDriver->SetArmyIndex(-1);
+    }
   }
 
   /**
@@ -3617,7 +5929,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x008B97C0/0x008621B0 callsites (rule category lookup path).
+    * Alias of FUN_008B97C0 (non-canonical helper lane).
    */
   EntityCategoryLookupResolver* CWldSession::GetCategoryLookupResolver()
   {
@@ -3627,7 +5939,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x008B97C0/0x008621B0 callsites (rule category lookup path).
+    * Alias of FUN_008B97C0 (non-canonical helper lane).
    */
   const EntityCategoryLookupResolver* CWldSession::GetCategoryLookupResolver() const
   {
@@ -3641,7 +5953,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x008B85E0 callsite (UserEntity ctor, sub_501A80 path).
+    * Alias of FUN_008B85E0 (non-canonical helper lane).
    */
   void* CWldSession::GetEntitySpatialDbStorage()
   {
@@ -3649,7 +5961,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x008B85E0 callsite (UserEntity ctor, sub_501A80 path).
+    * Alias of FUN_008B85E0 (non-canonical helper lane).
    */
   const void* CWldSession::GetEntitySpatialDbStorage() const
   {
@@ -3731,14 +6043,9 @@ namespace moho
       return;
     }
 
-    for (SSelectionNodeUserEntity* node = head->mLeft; node != nullptr && node != head;) {
-      node = EraseSelectionNodeAndAdvance(extraSelection, node);
-    }
-
-    head->mParent = head;
-    head->mLeft = head;
-    head->mRight = head;
-    extraSelection.mSize = 0u;
+    SSelectionNodeUserEntity* node = head->mLeft;
+    (void)extraSelection.EraseRange(&node, head->mLeft, head);
+    extraSelection.mSizeMirrorOrUnused = extraSelection.mSize;
     UI_EndCommandMode();
   }
 
@@ -3771,6 +6078,93 @@ namespace moho
     }
 
     return true;
+  }
+
+  /**
+   * Address: 0x00894120 (FUN_00894120, ?GetTerrainRes@CWldSession@Moho@@QBEPAVIWldTerrainRes@2@XZ)
+   *
+   * What it does:
+   * Returns the world-map terrain resource lane owned by this world session.
+   */
+  IWldTerrainRes* CWldSession::GetTerrainRes() const
+  {
+    return mWldMap->mTerrainRes;
+  }
+
+  /**
+   * Address: 0x00894130 (FUN_00894130, ?GetSTIMap@CWldSession@Moho@@QBEPAVSTIMap@2@XZ)
+   *
+   * What it does:
+   * Returns the terrain STI map lane from the world-map terrain resource.
+   */
+  STIMap* CWldSession::GetSTIMap() const
+  {
+    return reinterpret_cast<STIMap*>(mWldMap->mTerrainRes->mPlayableRectSource);
+  }
+
+  /**
+   * Address: 0x00894140 (FUN_00894140, ?AddEntity@CWldSession@Moho@@QAEXPAVUserEntity@2@@Z)
+   *
+   * What it does:
+   * Inserts one `(entityId, entity*)` mapping into the world-session entity map.
+   */
+  void CWldSession::AddEntity(UserEntity* const entity)
+  {
+    if (entity == nullptr) {
+      return;
+    }
+
+    SessionEntityMap& entityMap = GetSessionEntityMap(this);
+    InsertSessionEntityMapEntry(entityMap, static_cast<std::uint32_t>(entity->mParams.mEntityId), entity);
+  }
+
+  /**
+   * Address: 0x00894170 (FUN_00894170, ?RemoveEntity@CWldSession@Moho@@QAEXPAVUserEntity@2@@Z)
+   *
+   * What it does:
+   * Removes one entity-id mapping from the world-session entity map.
+   */
+  void CWldSession::RemoveEntity(UserEntity* const entity)
+  {
+    if (entity == nullptr) {
+      return;
+    }
+
+    SessionEntityMap& entityMap = GetSessionEntityMap(this);
+    SessionEntityMapNode* const mapNode = FindSessionEntityMapNodeById(
+      entityMap,
+      static_cast<std::uint32_t>(entity->mParams.mEntityId)
+    );
+    if (mapNode != nullptr && mapNode != entityMap.mHead) {
+      EraseSessionEntityMapNode(entityMap, mapNode);
+    }
+  }
+
+  /**
+   * Address: 0x008941B0 (FUN_008941B0, ?OrphanEntity@CWldSession@Moho@@QAEXPAVUserEntity@2@@Z)
+   *
+   * What it does:
+   * Removes one entity-id mapping from the session entity map, marks the
+   * entity as pending deletion, and inserts it into the orphan weak-set lane.
+   */
+  void CWldSession::OrphanEntity(UserEntity* const entity)
+  {
+    if (entity == nullptr) {
+      return;
+    }
+
+    auto* const runtimeView = reinterpret_cast<CWldSessionOrphanRuntimeView*>(this);
+    SessionEntityMap& entityMap = runtimeView->mEntityMap;
+    SessionEntityMapNode* const mapNode = FindSessionEntityMapNodeById(
+      entityMap,
+      static_cast<std::uint32_t>(entity->mParams.mEntityId)
+    );
+    if (mapNode != nullptr && mapNode != entityMap.mHead) {
+      EraseSessionEntityMapNode(entityMap, mapNode);
+    }
+
+    SSelectionSetUserEntity::AddResult addResult{};
+    (void)SSelectionSetUserEntity::Add(&addResult, &runtimeView->mPendingOrphanSet, entity);
   }
 
   /**
@@ -3978,6 +6372,46 @@ namespace moho
     }
 
     return graph;
+  }
+
+  /**
+   * Address: 0x00895DC0 (FUN_00895DC0, ?HandleFogEdge@CWldSession@Moho@@AAEXABV?$Rect2@H@gpg@@HH@Z)
+   *
+   * What it does:
+   * Clears edge-fog rows when focus army is invalid and marks every edge lane
+   * outside the visible rectangle as blocked (`0xFF`).
+   */
+  void CWldSession::HandleFogEdge(const gpg::Rect2i& visibleRect, const int width, const int height)
+  {
+    if (FocusArmy < 0 || userArmies[static_cast<std::size_t>(FocusArmy)] == nullptr) {
+      char* row = mEdgeFog.GetPtr(0u, 0u);
+      for (int y = 0; y < height; ++y) {
+        std::memset(row, 0, static_cast<std::size_t>(width));
+        row += width;
+      }
+    }
+
+    if (visibleRect.x0 > 0 || visibleRect.z0 > 0 || visibleRect.x1 < width || visibleRect.z1 < height) {
+      char* row = mEdgeFog.GetPtr(0u, 0u);
+      for (int y = 0; y < height; ++y, row += width) {
+        if (y < visibleRect.z0 || y >= visibleRect.z1) {
+          std::memset(row, 0xFF, static_cast<std::size_t>(width));
+          continue;
+        }
+
+        if (visibleRect.x0 <= 0) {
+          *row = static_cast<char>(0xFF);
+        } else {
+          std::memset(row, 0xFF, static_cast<std::size_t>(visibleRect.x0));
+        }
+
+        if (visibleRect.x1 >= (width - 1)) {
+          row[width - 1] = static_cast<char>(0xFF);
+        } else {
+          std::memset(row + visibleRect.x1, 0xFF, static_cast<std::size_t>(width - visibleRect.x1));
+        }
+      }
+    }
   }
 
   /**
@@ -4351,6 +6785,17 @@ namespace moho
   }
 
   /**
+   * Address: 0x00895FD0 (FUN_00895FD0, ?GetGameTime@CWldSession@Moho@@QBEMXZ)
+   *
+   * What it does:
+   * Returns current game time in seconds.
+   */
+  float CWldSession::GetGameTime() const
+  {
+    return (static_cast<float>(mGameTick) + mTimeSinceLastTick) * 0.1f;
+  }
+
+  /**
    * Address: 0x00896960 (FUN_00896960, ?SyncPlayableRect@CWldSession@Moho@@QAEXABV?$Rect2@H@gpg@@@Z)
    *
    * What it does:
@@ -4389,7 +6834,7 @@ namespace moho
   }
 
   /**
-   * Address: 0x00896F00 (FUN_00896F00,
+    * Alias of FUN_00896F00 (non-canonical helper lane).
    * ?GetSaveData@CWldSession@Moho@@QBE?AV?$shared_ptr@USSessionSaveData@Moho@@@boost@@XZ)
    */
   boost::shared_ptr<SSessionSaveData> CWldSession::GetSaveData() const
@@ -4795,6 +7240,23 @@ namespace moho
     }
   } // namespace
 
+  /**
+   * Address: 0x0088BD20 (FUN_0088BD20, ?WLD_SetUIProvider@Moho@@YAXPAVIWldUIProvider@1@@Z)
+   *
+   * What it does:
+   * Replaces the process-global world-UI provider ownership lane, deleting the
+   * previous provider when it differs from the new one.
+   */
+  void WLD_SetUIProvider(IWldUIProvider* const provider)
+  {
+    auto* const nextProvider = reinterpret_cast<CScriptObject*>(provider);
+    if (sWldUIProvider != nextProvider && sWldUIProvider != nullptr) {
+      delete sWldUIProvider;
+    }
+
+    sWldUIProvider = nextProvider;
+  }
+
   EWldFrameAction WLD_GetFrameAction()
   {
     return gWldFrameAction;
@@ -4803,6 +7265,49 @@ namespace moho
   void WLD_SetFrameAction(const EWldFrameAction action)
   {
     gWldFrameAction = action;
+  }
+
+  /**
+   * Address: 0x0088BE80 (FUN_0088BE80, ?WLD_IsSessionActive@Moho@@YA_NXZ)
+   *
+   * What it does:
+   * Returns whether world-frame dispatch is currently active.
+   */
+  bool WLD_IsSessionActive()
+  {
+    return gWldFrameAction != EWldFrameAction::Inactive;
+  }
+
+  /**
+   * Address: 0x0088BEA0 (FUN_0088BEA0, ?WLD_RequestEndSession@Moho@@YAXXZ)
+   *
+   * What it does:
+   * Requests world-session exit when frame dispatch is currently active.
+   */
+  void WLD_RequestEndSession()
+  {
+    if (gWldFrameAction != EWldFrameAction::Inactive) {
+      gWldFrameAction = EWldFrameAction::Exit;
+    }
+  }
+
+  /**
+   * Address: 0x0088BEC0 (FUN_0088BEC0, ?WLD_RequestRestartSession@Moho@@YAXXZ)
+   *
+   * What it does:
+   * Requests world-session recreation when frame dispatch is active and the
+   * active session carries restart launch info.
+   */
+  void WLD_RequestRestartSession()
+  {
+    if (gWldFrameAction == EWldFrameAction::Inactive) {
+      return;
+    }
+
+    CWldSession* const activeSession = WLD_GetActiveSession();
+    if (activeSession != nullptr && activeSession->mLaunchInfo) {
+      gWldFrameAction = EWldFrameAction::CreateSession;
+    }
   }
 
   /**
@@ -4874,6 +7379,24 @@ namespace moho
   }
 
   /**
+   * Address: 0x00869950 (FUN_00869950)
+   *
+   * What it does:
+   * Appends one teardown-callback pointer to the process-global callback
+   * vector and returns that vector.
+   */
+  WldTeardownCallbackVector* WLD_AddOnTeardownCallback(IWldTeardownCallback* const callback)
+  {
+    WldTeardownCallbackVector* const callbacks = WLD_GetOnTeardownCallbacks();
+    if (callbacks == nullptr) {
+      return nullptr;
+    }
+
+    callbacks->push_back(callback);
+    return callbacks;
+  }
+
+  /**
    * Address: 0x0088C860 (FUN_0088C860, ?WLD_Teardown@Moho@@YAXXZ)
    */
   void WLD_Teardown()
@@ -4892,11 +7415,7 @@ namespace moho
     }
 
     DoTeardownCallbacks(WLD_GetOnTeardownCallbacks());
-
-    CWldSession* const activeSession = WLD_GetActiveSession();
-    if (activeSession != nullptr) {
-      delete activeSession;
-    }
+    WLD_DestroySession();
 
     gWldFrameAction = EWldFrameAction::Inactive;
   }
@@ -4954,6 +7473,35 @@ namespace moho
 
     gActiveWldSession = session;
     return session;
+  }
+
+  /**
+   * Address: 0x008972A0 (FUN_008972A0, ?WLD_DestroySession@Moho@@YAXXZ)
+   *
+   * What it does:
+   * Destroys the active world-session object when present and clears the
+   * process-global active-session pointer.
+   */
+  void WLD_DestroySession()
+  {
+    CWldSession* const activeSession = gActiveWldSession;
+    if (activeSession != nullptr) {
+      activeSession->~CWldSession();
+      ::operator delete(activeSession);
+    }
+
+    gActiveWldSession = nullptr;
+  }
+
+  /**
+   * Address: 0x008972F0 (FUN_008972F0, ?WLD_GetSession@Moho@@YAPAVCWldSession@1@XZ)
+   *
+   * What it does:
+   * Returns the process-global active world-session pointer.
+   */
+  CWldSession* WLD_GetSession()
+  {
+    return gActiveWldSession;
   }
 
   /**
@@ -5091,6 +7639,44 @@ namespace moho
     if (requestedSimRate > -10) {
       clientManager->SetSimRate(requestedSimRate - 1);
     }
+  }
+
+  /**
+   * Address: 0x0088D2F0 (FUN_0088D2F0, ?WLD_SetGameSpeed@Moho@@YAXH@Z)
+   *
+   * What it does:
+   * Sets one requested sim-rate lane after clamping the provided game-speed
+   * value to the legacy `[-10, 10]` bounds.
+   */
+  void WLD_SetGameSpeed(int gameSpeed)
+  {
+    ISTIDriver* const simDriver = SIM_GetActiveDriver();
+    if (simDriver == nullptr) {
+      return;
+    }
+
+    CClientManagerImpl* const clientManager = simDriver->GetClientManager();
+    int clampedGameSpeed = gameSpeed;
+    if (gameSpeed >= 10) {
+      clampedGameSpeed = 10;
+    }
+
+    if (clampedGameSpeed < -10) {
+      clampedGameSpeed = -10;
+    }
+
+    clientManager->SetSimRate(clampedGameSpeed);
+  }
+
+  /**
+   * Address: 0x0088D330 (FUN_0088D330, ?WLD_GetDriver@Moho@@YAPAVISTIDriver@1@XZ)
+   *
+   * What it does:
+   * Returns the process-global active sim-driver pointer.
+   */
+  ISTIDriver* WLD_GetDriver()
+  {
+    return SIM_GetActiveDriver();
   }
 
   /**
